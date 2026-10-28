@@ -66,12 +66,14 @@ def write(path, data, secret=False):
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(12)}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600 if secret else 0o644)
     try:
+        if secret:  # private before the first byte: on Windows the new file starts with the folder's inherited ACL
+            os.close(fd)
+            owner_only(tmp)
+            fd = os.open(tmp, os.O_WRONLY | getattr(os, "O_BINARY", 0))
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        if secret:
-            owner_only(tmp)
         shared(lambda: os.replace(tmp, path))
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -80,12 +82,12 @@ def write(path, data, secret=False):
 
 def append(path, line):
     """Add one line to a log that only its owner can read (audit logs name identities and administrative actions)."""
-    new = not os.path.exists(path)
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+    if not os.path.exists(path):
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600))
+        owner_only(path)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
     with os.fdopen(fd, "ab") as f:
         f.write(line.encode() + b"\n")
-    if new:
-        owner_only(path)
 
 
 def owner_only(path):

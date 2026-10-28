@@ -247,3 +247,89 @@ def test_the_script_hash_matches_what_a_browser_hashes_on_a_crlf_checkout():
     lf = b"<html><script>\nconst a = 1;\nrun(a);\n</script></html>"
     browser = "sha256-" + base64.b64encode(hashlib.sha256(b"\nconst a = 1;\nrun(a);\n").digest()).decode()
     assert browser in policy(lf) and browser in policy(lf.replace(b"\n", b"\r\n")) and browser in policy(lf.replace(b"\n", b"\r"))
+
+
+def test_a_secret_is_made_owner_only_before_any_byte_is_written(tmp_path, monkeypatch):
+    from acxelin_core import files
+    sizes = []
+    monkeypatch.setattr(files, "owner_only", lambda p: sizes.append(Path(p).stat().st_size))
+    files.write(tmp_path / "token", b"secret-value", secret=True)
+    files.append(tmp_path / "audit.log", "first line")
+    assert sizes == [0, 0] and (tmp_path / "token").read_bytes() == b"secret-value"
+
+
+def raw(port, method, path, headers=None, body=b""):
+    import http.client
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request(method, path, body, {"Host": f"127.0.0.1:{port}", **(headers or {})})
+    r = c.getresponse()
+    return r.status, r.read()
+
+
+def test_a_same_site_page_on_another_local_port_is_refused(tmp_path):
+    assert console.refusal({"Host": "127.0.0.1:8900", "Sec-Fetch-Site": "same-site"}) == 403
+    assert console.refusal({"Host": "127.0.0.1:8900", "Sec-Fetch-Site": "none"}) is None
+
+
+def test_requests_without_a_credential_never_lock_out_the_real_user():
+    app = console.App(b"<script>1</script>", {("GET", "/api/status"): lambda body: (200, {"ok": True})})
+    server = console.serve(app, ("127.0.0.1", 0))
+    port = server.server_address[1]
+    try:
+        assert [raw(port, "GET", "/api/status")[0] for _ in range(15)] == [401] * 15
+        ticket = app.sessions.ticket()
+        assert raw(port, "POST", "/api/session", {"Content-Type": "application/json"}, json.dumps({"ticket": ticket}).encode())[0] == 200
+    finally:
+        server.shutdown()
+
+
+def test_a_signed_in_session_keeps_working_while_wrong_tokens_are_locked_out():
+    app = console.App(b"<script>1</script>", {("GET", "/api/status"): lambda body: (200, {"ok": True})})
+    app.sessions.tokens.add("the-real-token")
+    server = console.serve(app, ("127.0.0.1", 0))
+    port = server.server_address[1]
+    try:
+        codes = [raw(port, "GET", "/api/status", {"Authorization": "Bearer wrong"})[0] for _ in range(11)]
+        assert codes[:10] == [401] * 10 and codes[10] == 429, "guessing is still locked out"
+        assert raw(port, "GET", "/api/status", {"Authorization": "Bearer the-real-token"})[0] == 200
+        assert raw(port, "POST", "/api/session", {"Content-Type": "application/json"}, json.dumps({"ticket": app.sessions.ticket()}).encode())[0] == 429
+    finally:
+        server.shutdown()
+
+
+def test_hostile_bodies_and_failing_handlers_get_an_answer_without_internals(caplog):
+    def boom(body):
+        raise RuntimeError("/home/secret/path exploded")
+    app = console.App(b"<script>1</script>", {("POST", "/api/boom"): boom})
+    app.sessions.tokens.add("t")
+    server = console.serve(app, ("127.0.0.1", 0))
+    port = server.server_address[1]
+    try:
+        status, body = raw(port, "POST", "/api/session", {"Content-Type": "application/json"}, b"[" * 100000)
+        assert status == 400 and b"invalid JSON" in body
+        status, body = raw(port, "POST", "/api/boom", {"Authorization": "Bearer t", "Content-Type": "application/json"}, b"{}")
+        assert status == 500 and b"exploded" not in body and "exploded" not in caplog.text
+    finally:
+        server.shutdown()
+
+
+def test_link_running_never_sends_the_automation_token_through_a_proxy(tmp_path, monkeypatch, capsys):
+    import socket
+    trap = socket.socket()
+    trap.bind(("127.0.0.1", 0))
+    trap.listen(1)
+    trap.settimeout(0.5)
+    monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{trap.getsockname()[1]}")
+    monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{trap.getsockname()[1]}")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.setattr(urllib.request, "_opener", None)  # urlopen caches its proxy settings from the first call
+    app = console.App(b"<script>1</script>", {})
+    server = console.start(app, tmp_path, port=0)
+    try:
+        assert console.link_running(server.server_address[1], tmp_path, tty=True)
+        with pytest.raises(socket.timeout):
+            trap.accept()
+    finally:
+        server.shutdown()
+        trap.close()

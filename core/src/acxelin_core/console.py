@@ -72,7 +72,7 @@ class Handler(BaseHTTPRequestHandler):
             return 413, {"error": "request too large"}
         try:
             body = json.loads(self.rfile.read(n)) if n else {}
-        except ValueError:
+        except (ValueError, RecursionError):
             return 400, {"error": "invalid JSON"}
         return body if isinstance(body, dict) else (400, {"error": "the body must be a JSON object"})
 
@@ -161,12 +161,13 @@ class Sessions:
 
 def refusal(headers):
     """The status that refuses this request before authentication, or None: loopback Host only (any port, so SSH forwards
-    work, while DNS-rebinding names are refused), a same-origin Origin when present, and no cross-site fetch."""
+    work, while DNS-rebinding names are refused), a same-origin Origin when present, and no fetch from another site or another
+    local port (same-site)."""
     host = headers.get("Host") or ""
     name = host[1:].split("]")[0] if host.startswith("[") else host.rsplit(":", 1)[0] if host.count(":") == 1 else host
     if name not in LOOPBACK:
         return 421
-    if headers.get("Origin") not in (None, f"http://{host}") or headers.get("Sec-Fetch-Site") == "cross-site":
+    if headers.get("Origin") not in (None, f"http://{host}") or headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none"):
         return 403
     return None
 
@@ -217,18 +218,30 @@ def serve(app, listen=("127.0.0.1", 0)):
                 return self.reply(200, app.html, "text/html; charset=utf-8")
             if not path.startswith("/api/"):
                 return self.reply(404, {"error": "not found"})
+            # Only a presented credential that is wrong counts towards the lockout, and a valid session is never locked out,
+            # so requests another page can make without a credential cannot shut the real user out.
             addr = self.client_address[0]
-            if backoff.blocked(addr):
-                return self.reply(429, {"error": "too many wrong attempts; wait a minute"})
+            locked = {"error": "too many wrong attempts; wait a minute"}
             body = self.json_body(app.body_limit)
             if method == "POST" and path == "/api/session":
-                token = app.sessions.redeem(body.get("ticket")) if isinstance(body, dict) else None
+                if not isinstance(body, dict):
+                    return self.reply(*body)
+                ticket = body.get("ticket")
+                if not isinstance(ticket, str) or not ticket:
+                    return self.reply(401, {"error": "this link was already used or has expired; open the console again"})
+                if backoff.blocked(addr):
+                    return self.reply(429, locked)
+                token = app.sessions.redeem(ticket)
                 if not token:
                     backoff.failed(addr)
                     return self.reply(401, {"error": "this link was already used or has expired; open the console again"})
                 return self.reply(200, {"token": token})
-            if not app.sessions.authorised(self.headers.get("Authorization")):
-                backoff.failed(addr)
+            credential = self.headers.get("Authorization")
+            if not app.sessions.authorised(credential):
+                if credential and backoff.blocked(addr):
+                    return self.reply(429, locked)
+                if credential:
+                    backoff.failed(addr)
                 return self.reply(401, {"error": "sign in again: open the console from its command"})
             if not isinstance(body, dict):
                 return self.reply(*body)
@@ -244,6 +257,9 @@ def serve(app, listen=("127.0.0.1", 0)):
                 return self.reply(status, answer)
             except ValueError as e:
                 return self.reply(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001 - the message may hold paths or data: log and answer with the type only
+                log.error("%s %s failed: %s", method, path, type(e).__name__)
+                return self.reply(500, {"error": "the console hit an unexpected error; try again, and check its terminal if it repeats"})
 
     server = ThreadingHTTPServer(listen, Console)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -288,6 +304,7 @@ def link_running(port, home, tty=None):
         return None
     token = (Path(home) / "console.token").read_text().strip()
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/ticket", b"{}", {"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    url = f"http://127.0.0.1:{port}/#{json.loads(urllib.request.urlopen(req, timeout=5).read())['ticket']}"
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # the token never goes through a proxy
+    url = f"http://127.0.0.1:{port}/#{json.loads(direct.open(req, timeout=5).read())['ticket']}"
     print(url)
     return url
