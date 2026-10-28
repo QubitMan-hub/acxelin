@@ -175,3 +175,31 @@ def test_sha_1_carried_by_oaep_or_hmac_is_not_called_broken(tmp_path, src):
 def test_sha_1_of_the_message_handed_to_hmac_is_still_broken(tmp_path):
     (tmp_path / "a.py").write_text("import hmac, hashlib\nhmac.new(k, hashlib.sha1(m).digest(), hashlib.sha256)\n")
     assert next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "SHA-1")["tier"] == "critical"
+
+
+def test_a_tls_1_2_rsa_suite_seen_in_a_capture_names_rsa_and_its_mac_hash_is_not_called_broken(tmp_path):
+    from acxelin_readiness.detectors import capture
+    from acxelin_readiness.detectors.suites import suite
+    assert ("RSA", {}) in suite(capture.suite_name(0x002F)), "TLS_RSA_WITH_AES_128_CBC_SHA exchanges keys with RSA"
+    (tmp_path / "nginx.conf").write_text("server {\n  ssl_protocols TLSv1.2;\n  ssl_ciphers AES128-SHA:ECDHE-RSA-AES128-SHA;\n}\n")
+    sha1 = next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "SHA-1")
+    assert sha1["tier"] == "low" and "collision" in sha1["why"]
+
+
+@pytest.mark.parametrize("link,strip", [(228, 14), (101, 14), (1, 0)])
+def test_a_capture_of_raw_ip_frames_is_read_like_one_of_ethernet_frames(tmp_path, link, strip):
+    import struct
+
+    import pcapgen
+    from acxelin_readiness.detectors import capture
+    frames = capture.packets(pcapgen.pcap(pcapgen.tls_capture([0x11EC], pcapgen.server_hello(0x1301, group=0x11EC))))
+    raw = [f[strip:] for _, f in frames]
+    data = struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, link) + b"".join(struct.pack("<IIII", 0, 0, len(f), len(f)) + f for f in raw)
+    (tmp_path / "c.pcap").write_bytes(data)
+    assert any(s.algo == "X25519MLKEM768" for s in capture.scan(tmp_path / "c.pcap")[0])
+
+
+@pytest.mark.parametrize("tid,hash_", [(6, "MD5"), (7, "SHA-1"), (2, "SHA-1"), (12, "SHA-256")])
+def test_every_ikev2_hmac_integrity_transform_is_named(tid, hash_):
+    from acxelin_readiness.detectors import ike
+    assert ike.name(3, tid) == ("HMAC", {"hash": hash_})

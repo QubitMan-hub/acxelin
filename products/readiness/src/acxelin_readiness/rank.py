@@ -307,10 +307,10 @@ def assess(a, h, hybrid_files):
         tier = "low"
         a.why = "Declared not for security (usedforsecurity=False), so a checksum or cache key; this is the developer's statement, not verified"
         a.action = "Keep it out of passwords, signatures and integrity checks"
-    if tier in ("critical", "high", "medium") and a.detections and all(s.params.get("purpose") == "padding" for s in a.detections):
+    if tier in ("critical", "high", "medium") and a.detections and all(s.params.get("purpose") == "no-collision" for s in a.detections):
         tier = "low"
-        a.why = "Only inside HMAC, PBKDF2, RSA-OAEP or MGF1, which need no collision resistance from it, so it is not broken there"
-        a.action = "Use SHA-256 for OAEP in new code; keep both sides of an existing exchange in step"
+        a.why = "Only inside HMAC, PBKDF2, RSA-OAEP, MGF1 or a TLS cipher suite's MAC or PRF, which need no collision resistance from it, so it is not broken there"
+        a.action = "Prefer SHA-256 in new configurations and code; both sides of an exchange must change together"
     if tier in ("critical", "high", "medium") and all("trust-store" in s.context for s in a.detections):
         tier = "low"
         a.why = "Root certificates in a trust store: keys the project trusts, not keys it holds"

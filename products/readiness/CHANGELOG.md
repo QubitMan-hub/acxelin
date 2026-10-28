@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Captures: DTLS 1.0, 1.2 and 1.3 handshakes (WebRTC, VPN clients, CoAP) are read, their fragments put back together, and
+  graded with the cryptography of the TLS each is built on. Captures of raw IP frames (link types 228 and 229, as taken on
+  tunnel and VPN interfaces) are read. A TLS 1.2 suite with RSA key transport (`TLS_RSA_WITH_AES_128_CBC_SHA`) now names
+  RSA, and a cipher suite's MAC or PRF hash is not rated as broken. IKEv2 HMAC-SHA1-160 and HMAC-MD5-128 integrity are named.
+- Import a CBOM: names from CycloneDX's published examples are rated as their algorithm earns: `RSA-PKCS1-1.5-SHA512-2048`
+  is not read as 512-bit RSA, AES with a 192- or 256-bit key is ok, `SHA512withRSA` is recognised and `MD5withRSA` is
+  critical, and known protocols (`TLSv1.2`) are rated. A CBOM whose tool has no name says "another tool".
 - Endpoints: on a machine whose OpenSSL is older than 3.5, a server that speaks TLS 1.3 was graded C ("classical only")
   because the check fell back to TLS 1.2. It is now graded from raw ClientHello messages, which need no new OpenSSL, and
   says so; a server with no TLS 1.3 is still graded C.

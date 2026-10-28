@@ -117,3 +117,24 @@ def ike_capture(offer, ke_offer, chosen, ke_chosen, port=500):
     marker = b"\x00" * 4 if port == 4500 else b""
     return [_eth_ip_udp(c, s, port, port, marker + ike_sa_init(offer, ke_offer, False)),
             _eth_ip_udp(s, c, port, port, marker + ike_sa_init(chosen, ke_chosen, True))]
+
+
+def _dtls(msg_type, body, seq, version, frags=1):
+    """DTLS records (RFC 6347 section 4.2.2) carrying one handshake message, cut into `frags` fragments."""
+    out, step = [], -(-len(body) // frags)
+    for k, off in enumerate(range(0, len(body), step)):
+        part = body[off:off + step]
+        hs = bytes([msg_type]) + len(body).to_bytes(3, "big") + struct.pack(">H", seq) + off.to_bytes(3, "big") + len(part).to_bytes(3, "big") + part
+        out.append(b"\x16" + struct.pack(">H", version) + b"\x00\x00" + (seq * 4 + k).to_bytes(6, "big") + struct.pack(">H", len(hs)) + hs)
+    return out
+
+
+def dtls_capture(groups, suite, version=0xFEFD, group=None):
+    """A DTLS client offering `groups`, and a server answering with `suite` in a ServerHello split over two datagrams."""
+    c, s = [10, 0, 0, 5], [10, 0, 0, 9]
+    ch = client_hello("vpn.example", groups)[9:]
+    ch = struct.pack(">H", version) + ch[2:35 + ch[34]] + b"\x00" + ch[35 + ch[34]:]  # DTLS adds an empty cookie after the session ID
+    sh = server_hello(suite, version=0x0303, group=group)[9:]
+    sh = struct.pack(">H", version) + sh[2:]
+    first, second = _dtls(2, sh, 0, version, frags=2)
+    return [_eth_ip_udp(c, s, 51000, 4433, _dtls(1, ch, 0, version)[0]), _eth_ip_udp(s, c, 4433, 51000, first), _eth_ip_udp(s, c, 4433, 51000, second)]

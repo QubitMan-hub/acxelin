@@ -69,6 +69,8 @@ def ip_payload(link, frame):
         etype, off = struct.unpack(">H", frame[0:2])[0], 20
     elif link == 0:
         etype, off = (0x0800 if frame[:4] in (b"\x02\x00\x00\x00", b"\x00\x00\x00\x02") else 0x86DD), 4
+    elif link in (228, 229):  # raw IPv4 or IPv6, as captured on tunnel and VPN interfaces
+        etype, off = (0x0800 if link == 228 else 0x86DD), 0
     elif link in (12, 101):
         etype, off = (0x0800 if frame[:1] and frame[0] >> 4 == 4 else 0x86DD), 0
     else:
@@ -225,7 +227,8 @@ def _openssl_names():
         ctx.set_ciphers("ALL:@SECLEVEL=0")
     except ssl.SSLError:
         pass
-    return {c["id"] & 0xFFFF: c["name"] for c in ctx.get_ciphers()}
+    return {c["id"] & 0xFFFF: ("RSA-" if c["kea"] == "kx-rsa" and not c["name"].startswith(("RSA", "TLS_")) else "") + c["name"]
+            for c in ctx.get_ciphers()}  # OpenSSL leaves RSA key transport out of names like AES128-SHA
 
 
 OPENSSL = _openssl_names()
@@ -265,6 +268,42 @@ def quic_session(client, datagrams):
     ch = next((client_hello(b) for t, b in messages(quic.stream(sides["client"])) if t == 1), None)
     sh = next((server_hello(b) for t, b in messages(quic.stream(sides["server"])) if t == 2), None)
     return {"client": ch, "server": sh, "group": sh["group"]} if sh else None
+
+
+DTLS = {0xFEFF: ("DTLS 1.0", "TLSv1.1"), 0xFEFD: ("DTLS 1.2", "TLSv1.2"), 0xFEFC: ("DTLS 1.3", "TLSv1.3")}  # and the TLS each is built on
+
+
+def is_dtls(d):
+    return len(d) >= 13 and d[0] == 0x16 and struct.unpack(">H", d[1:3])[0] in DTLS
+
+
+def dtls_session(client, datagrams):
+    """The unencrypted (epoch 0) handshake of one DTLS association, its fragments put back together, as tls_session gives it."""
+    msgs = {}
+    for sender, d in datagrams:
+        i = 0
+        while i + 13 <= len(d):
+            epoch, ln = struct.unpack(">H", d[i + 3:i + 5])[0], struct.unpack(">H", d[i + 11:i + 13])[0]
+            rec, i = d[i + 13:i + 13 + ln], i + 13 + ln
+            if d[i - 13 - ln] != 0x16 or epoch:
+                continue
+            j = 0
+            while j + 12 <= len(rec):
+                t, total, seq = rec[j], int.from_bytes(rec[j + 1:j + 4], "big"), struct.unpack(">H", rec[j + 4:j + 6])[0]
+                off, flen = int.from_bytes(rec[j + 6:j + 9], "big"), int.from_bytes(rec[j + 9:j + 12], "big")
+                buf = msgs.setdefault((sender == client, seq, t), bytearray(total))
+                if off + flen <= total:
+                    buf[off:off + flen] = rec[j + 12:j + 12 + flen]
+                j += 12 + flen
+    hellos = [bytes(b) for (mine, _, t), b in sorted(msgs.items()) if mine and t == 1]
+    ch = None
+    if hellos:  # the last ClientHello, after any cookie exchange; DTLS adds the cookie after the session ID
+        b = hellos[-1]
+        sid = 35 + b[34]
+        ch = client_hello(b[:sid] + b[sid + 1 + b[sid]:])
+    sh = next((server_hello(bytes(b)) for (mine, _, t), b in sorted(msgs.items()) if not mine and t == 2), None)
+    curve = next((struct.unpack(">H", b[1:3])[0] for (mine, _, t), b in msgs.items() if not mine and t == 12 and len(b) >= 3 and b[0] == 3), None)
+    return {"client": ch, "server": sh, "group": sh["group"] or curve} if sh else None
 
 
 def ike_session(client, datagrams):
@@ -309,7 +348,7 @@ def scan(path):
     """Detections, endpoint summaries and notes from one capture file."""
     data = Path(path).read_bytes()
     name = Path(path).name
-    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": []}), 0
+    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": [], "dtls": []}), 0
     for (client, server), (cbuf, sbuf) in streams(data).items():
         try:  # a capture cut short by its snap length, or a damaged frame, ends that handshake only
             if cbuf[:4] == b"SSH-" or sbuf[:4] == b"SSH-":
@@ -323,9 +362,9 @@ def scan(path):
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
     for (client, server), datagrams in flows(data).items():
-        kind = "ike" if {client[1], server[1]} & {500, 4500} else "quic"
+        kind = "ike" if {client[1], server[1]} & {500, 4500} else "dtls" if is_dtls(datagrams[0][1]) else "quic"
         try:
-            s = (ike_session if kind == "ike" else quic_session)(client, datagrams)
+            s = {"ike": ike_session, "dtls": dtls_session, "quic": quic_session}[kind](client, datagrams)
             if s:
                 by_server[server][kind].append(s)
         except (struct.error, IndexError, KeyError, ValueError):
@@ -342,13 +381,14 @@ def scan(path):
                     sights.append(Detection(algo=algo, file=loc, line=0, evidence="live", detector="capture", snippet=snip, lang=kind,
                                            params={k: v for k, v in dict(p, observed=True).items() if v is not None}))
             ep = {"target": loc, "kind": kind, "observed": len(sessions)}
-            if kind in ("tls", "quic"):
+            if kind in ("tls", "quic", "dtls"):
                 versions, suites_, groups = set(), set(), set()
                 offered_pq = sum(any(pq_from_text(GROUPS.get(g, "")) for g in s["client"]["groups"]) for s in sessions if s["client"])
                 for s in sessions:
-                    v = VERSIONS.get(s["server"]["version"], hex(s["server"]["version"]))
+                    v, base = DTLS.get(s["server"]["version"], (None, None))
+                    v = v or VERSIONS.get(s["server"]["version"], hex(s["server"]["version"]))
                     versions.add(v)
-                    add(lookup(v), f"negotiated {v}", negotiated=True)
+                    add(lookup(base or v), f"negotiated {v}" + (f" (the cryptography of {lookup(base)})" if base else ""), negotiated=True)
                     name_ = suite_name(s["server"]["suite"])
                     suites_.add(name_)
                     for a, p in suite(name_):

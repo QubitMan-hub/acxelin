@@ -10,7 +10,7 @@ ENCRYPTION = {2: ("DES", {}), 3: ("3DES", {}), 12: ("AES", {"mode": "CBC"}), 13:
               15: ("AES", {"mode": "CCM"}), 16: ("AES", {"mode": "CCM"}), 18: ("AES", {"mode": "GCM"}), 19: ("AES", {"mode": "GCM"}),
               20: ("AES", {"mode": "GCM"}), 28: ("ChaCha20-Poly1305", {})}
 HMACS = {1: "MD5", 2: "SHA-1", 5: "SHA-256", 6: "SHA-384", 7: "SHA-512"}  # PRF ids
-INTEGRITY = {1: "MD5", 2: "SHA-1", 12: "SHA-256", 13: "SHA-384", 14: "SHA-512"}
+INTEGRITY = {1: "MD5", 2: "SHA-1", 6: "MD5", 7: "SHA-1", 12: "SHA-256", 13: "SHA-384", 14: "SHA-512"}
 ROLES = {1: "cipher", 2: "prf", 3: "mac", 4: "key-exchange"} | {t: "additional-key-exchange" for t in range(6, 13)}
 
 

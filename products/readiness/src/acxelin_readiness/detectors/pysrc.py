@@ -147,7 +147,7 @@ class PythonDetector(ast.NodeVisitor):
             q = self.qual(node)
             if q.startswith("hashlib.") and q.split(".")[-1] in HASHLIB and q.count(".") == 1:
                 self.root = None
-                self.emit(node, lookup(q.split(".")[-1]), {"purpose": "padding"} if id(node) in self.padding else {})
+                self.emit(node, lookup(q.split(".")[-1]), {"purpose": "no-collision"} if id(node) in self.padding else {})
             n = _norm(q)
             if n.startswith("C.asymmetric.") and n.count(".") == 3 and n.split(".")[2] in ("rsa", "dsa", "dh", "ed25519", "ed448", "x25519", "x448"):
                 self.root = "cryptography"
@@ -219,7 +219,7 @@ class PythonDetector(ast.NodeVisitor):
             if base.startswith("ChaCha20"):
                 return self.emit(n, "ChaCha20-Poly1305") or True
         if q.startswith("C.hashes."):
-            return self.emit(n, lookup(last), {"purpose": "padding"} if id(n) in self.padding else {}) or True
+            return self.emit(n, lookup(last), {"purpose": "no-collision"} if id(n) in self.padding else {}) or True
         if q.startswith("C.kdf."):
             if "pbkdf2" in q.lower():
                 return self.emit(n, "PBKDF2", {"hash": self.hashname(a(0, "algorithm"))}) or True

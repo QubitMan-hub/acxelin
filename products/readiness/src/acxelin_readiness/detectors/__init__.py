@@ -135,7 +135,7 @@ def carried_hashes(detections):
             have.add((s.file, s.line, h))
             params = {"role": f"hash of {s.algo}"} | ({"literal": s.params["literal"]} if "literal" in s.params else {})
             if s.algo in ("HMAC", "PBKDF2") or s.params.get("padding") == "oaep":
-                params["purpose"] = "padding"  # these need no collision resistance from the hash
+                params["purpose"] = "no-collision"  # these need no collision resistance from the hash
             out.append(Detection(algo=h, file=s.file, line=s.line, evidence=s.evidence, detector=s.detector, snippet=s.snippet, lang=s.lang,
                                 params=params, context=set(s.context)))
     return out

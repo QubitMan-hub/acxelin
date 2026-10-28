@@ -64,3 +64,11 @@ def test_cut_off_ike_and_quic_packets_never_end_the_scan(tmp_path):
     frames = pcapgen.ike_capture(HYBRID, 31, HYBRID, 31) + pcapgen.quic_capture([0x11EC], 0x11EC)
     sights, eps, notes = scan(tmp_path, [f[:60] for f in frames])
     assert isinstance(eps, list)
+
+
+def test_a_dtls_handshake_split_over_datagrams_is_read_like_tls(tmp_path):
+    (tmp_path / "d.pcap").write_bytes(pcapgen.pcap(pcapgen.dtls_capture([0x001D, 0x0017], 0xC02B, group=None)))
+    sights, eps, notes = capture.scan(tmp_path / "d.pcap")
+    algos = {s.algo for s in sights}
+    assert {"TLS 1.2", "ECDH", "ECDSA", "AES"} <= algos and eps[0]["target"].startswith("pcap://d.pcap/dtls/10.0.0.9:4433")
+    assert eps[0]["version"] == "DTLS 1.2" and "1 handshake(s)" in notes[0]

@@ -43,7 +43,7 @@ def suite(name):
         elif t in ("RC4", "RC2"):
             out.append((t, {}))
         elif t in SUITE_HASHES and i == len(toks) - 1:
-            out.append((lookup(t), {}))
+            out.append((lookup(t), {"purpose": "no-collision"}))  # the record MAC's or the PRF's hash
         elif t == "AESGCM":
             out.append(("AES", {"mode": "GCM"}))
         i += 1

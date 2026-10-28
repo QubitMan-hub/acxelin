@@ -15,6 +15,7 @@ from .rank import TIERS
 from .catalog import CATALOG, HYBRIDS, GROVER, LEGACY, SAFE, SHOR, lookup, pq_from_text
 from .brand import page, tier
 from .report import MARK
+from .detectors.suites import sig_scheme
 
 ESTIMATE = {LEGACY: "critical", SHOR: "high", GROVER: "low", SAFE: "ok"}
 ASYMMETRIC = {"pke", "signature", "key-agree", "kem", "other"}
@@ -22,7 +23,10 @@ RANK = {t: i for i, t in enumerate(TIERS)}
 
 
 def algo_of(name):
-    """Catalogue entry for a component name such as RSA-2048, AES-128-GCM or ECDSA-SHA-256, trying shorter prefixes."""
+    """Catalogue entry for a component name such as RSA-2048, AES-128-GCM, ECDSA-SHA-256 or SHA512withRSA, trying shorter prefixes."""
+    signed = sig_scheme(name)
+    if signed:
+        return signed[0][0]
     parts = name.split("-")
     for n in range(len(parts), 0, -1):
         a = lookup("-".join(parts[:n])) or pq_from_text("-".join(parts[:n]))
@@ -32,12 +36,16 @@ def algo_of(name):
 
 
 def estimate(algo, name):
-    """A tier from the algorithm alone, for CBOMs without Acxelin Readiness's: legacy or under 112-bit strength is critical."""
+    """A tier from the algorithm alone, for CBOMs without Acxelin Readiness's: legacy, a signature over MD5 or SHA-1, or under
+    112-bit strength is critical; AES with a 192- or 256-bit key is ok."""
     if not algo:
         return None
-    bits = re.search(r"(?<!\d)(\d{3,4})(?!\d)", name)
-    if algo in ("RSA", "DSA", "DH") and bits and int(bits.group(1)) < 2048:
+    bits = re.search(r"(?<![\w.])(\d{3,5})(?![\w.])", name)  # 2048 in RSA-PKCS1-1.5-SHA512-2048, not the 512 of SHA512
+    signed = sig_scheme(name)
+    if algo in ("RSA", "DSA", "DH") and bits and int(bits.group(1)) < 2048 or signed and dict(signed[0][1]).get("hash") in ("MD5", "SHA-1"):
         return "critical"
+    if CATALOG[algo].threat == GROVER and re.search(r"(?<![\w.])(192|256)(?![\w.])", name):
+        return "ok"
     return ESTIMATE.get(CATALOG[algo].threat)
 
 
@@ -73,16 +81,18 @@ def load(path, taken):
     taken.add(name)
     tools = meta.get("tools")
     tools = dicts(tools).get("components", []) if not isinstance(tools, list) else tools  # CycloneDX 1.5+ nests them; 1.4 lists them
-    tool = next((f"{t.get('name')} {t.get('version', '')}".strip() for t in tools if isinstance(t, dict)), "unknown")
+    tool = next((f"{t.get('name')} {t.get('version', '')}".strip() for t in tools if isinstance(t, dict) and t.get("name")), "another tool")
     components = [c | {"name": str(c["name"]) if c.get("name") is not None else "?"} for c in bom.get("components", []) if isinstance(c, dict)]
     if any(str(p.get("name", "")).startswith("wolfpack:") for c in components for p in c.get("properties") or [] if isinstance(p, dict)):
         print(f"acxelin-readiness: {path}: read through the old wolfpack:* property names; scan again to write acxelin:* names", file=sys.stderr)
     assets = []
     for c in components:
         cp = dicts(c.get("cryptoProperties"))
-        if c.get("type") != "cryptographic-asset" or cp.get("assetType") != "algorithm":
+        if c.get("type") != "cryptographic-asset" or cp.get("assetType") not in ("algorithm", "protocol"):
             continue
         algo = algo_of(c["name"])
+        if cp.get("assetType") == "protocol" and not algo:
+            continue
         tier = prop(c, "acxelin:tier")
         estimated = tier not in RANK
         if estimated:
@@ -94,7 +104,8 @@ def load(path, taken):
     assets.sort(key=lambda a: (RANK.get(a["tier"], len(TIERS)), a["name"]))
     others = [{"name": c.get("name", "?"), "tier": None, "component": c, "occurrences": (c.get("evidence") or {}).get("occurrences", [])}
               for c in components if c.get("type") == "cryptographic-asset"
-              and dicts(c.get("cryptoProperties")).get("assetType") in ("certificate", "related-crypto-material", "protocol")]
+              and dicts(c.get("cryptoProperties")).get("assetType") in ("certificate", "related-crypto-material", "protocol")
+              and not (dicts(c.get("cryptoProperties")).get("assetType") == "protocol" and algo_of(c["name"]))]
     return {"name": name, "source": str(path), "tool": tool, "assets": assets, "others": others, "readiness": readiness(assets)}
 
 
