@@ -329,3 +329,32 @@ def test_after_a_restart_the_selected_repository_is_the_one_whose_results_show(b
     finally:
         ctx.close()
         server.shutdown()
+
+
+def fake_fetch(url, dest, token=None):
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "sign.py").write_text("from cryptography.hazmat.primitives.asymmetric import rsa\nrsa.generate_private_key(public_exponent=65537, key_size=2048)\n")
+    return dest
+
+
+def test_a_github_repository_is_scanned_from_the_first_screen_without_a_folder(page, console):
+    open_console(page, console)
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
+        page.get_by_label("Add from GitHub").fill("https://github.com/acme/payments")
+        page.get_by_role("button", name="Download and scan").click()
+        page.get_by_text("RSA-2048").wait_for(timeout=30000)
+    assert page.get_by_role("heading", name="github.com/acme/payments").is_visible()
+
+
+def test_a_private_repository_token_is_saved_without_ever_showing_it(page, console):
+    secret = "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz"
+    open_console(page, console)
+    page.get_by_text("Private repositories").click()
+    assert page.get_by_label("Access token").get_attribute("type") == "password"
+    page.get_by_label("Access token").fill(secret)
+    page.get_by_role("button", name="Save token").click()
+    page.get_by_text("Private repositories: token saved").wait_for()
+    assert secret not in page.content() and secret not in page.url
+    page.get_by_text("Private repositories: token saved").click()
+    page.get_by_role("button", name="Remove token").click()
+    page.get_by_text("Private repositories", exact=True).wait_for()

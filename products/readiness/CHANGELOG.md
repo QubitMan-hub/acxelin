@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Scan a GitHub repository by link, in the console (**Add from GitHub**, no folder needed) or with `scan https://github.com/OWNER/REPO`.
+  Private repositories use a read-only token: saved owner-only by the console, or `GITHUB_TOKEN` on the command line, and
+  sent only to `api.github.com`. Downloads and unpacking are size-limited and keep regular files only. A downloaded
+  repository's `.acxelin-readiness.toml` is not read.
 - Console, Endpoints: below the grades, **What can happen** (if nothing changes) and **What we recommend** (most urgent first),
   each naming the endpoints it applies to. They are rules from what the check observed, not forecasts: expired and expiring
   certificates, classical-only key exchange, classical fallback, TLS 1.0 and 1.1, untrusted certificates, unreachable hosts

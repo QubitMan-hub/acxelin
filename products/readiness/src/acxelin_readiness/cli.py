@@ -9,7 +9,7 @@ from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import __version__, pipeline, report, image, inventory, compliance
+from . import __version__, pipeline, report, image, inventory, compliance, remote
 from .rank import Horizon, TIERS
 from .report import write_results
 from .detectors import Scope
@@ -34,7 +34,7 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"acxelin-readiness {__version__}")
     sub = ap.add_subparsers(dest="cmd")
     s = sub.add_parser("scan", help="send the pipeline over a repository and/or live TLS and SSH endpoints")
-    s.add_argument("path", nargs="?", default=None, help="folder to scan, or a container image saved with `docker save` or as an OCI archive (default: current folder, or none if only --tls/--ssh are given)")
+    s.add_argument("path", nargs="?", default=None, help="folder to scan, a GitHub link (https://github.com/owner/repo; GITHUB_TOKEN for private ones), or a container image saved with `docker save` or as an OCI archive (default: current folder, or none if only --tls/--ssh are given)")
     s.add_argument("--tls", action="append", default=[], metavar="HOST:PORT", help="probe a live TLS endpoint, including which key-exchange groups it accepts (repeatable)")
     s.add_argument("--ssh", action="append", default=[], metavar="HOST[:PORT]", help="read a live SSH server's algorithm lists (repeatable)")
     s.add_argument("--pcap", action="append", default=[], metavar="FILE",
@@ -102,7 +102,8 @@ def main(argv=None):
     if a.cmd == "console":
         return console(a)
 
-    cfg = settings(a.config, None if a.path is None and (a.tls or a.ssh or a.pcap) else Path(a.path or "."))
+    link = a.path and a.path.startswith(("https://github.com/", "github.com/", "http://github.com/"))
+    cfg = settings(a.config, None if link or a.path is None and (a.tls or a.ssh or a.pcap) else Path(a.path or "."))  # a downloaded repository's settings are not trusted
     a.exclude = cfg.get("exclude", []) + a.exclude
     a.tls = cfg.get("tls", []) + a.tls
     a.ssh = cfg.get("ssh", []) + a.ssh
@@ -121,7 +122,17 @@ def main(argv=None):
     if a.fail_on is not None and a.fail_on not in TIERS[:-1]:
         sys.exit(f"acxelin-readiness: fail_on must be one of {', '.join(TIERS[:-1])}")
     targets_only = a.path is None and (a.tls or a.ssh or a.pcap)
-    root = Path(tempfile.mkdtemp()) if targets_only else Path(a.path or ".").resolve()
+    if link:
+        try:
+            owner, repo, _ = remote.parse(a.path)
+            downloaded = Path(tempfile.mkdtemp(prefix="readiness-github-"))
+            root = remote.fetch(a.path, downloaded / repo, token=os.environ.get("GITHUB_TOKEN"))
+        except ValueError as e:
+            sys.exit(f"acxelin-readiness: {e}")
+        a.name = a.name or f"{owner}/{repo}"
+    else:
+        downloaded = None
+        root = Path(tempfile.mkdtemp()) if targets_only else Path(a.path or ".").resolve()
     if not root.exists():
         sys.exit(f"acxelin-readiness: {a.path} does not exist")
     name = a.name or ((a.tls + a.ssh + [Path(p).name for p in a.pcap])[0] if targets_only else root.name)
@@ -145,8 +156,9 @@ def main(argv=None):
     try:
         r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap)
     finally:
-        if unpacked:
-            shutil.rmtree(unpacked, ignore_errors=True)
+        for folder in (unpacked, downloaded):
+            if folder:
+                shutil.rmtree(folder, ignore_errors=True)
     r.notes[:0] = notes
     if only is not None:
         r.notes.insert(0, f"incremental scan: {len(only)} file(s) changed since {a.changed_since}; the rest of the repository was not read")

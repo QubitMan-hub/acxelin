@@ -13,9 +13,10 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, endpoints, pipeline, workspace
+from . import cbom, endpoints, pipeline, remote, workspace
 
 MAX_TARGETS = 500
+TOKEN = re.compile(r"[A-Za-z0-9_]{20,255}")
 
 
 class Readiness:
@@ -25,6 +26,7 @@ class Readiness:
         self.cancel = threading.Event()
         self.store = workspace.ProjectStore(self.home / "workspace.json")
         self.history = self.home / "history.json"
+        self.remote_dir, self.remote_file, self.token_file = self.home / "github", self.home / "github.json", self.home / "github-token"
         self.folder = None
         self.projects = []
         self.cache = None
@@ -33,16 +35,17 @@ class Readiness:
         settings = self.home / "settings.json"
         if settings.exists():
             self.folder = Path(json.loads(settings.read_text())["directory"])
-            self.reload()
+        self.reload()
 
     def reload(self):
         """The chosen folder's registered repositories, with the most recently scanned one selected."""
         self.projects = []
-        for name in self.store.read()["registrations"].get(self.store.key(self.folder), []):
+        for name in self.store.read()["registrations"].get(self.store.key(self.folder), []) if self.folder else []:
             try:
                 self.projects.append(self.approved(name))
             except (OSError, ValueError):
                 pass  # a stored name never grants access beyond today's chosen folder
+        self.projects += [self.remote_dir / name for name in self.remotes()]
         saved = [(a["finished"], i, a) for i, a in enumerate(self.store.assessment(p) for p in self.projects) if a]
         self.job.update(last=None, selected=0, error=None, stage="")
         if saved:
@@ -58,7 +61,8 @@ class Readiness:
             except OSError:
                 pass
         return 200, {"configured": bool(self.folder), "directory": str(self.folder or ""), "available": available, "example": str(Path.home() / "code"),
-                     "projects": [{"id": i, "name": p.name} for i, p in enumerate(self.projects)], "selected": self.job["selected"]}
+                     "projects": [{"id": i, "name": self.label(p)} for i, p in enumerate(self.projects)], "selected": self.job["selected"],
+                     "github_token": self.token_file.exists()}
 
     def setup(self, body):
         d = body.get("directory")
@@ -82,6 +86,39 @@ class Readiness:
             raise ValueError("Choose a repository inside the folder you set up (symlinks and outside paths are refused)")
         return path
 
+    # --- GitHub repositories, downloaded into the console's own folder for each scan
+
+    def remotes(self):
+        return json.loads(self.remote_file.read_text()) if self.remote_file.exists() else {}
+
+    def label(self, path):
+        return "github.com/" + remote.label(self.remotes()[path.name]) if path.parent == self.remote_dir else path.name
+
+    def github(self, body):
+        url = body.get("url")
+        owner, repo, ref = remote.parse(url)
+        name = f"{owner}--{repo}" + (f"@{ref.replace('/', '~')}" if ref else "")
+        with self.lock:
+            known = self.remotes()
+            if name not in known:
+                if len(known) >= 200:
+                    raise ValueError("The console keeps at most 200 GitHub repositories")
+                write(self.remote_file, json.dumps(known | {name: url.strip()}).encode(), secret=True)
+            path = self.remote_dir / name
+            if path not in self.projects:
+                self.projects.append(path)
+            return 200, {"project": self.projects.index(path)}
+
+    def token(self, body):
+        value = body.get("token")
+        if value == "":
+            self.token_file.unlink(missing_ok=True)
+            return 200, {"saved": False}
+        if not isinstance(value, str) or not TOKEN.fullmatch(value):
+            raise ValueError("Paste a GitHub access token: letters, digits and underscores only, such as github_pat_…")
+        write(self.token_file, value.encode(), secret=True)
+        return 200, {"saved": True}
+
     # --- projects
 
     def register(self, body):
@@ -96,7 +133,12 @@ class Readiness:
         i = body.get("project")
         if type(i) is not int or not 0 <= i < len(self.projects):
             raise ValueError("Choose a registered project")
-        return i, self.approved(self.projects[i].name)
+        p = self.projects[i]
+        if p.parent == self.remote_dir:
+            if p.name not in self.remotes():
+                raise ValueError("Choose a registered project")
+            return i, p
+        return i, self.approved(p.name)
 
     def project_status(self, body):
         with self.lock:
@@ -133,6 +175,9 @@ class Readiness:
 
         def work():
             try:
+                if path.parent == self.remote_dir:
+                    progress("Downloading from GitHub")
+                    remote.fetch(self.remotes()[path.name], path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
                 result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache)
                 result["project_key"] = self.store.key(path)
                 try:
@@ -141,7 +186,7 @@ class Readiness:
                     result["notes"].append("The workspace could not be saved; this result is kept until the console closes. Check the folder's permissions and size.")
                 with self.lock:
                     self.job["last"] = result
-            except workspace.ScanStopped as error:
+            except (workspace.ScanStopped, remote.Refused) as error:
                 with self.lock:
                     self.job["error"] = str(error)
             except Exception:  # source-sensitive failures are never echoed or logged with their contents
@@ -238,7 +283,7 @@ def page():
 def build(home):
     r = Readiness(home)
     routes = {("GET", "/api/status"): r.status, ("POST", "/api/setup"): r.setup,
-              ("POST", "/api/projects/register"): r.register, ("GET", "/api/projects/status"): r.project_status,
+              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom}

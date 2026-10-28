@@ -54,9 +54,30 @@ function setup() {
   $("#panel").replaceChildren(h("div", {class: "narrow"}, h("h1", {}, "Where are your repositories?"),
     h("p", {class: "lede"}, "Acxelin Readiness only scans folders inside the one you choose here. Enter the full path of the folder that holds your repositories. To grade servers instead, open Endpoints; it needs no folder."),
     h("label", {for: "dir"}, "Folder path"), input,
-    h("div", {class: "row", style: "margin-top:18px"}, h("button", {class: "btn", onclick: go}, "Use this folder"))));
+    h("div", {class: "row", style: "margin-top:18px"}, h("button", {class: "btn", onclick: go}, "Use this folder")),
+    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm()));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   input.focus();
+}
+
+async function addAndScan(project) {
+  state.selected = project; state.filter = null;
+  await call("projects/select", {project}); await load(); await call("projects/scan", {project}); pollProject();
+}
+function githubForm() {
+  const url = h("input", {type: "url", id: "gh", autocomplete: "off", placeholder: "https://github.com/owner/repository"});
+  const add = async () => { try { const r = await call("projects/github", {url: url.value}); await addAndScan(r.project); } catch (e) {} };
+  url.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+  const token = h("input", {type: "password", id: "ghtoken", autocomplete: "off"});
+  const saveToken = async (value) => { try { await call("github/token", {token: value}); token.value = ""; await load(); } catch (e) {} };
+  const saved = state.status.github_token;
+  return h("div", {}, h("label", {for: "gh", style: "margin-top:0"}, "Add from GitHub"), url,
+    h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Download and scan")),
+    h("details", {class: "where", style: "margin-top:12px"}, h("summary", {}, saved ? "Private repositories: token saved" : "Private repositories"),
+      h("p", {}, "A fine-grained token with read-only Contents access. It is kept on this computer, readable only by you, and sent only to api.github.com."),
+      h("label", {for: "ghtoken"}, "Access token"), token,
+      h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: () => saveToken(token.value)}, "Save token"),
+        saved ? h("button", {class: "btn quiet", onclick: () => saveToken("")}, "Remove token") : "")));
 }
 
 function shell() {
@@ -113,15 +134,16 @@ function results(p) {
 
 function projectsView() {
   const s = state.status, panel = $("#panel");
-  if (!s.configured) return setup();
+  if (!s.configured && !s.projects.length) return setup();
   const names = new Set(s.projects.map((p) => p.name)), addable = s.available.filter((n) => !names.has(n));
   const pick = h("select", {id: "add"}, addable.map((n) => h("option", {value: n}, n)));
-  const add = async () => { try { const r = await call("projects/register", {name: pick.value}); state.selected = r.project; state.filter = null; await call("projects/select", {project: r.project}); await load(); await call("projects/scan", {project: r.project}); pollProject(); } catch (e) {} };
+  const add = async () => { try { const r = await call("projects/register", {name: pick.value}); await addAndScan(r.project); } catch (e) {} };
   const choose = async (id) => { try { await call("projects/select", {project: id}); state.selected = id; state.filter = null; projectsView(); } catch (e) {} };
   const side = h("div", {}, h("h2", {}, "Repositories"),
     s.projects.length ? h("ul", {class: "list"}, s.projects.map((p) => h("li", {}, h("button", {"aria-current": String(p.id === state.selected), onclick: () => choose(p.id)}, p.name)))) : h("p", {class: "state"}, "None added yet."),
     addable.length ? h("div", {}, h("label", {for: "add", style: "margin-top:0"}, "Add a repository"), pick, h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Add and scan")))
-      : h("p", {class: "state"}, s.available.length ? "Every repository in " + s.directory + " is added." : "No repositories found in " + s.directory + ". Put one there, then reload."));
+      : !s.configured ? "" : h("p", {class: "state"}, s.available.length ? "Every repository in " + s.directory + " is added." : "No repositories found in " + s.directory + ". Put one there, then reload."),
+    h("div", {style: "margin-top:22px"}, githubForm()));
   const main = h("div", {id: "pj-main"});
   panel.replaceChildren(h("div", {class: "split"}, side, main));
   if (!s.projects.length) { main.replaceChildren(h("h1", {}, "Add your first repository"), h("p", {class: "empty"}, "Choose one under Add a repository. It is scanned straight away, to show which cryptography it uses and what to migrate first.")); return; }
@@ -213,7 +235,7 @@ function pollEndpoints() { clearInterval(state.timer); state.timer = setInterval
 async function load() {
   try { state.status = await call("status"); state.selected = state.status.selected || 0; } catch (e) { return signedOut(); }
   shell();
-  if (!state.status.configured && state.tab === "projects") $("#dir").focus();
+  if (!state.status.configured && state.tab === "projects") $("#dir")?.focus();
 }
 acx.start().then((ok) => (ok ? load() : signedOut()));
 </script>

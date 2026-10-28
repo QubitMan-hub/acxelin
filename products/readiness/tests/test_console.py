@@ -265,3 +265,71 @@ def test_choosing_the_same_folder_again_keeps_its_repositories(app, repos):
     call(app, "POST", "/api/projects/register", {"name": "shop"})
     setup(app, repos)
     assert call(app, "GET", "/api/status")[1]["projects"] == [{"id": 0, "name": "shop"}]
+
+
+def fake_fetch(url, dest, token=None):
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "sign.py").write_text("from cryptography.hazmat.primitives.asymmetric import rsa\nrsa.generate_private_key(public_exponent=65537, key_size=2048)\n")
+    fake_fetch.tokens.append(token)
+    return dest
+
+
+fake_fetch.tokens = []
+
+
+def test_a_github_repository_is_added_by_link_and_downloaded_again_for_each_scan(app, home):
+    fake_fetch.tokens.clear()
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
+        r = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/payments"})[1]
+        assert call(app, "GET", "/api/status")[1]["projects"] == [{"id": r["project"], "name": "github.com/acme/payments"}]
+        call(app, "POST", "/api/projects/scan", {"project": r["project"]})
+        last = wait(app)["last"]
+        call(app, "POST", "/api/projects/scan", {"project": r["project"]})
+        wait(app)
+    assert last["project"] == "acme--payments" and any(a["name"] == "RSA-2048" for a in last["assets"]) and len(fake_fetch.tokens) == 2
+    again = rc.build(home)
+    assert [p["name"] for p in again.routes[("GET", "/api/status")]({})[1]["projects"]] == ["github.com/acme/payments"], "kept across restarts, no folder needed"
+
+
+def test_a_github_download_that_fails_is_reported_and_keeps_the_last_result(app):
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
+        i = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/payments"})[1]["project"]
+        call(app, "POST", "/api/projects/scan", {"project": i})
+        wait(app)
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=rc.remote.Refused("Repository not found on GitHub.")):
+        call(app, "POST", "/api/projects/scan", {"project": i})
+        status = wait(app)
+    assert status["error"] == "Repository not found on GitHub." and status["last"]["assets"]
+
+
+@pytest.mark.parametrize("url", ["https://gitlab.com/a/b", "https://github.com/a", "file:///etc", "https://x@github.com/a/b", 7])
+def test_only_github_repository_links_are_accepted(app, url):
+    with pytest.raises(ValueError):
+        app.routes[("POST", "/api/projects/github")]({"url": url})
+
+
+def test_the_access_token_is_saved_owner_only_used_for_downloads_and_never_returned(app, home):
+    fake_fetch.tokens.clear()
+    secret = "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz"
+    assert call(app, "POST", "/api/github/token", {"token": secret})[1] == {"saved": True}
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
+        i = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/private"})[1]["project"]
+        call(app, "POST", "/api/projects/scan", {"project": i})
+        wait(app)
+    assert fake_fetch.tokens == [secret]
+    responses = json.dumps([call(app, *route)[1] for route in (("GET", "/api/status"), ("GET", "/api/projects/status"), ("GET", "/api/endpoints/status"))])
+    assert secret not in responses and json.loads(responses)[0]["github_token"] is True
+    leaked = [p for p in home.rglob("*") if p.is_file() and p.name != "github-token" and secret.encode() in p.read_bytes()]
+    assert leaked == []
+    import os
+    import stat
+    if os.name == "posix":
+        assert stat.S_IMODE((home / "github-token").stat().st_mode) == 0o600
+    call(app, "POST", "/api/github/token", {"token": ""})
+    assert not (home / "github-token").exists() and call(app, "GET", "/api/status")[1]["github_token"] is False
+
+
+@pytest.mark.parametrize("bad", ["has space", "x" * 300, "line\nbreak", 5])
+def test_a_token_that_cannot_be_one_is_refused(app, bad):
+    with pytest.raises(ValueError):
+        app.routes[("POST", "/api/github/token")]({"token": bad})

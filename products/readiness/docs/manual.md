@@ -126,6 +126,7 @@ Live endpoints show what your servers actually negotiate, which configuration fi
 | Task | Command |
 |---|---|
 | Scan a repository | `acxelin-readiness scan PATH` |
+| Scan a GitHub repository | `acxelin-readiness scan https://github.com/OWNER/REPO` (a branch: `…/tree/BRANCH`) |
 | Scan a container image | `docker save IMAGE -o image.tar`, then `acxelin-readiness scan image.tar` |
 | Include live endpoints | `acxelin-readiness scan PATH --tls HOST:443 --ssh HOST` |
 | Read handshakes from a packet capture | `acxelin-readiness scan PATH --pcap traffic.pcapng` |
@@ -221,8 +222,8 @@ Your browser opens, already signed in, with two parts:
 
 | Part | What you do there |
 |---|---|
-| **Projects** | Add a folder, scan it, cancel a running scan (the previous result is kept), and see priorities and history. |
-| **Endpoints** | Scan hosts, see what changed since the last scan, and export the CBOM. |
+| **Projects** | Add a folder or a GitHub link, scan it, cancel a running scan (the previous result is kept), and see priorities and history. |
+| **Endpoints** | Scan hosts, see what changed since the last scan, what can happen if nothing changes and what to do first, and export the CBOM. |
 
 The console listens only on this machine. From a remote server, forward a port and ask for a fresh link:
 
@@ -237,6 +238,21 @@ In Docker, start it with `--container` and publish the port on loopback only:
 docker run -d --name readiness -v readiness:/data -p 127.0.0.1:8900:8900 acxelin-readiness console --container
 docker exec -it readiness acxelin-readiness console link
 ```
+
+### GitHub repositories
+
+Paste a link such as `https://github.com/OWNER/REPO` under **Add from GitHub**. You don't need a folder for it. Each scan
+downloads the repository again through GitHub's API, so the results always describe what is on GitHub now, and nothing in it
+is run. The download is limited to 256 MB, and the unpacked files to 512 MB and 50,000 files. Links, absolute paths and paths
+that leave the folder are left out.
+
+For a private repository, create a fine-grained token with read-only **Contents** access to it and save it under **Private
+repositories**. The token is stored on this computer, readable only by you. It is sent only to `api.github.com`, never to
+the host GitHub redirects the download to, and never shown again. **Remove token** deletes it. On the command line, set
+`GITHUB_TOKEN` instead. There is deliberately no flag, because flags are visible to other users of the machine.
+
+A downloaded repository's own `.acxelin-readiness.toml` is ignored, so a stranger's repository cannot choose which hosts
+your computer probes. Pass `--config` to use settings you trust.
 
 ### Full TLS handshakes
 
