@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Console, calmer results: findings with nothing to change fold behind one button; progress shows as a bar that fills as
+  fixes and accepted risks land ("3 of 27 findings that need work are done"); long lists of findings under a risk or a
+  recommendation show the first eight and the rest on request; what a finding could not see moves into its details.
+  An endpoint graded from raw ClientHello messages says so under its negotiated group.
 - Binary (DER) private keys in PKCS#1, PKCS#8 or SEC1 form, encrypted ones included, DER public keys, and certificate
   requests in DER or PEM are found like PEM keys; before, only DER certificates were. Files ending `.p8` and `.pk8` are read.
 - Captures: DTLS 1.0, 1.2 and 1.3 handshakes (WebRTC, VPN clients, CoAP) are read, their fragments put back together, and

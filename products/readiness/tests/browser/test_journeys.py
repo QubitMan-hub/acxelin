@@ -508,7 +508,7 @@ def test_both_pages_show_the_four_analyses_with_their_charts_and_the_nav_reaches
         result = page.locator(f"#{prefix}-result")
         assert [result.locator(f"#{prefix}-{k.split()[0].lower()}").inner_text().split("\n")[0].endswith(k) for k in kinds] == [True] * 4
         assert "[object" not in result.inner_text()
-        assert result.locator(".glance li").count() >= 2 and result.locator(".dist[role=img]").get_attribute("aria-label")
+        assert result.locator(".glance li").count() >= 2 and result.locator(".dist[role=img]").first.get_attribute("aria-label")
         page.get_by_role("navigation", name="Analyses on this page").get_by_role("button", name=re.compile("^Prescriptive")).click()
         assert page.evaluate("document.activeElement.id") == f"{prefix}-prescriptive"
         assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
@@ -527,3 +527,28 @@ def test_both_pages_show_the_four_analyses_with_their_charts_and_the_nav_reaches
     assert page.locator("#ep-result .dist").get_attribute("aria-label") == "Endpoints by grade: 1 grade A, 1 grade C"
     check("ep")
     page.close()
+
+
+def test_findings_with_nothing_to_change_fold_away_and_progress_fills_as_fixes_land(page, console, tmp_path):
+    root = tmp_path / "mixed"
+    (root / "shop").mkdir(parents=True)
+    (root / "shop/a.py").write_text("import hashlib\nhashlib.md5(b'x')\nhashlib.sha256(b'y')\nfrom cryptography.hazmat.primitives.ciphers import algorithms, Cipher\nc = Cipher(algorithms.AES(key), mode)\n")
+    open_console(page, console)
+    fill_setup(page, root)
+    page.get_by_label("Add a repository").select_option("shop")
+    page.get_by_role("button", name="Add and scan").click()
+    table = page.locator("#pj-result table")
+    table.get_by_text("MD5", exact=True).wait_for()
+    assert not table.get_by_text("SHA-256", exact=True).count()
+    page.get_by_role("button", name="Show the 1 finding with nothing to change").click()
+    table.get_by_text("SHA-256", exact=True).wait_for()
+    page.get_by_role("button", name="Hide the findings with nothing to change").click()
+    assert "0 of 2" in page.locator("#pj-progress").inner_text()
+    table.get_by_text("AES", exact=True).click()
+    assert "Not seen: key size" in table.inner_text()
+    page.locator("details.track summary").first.click()
+    page.locator("details.track select").first.select_option("fixed")
+    page.locator("details.track").first.get_by_role("button", name="Save").click()
+    page.locator("#pj-progress", has_text="1 of 2").wait_for()
+    assert page.locator("#pj-progress .seg.s-ok").count() == 1
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []

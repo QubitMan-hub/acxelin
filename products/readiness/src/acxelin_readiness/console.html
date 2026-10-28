@@ -41,7 +41,7 @@ ul.history{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);
 .analysis h2 .kind{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:6px;white-space:nowrap}
 .analysis h3{font-size:14px;font-weight:600;color:var(--ink);margin:22px 0 8px}
 .dist{display:flex;height:24px;gap:2px;margin:12px 0 10px;max-width:720px}
-.dist .seg{display:flex;align-items:center;justify-content:center;min-width:4px;border-radius:3px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink);border:1px solid transparent}
+.dist .seg{display:flex;align-items:center;justify-content:center;min-width:4px;border-radius:4px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink);border:1px solid transparent}
 .seg.critical,.seg.bad{background:var(--bad-ground);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
 .seg.high,.seg.exposed{background:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 6px),var(--exposed-ground);color:var(--exposed);border-color:color-mix(in srgb,var(--exposed) 45%,transparent)}
 .seg.medium{background:var(--pane);color:var(--exposed);border-color:color-mix(in srgb,var(--exposed) 45%,transparent)}
@@ -52,6 +52,12 @@ dl.key{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 14px
 .bar.bad{background:var(--bad)}.bar.exposed{background:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 6px),var(--exposed)}.bar.low{background:var(--muted)}.bar.ok{background:var(--ok)}
 @media (max-width:520px){.bar-row{grid-template-columns:minmax(0,1fr) 3em}.bar-track{display:none}}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
+.more-rows{margin-top:10px}
+.progress{margin:14px 0 6px;max-width:720px}.progress p{margin:0}.progress .dist{height:12px;margin:8px 0 6px}
+.seg.s-ok{background:var(--ok);border-color:var(--ok)}.seg.s-low{background:var(--sunken);border-color:var(--rule-strong)}
+.seg.s-progress{background:var(--pane);border:1.5px solid var(--ink)}.seg.s-planned{background:var(--select);border-color:var(--rule-strong)}.seg.s-open{background:var(--pane);border-color:var(--rule)}
+.progress .seg{font-size:0}
+details.names summary{cursor:pointer;list-style:none}details.names summary::-webkit-details-marker{display:none}details.names summary small{text-decoration:underline dotted;text-underline-offset:3px}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
 </style>
 </head>
@@ -74,7 +80,7 @@ const h = (tag, props = {}, ...kids) => {
 };
 const calm = matchMedia("(prefers-reduced-motion: reduce)");
 const say = (text) => { const m = $("#msg"); m.replaceChildren(...acxText(text || "")); if (text) m.scrollIntoView({block: "center", behavior: calm.matches ? "auto" : "smooth"}); };
-const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null};
+const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null, showOk: false};
 const when = (t) => t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never";
 const call = async (path, body) => { try { say(""); return await acx.api(path, body); } catch (e) { say(e.status === 401 ? "This session has ended. Run the console command again to open a new one." : e.message); throw e; } };
 
@@ -216,8 +222,7 @@ function bars(rows) {
 }
 const SEEN = {negotiated: "Negotiated", offered: "Offered", "in code": "In code", configured: "Configured", supported: "Supported only", imported: "Imported"};
 const basis = (a) => {
-  const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : "",
-    (a.missing || []).length ? "not seen: " + a.missing.join(", ") : ""].filter(Boolean);
+  const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : ""].filter(Boolean);
   return parts.length ? h("small", {class: "basis"}, parts.join(" · ")) : "";
 };
 const STATUS = {open: "To do", planned: "Planned", in_progress: "In progress", fixed: "Fixed", exception: "Accepted risk"};
@@ -225,7 +230,13 @@ function progress(assets) {
   const n = {}, still = assets.filter((a) => a.tracking && a.tracking.still_found).length;
   for (const a of assets) if (a.tier !== "ok" || (a.tracking && a.tracking.status !== "open")) { const k = (a.tracking && a.tracking.status) || "open"; n[k] = (n[k] || 0) + 1; }
   const parts = Object.keys(STATUS).filter((k) => n[k]).map((k) => n[k] + " " + STATUS[k].toLowerCase());
-  return parts.length ? h("p", {class: "state", id: "pj-progress"}, parts.join(" · ") + (still ? " (" + still + " still found)" : "") + ".") : "";
+  if (!parts.length) return "";
+  const total = Object.values(n).reduce((a, b) => a + b, 0), done = (n.fixed || 0) - still + (n.exception || 0);
+  const tone = {fixed: "ok", exception: "low", in_progress: "progress", planned: "planned", open: "open"};
+  return h("div", {id: "pj-progress", class: "progress"},
+    h("p", {}, h("strong", {}, done + " of " + total), done === total ? " findings that needed work are fixed or accepted. The next scan confirms each fix." : " findings that need work are done."),
+    distribution(["fixed", "exception", "in_progress", "planned", "open"].map((k) => ({n: n[k] || 0, cls: "s-" + tone[k], name: STATUS[k].toLowerCase()})), "Migration progress"),
+    h("p", {class: "state"}, parts.join(" · ") + (still ? " (" + still + " still found)" : "") + "."));
 }
 function trackForm(asset) {
   const t = asset.tracking || {}, id = asset.id.slice(0, 8);
@@ -254,7 +265,7 @@ function where(a) {
   return h("details", {class: "where"}, h("summary", {}, a.name),
     h("ul", {}, shown.map(([f, l]) => h("li", {}, f + ":" + l))),
     a.locations.length > shown.length ? h("p", {}, "and " + (a.locations.length - shown.length) + " more places") : "",
-    a.why ? h("p", {}, a.why) : "", a.uncertainty ? h("p", {}, a.uncertainty) : "");
+    (a.missing || []).length ? h("p", {}, "Not seen: " + a.missing.join(", ") + ".") : "", a.why ? h("p", {}, a.why) : "", a.uncertainty ? h("p", {}, a.uncertainty) : "");
 }
 
 function results(p) {
@@ -262,7 +273,7 @@ function results(p) {
   if (!out) return;
   const last = p.last;
   if (!last) { out.replaceChildren(h("p", {class: "empty"}, p.running ? "The first scan of this repository is running. Results appear here when it finishes." : "Not scanned yet. Choose Scan repository to see which cryptography this project uses and what to migrate first.")); return; }
-  const shown = JSON.stringify([last.finished, state.filter, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
+  const shown = JSON.stringify([last.finished, state.filter, state.showOk, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
   if (out.dataset.shown === shown) return;  // polling during a scan must not close what the reader opened
   out.dataset.shown = shown;
   const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
@@ -270,7 +281,8 @@ function results(p) {
   const pick = (k) => { state.filter = state.filter === k ? null : k; results(state.projects); };
   const counts = h("div", {class: "counts"}, TIERS.filter((k) => pri[k]).map((k) =>
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
-  const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
+  const assets = shownAssets.filter((a) => state.filter ? a.tier === state.filter : state.showOk || a.tier !== "ok");
+  const hiddenOk = state.filter ? 0 : shownAssets.length - assets.length;
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   const cd = last.summary.coverage_detail || {}, gaps = Object.entries(cd.not_read || {}).map(([k, n]) => n + " " + k).join(", ");
   const cause = (a) => a.tier === "critical" || a.threat === "legacy" ? "broken" : a.threat === "shor" && a.tier !== "ok" ? "shor" : a.threat === "grover" && a.tier === "low" ? "grover" : "safe";
@@ -291,6 +303,8 @@ function results(p) {
       h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")),
       distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, prog,
       assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Findings, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
+      hiddenOk || (state.showOk && !state.filter && pri.ok) ? h("button", {class: "btn quiet small more-rows", "aria-expanded": String(!!state.showOk),
+        onclick: () => { state.showOk = !state.showOk; results(state.projects); }}, state.showOk ? "Hide the findings with nothing to change" : "Show the " + hiddenOk + (hiddenOk === 1 ? " finding" : " findings") + " with nothing to change") : "",
       last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : ""),
     section("pj", "diagnostic", "Why these priorities",
       h("dl", {class: "key"}, TIERS.filter((k) => pri[k]).flatMap((k) => [h("dt", {}, tier(k)), h("dd", {}, TIER_MEANING[k])])),
@@ -392,7 +406,8 @@ function endpointResults(e) {
 }
 function outlookList(items, tag, empty) {
   if (!items || !items.length) return h("p", {class: "empty"}, empty);
-  return h(tag, {class: "outlook"}, items.map((i) => h("li", {}, i.text, i.targets.length ? h("small", {}, i.targets.join(", ")) : "")));
+  const names = (t) => t.length <= 8 ? h("small", {}, t.join(", ")) : h("details", {class: "names"}, h("summary", {}, h("small", {}, t.slice(0, 8).join(", ") + " and " + (t.length - 8) + " more")), h("small", {}, t.slice(8).join(", ")));
+  return h(tag, {class: "outlook"}, items.map((i) => h("li", {}, i.text, i.targets.length ? names(i.targets) : "")));
 }
 
 function proxyNote(rows) {
