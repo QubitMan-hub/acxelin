@@ -3,6 +3,7 @@
 Run with the Playwright browser installed (`python -m playwright install chromium`); skipped when it is not.
 """
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -90,7 +91,7 @@ def test_add_scan_see_priorities_and_assign_an_owner(page, console, repos):
     open_console(page, console)
     fill_setup(page, repos)
     scan_shop(page)
-    assert page.get_by_text("critical").first.is_visible() or page.get_by_text("high").first.is_visible()
+    assert page.locator("td .tag.critical, td .tag.high").first.is_visible()
     page.get_by_text("Assign an owner").first.click()
     page.get_by_label("Owner").first.fill("payments team")
     page.get_by_role("button", name="Save").first.click()
@@ -162,7 +163,7 @@ def test_endpoints_changes_since_the_last_check_and_cbom_download(page, console,
         for g in ("F", "A"):
             page.get_by_label("Hosts to check").fill("127.0.0.1:1")
             page.get_by_role("button", name="Check endpoints").click()
-            page.locator("#ep-result td .pill", has_text=g).wait_for()
+            page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).wait_for()
             page.wait_for_function("!document.querySelector('#check').disabled")
         page.get_by_role("heading", name="Changed since the scan before").wait_for()
         assert "127.0.0.1:1: F → A" in page.content()
@@ -340,7 +341,7 @@ def fake_fetch(url, dest, token=None):
 def test_a_github_repository_is_scanned_from_the_first_screen_without_a_folder(page, console):
     open_console(page, console)
     with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
-        page.get_by_label("Add from GitHub").fill("https://github.com/acme/payments")
+        page.get_by_label("Repository link").fill("https://github.com/acme/payments")
         page.get_by_role("button", name="Download and scan").click()
         page.get_by_text("RSA-2048").wait_for(timeout=30000)
     assert page.get_by_role("heading", name="github.com/acme/payments").is_visible()
@@ -364,20 +365,21 @@ def test_the_readiness_score_and_its_trend_show_for_projects_and_endpoints(page,
     open_console(page, console)
     fill_setup(page, repos)
     scan_shop(page)
-    page.locator(".score b").wait_for()
-    assert page.locator(".score b").inner_text().isdigit()
+    page.locator(".score strong").wait_for()
+    assert page.locator(".score strong").inner_text().endswith(" of 100")
     page.get_by_role("button", name="Scan repository").click()
-    page.locator("svg.trend").wait_for(timeout=30000)
+    page.locator("figure.trend svg").wait_for(timeout=30000)
     page.get_by_role("tab", name="Endpoints").click()
     runs = iter([[grade("127.0.0.1:1", "C")], [grade("127.0.0.1:1", "A")]])
     with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: next(runs)):
         for g in ("C", "A"):
             page.get_by_label("Hosts to check").fill("127.0.0.1:1")
             page.get_by_role("button", name="Check endpoints").click()
-            page.locator("#ep-result td .pill", has_text=g).wait_for()
+            page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).wait_for()
             page.wait_for_function("!document.querySelector('#check').disabled")
-    assert page.locator(".score b").inner_text() == "100"
-    assert "from 0 to 100" in page.locator("svg.trend").get_attribute("aria-label")
+    assert page.locator(".score").inner_text().startswith("Readiness 100 of 100, up 100 since ")
+    assert page.locator("figure.trend .axis span").last.inner_text().endswith(": 100")
+    assert "from 0 to 100" in page.locator("figure.trend svg").get_attribute("aria-label")
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
 
 
@@ -395,7 +397,25 @@ def test_findings_and_grades_download_as_csv_and_print_without_the_controls(page
     with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: [grade("127.0.0.1:1", "C")]):
         page.get_by_label("Hosts to check").fill("127.0.0.1:1")
         page.get_by_role("button", name="Check endpoints").click()
-        page.locator("#ep-result td .pill", has_text="C").wait_for()
+        page.locator("#ep-result td .pill", has_text=re.compile("^C:")).wait_for()
     with page.expect_download() as d:
         page.get_by_role("button", name="Download CSV").click()
     assert Path(d.value.path()).read_text().splitlines()[1].startswith("127.0.0.1:1,C,")
+
+
+def test_the_tabs_follow_the_arrow_key_pattern_and_grades_are_read_out_in_words(page, console):
+    open_console(page, console)
+    page.get_by_role("tab", name="Projects").focus()
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("document.activeElement.id") == "tab-endpoints" and page.get_by_role("tab", name="Endpoints").get_attribute("aria-selected") == "true"
+    assert page.get_by_role("tab", name="Projects").get_attribute("tabindex") == "-1"
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: [grade("127.0.0.1:1", "C")]):
+        page.get_by_label("Hosts to check").fill("127.0.0.1:1")
+        page.get_by_role("button", name="Check endpoints").click()
+        page.locator("#ep-result td .pill", has_text=re.compile("^C:")).wait_for()
+    assert "classical only" in page.locator("#ep-result td .pill").first.text_content()
+    page.reload()
+    page.goto(page.url.split("#")[0] + "#" + console[0].sessions.ticket())
+    page.get_by_role("tab", name="Endpoints").click()
+    page.locator("#ep-result td .pill").first.wait_for()
+    assert page.get_by_label("Hosts to check").input_value() == "127.0.0.1:1", "the hosts of the last check come back after a reload"

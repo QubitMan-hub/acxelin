@@ -7,20 +7,25 @@
 <style>
 /*SHELL*/
 .split{grid-template-columns:minmax(0,230px) minmax(0,1fr)}
-@media (max-width:780px){.split{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:780px){.split{grid-template-columns:minmax(0,1fr)}#pj-main{order:-1}}
 td.asset{font-family:var(--mono);font-size:13px}
+details.where summary::after,details.more summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 2px 2px 8px;
+border:solid var(--muted);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);vertical-align:middle}
+details.where[open] summary::after,details.more[open] summary::after{transform:rotate(45deg);margin-bottom:4px}
 details.track summary{white-space:nowrap;list-style:none}details.track summary::-webkit-details-marker{display:none}
 details.track summary{text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
 details.where summary{cursor:pointer;list-style:none;font-family:var(--mono);font-size:13px}details.where summary::-webkit-details-marker{display:none}
-details.where summary::after{content:" ▸";color:var(--muted)}details.where[open] summary::after{content:" ▾"}
 details.where ul{margin:8px 0 2px;padding-left:16px;font:12.5px/1.6 var(--mono);color:var(--body)}details.where p{margin:6px 0 0;font-size:13px;color:var(--muted)}
-.counts button{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;border-radius:6px;padding:2px 4px}
-.score{display:flex;align-items:baseline;gap:8px;margin:4px 0 2px}.score b{font:500 40px/1 var(--display);color:var(--ink)}
-.trend{display:block;width:100%;max-width:440px;height:auto;color:var(--ink);margin:8px 0 0}
+.counts button{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;border-radius:6px;padding:4px 6px}.counts button:hover{background:var(--sunken)}
+.score{margin:2px 0 4px;color:var(--body)}.score strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+figure.trend{margin:14px 0 6px;max-width:460px}figure.trend svg{display:block;width:100%;height:auto;color:var(--ink)}
+figure.trend .axis{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:4px}
+figure.trend figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
+#targets{max-width:62ch}.results{margin-top:28px;padding-top:22px;border-top:1px solid var(--rule)}
 details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--muted)}details.more summary::-webkit-details-marker{display:none}
-details.more summary::after{content:" ▸"}details.more[open] summary::after{content:" ▾"}details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
-@media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more{display:none!important}.split{display:block}
-.scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}}
+details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
+@media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
+.scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
@@ -30,7 +35,7 @@ details.more summary::after{content:" ▸"}details.more[open] summary::after{con
 <main>
 <header class="brandbar"><div class="logo"><!--LOGO--></div><span class="product">Acxelin Readiness</span><small>Local console. Only this computer can open it.</small></header>
 <p class="msg" id="msg" role="alert"></p>
-<div id="app" aria-live="polite"><p class="lede">Opening the console…</p></div>
+<div id="app"><p class="lede">Opening the console…</p></div>
 </main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -43,7 +48,8 @@ const h = (tag, props = {}, ...kids) => {
   for (const k of kids.flat()) el.append(k instanceof Node ? k : document.createTextNode(k ?? ""));
   return el;
 };
-const say = (text) => { const m = $("#msg"); m.textContent = text || ""; if (text) m.scrollIntoView({block: "center", behavior: "smooth"}); };
+const calm = matchMedia("(prefers-reduced-motion: reduce)");
+const say = (text) => { const m = $("#msg"); m.replaceChildren(...acxText(text || "")); if (text) m.scrollIntoView({block: "center", behavior: calm.matches ? "auto" : "smooth"}); };
 const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null};
 const when = (t) => t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never";
 const call = async (path, body) => { try { say(""); return await acx.api(path, body); } catch (e) { say(e.status === 401 ? "This session has ended. Run the console command again to open a new one." : e.message); throw e; } };
@@ -56,12 +62,15 @@ function signedOut() {
 
 function setup() {
   const input = h("input", {type: "text", id: "dir", autocomplete: "off", placeholder: state.status.example, required: true});
-  const go = async () => { try { await call("setup", {directory: input.value}); await load(); $("#tab-projects").focus(); } catch (e) {} };
+  const go = async () => {
+    try { await call("setup", {directory: input.value}); await load(); $("#tab-projects").focus(); }
+    catch (e) { input.setAttribute("aria-invalid", "true"); input.setAttribute("aria-describedby", "msg"); input.focus(); }
+  };
   $("#panel").replaceChildren(h("div", {class: "narrow"}, h("h1", {}, "Where are your repositories?"),
     h("p", {class: "lede"}, "Acxelin Readiness only scans folders inside the one you choose here. Enter the full path of the folder that holds your repositories. To grade servers instead, open Endpoints; it needs no folder."),
     h("label", {for: "dir"}, "Folder path"), input,
     h("div", {class: "row", style: "margin-top:18px"}, h("button", {class: "btn", onclick: go}, "Use this folder")),
-    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm()));
+    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm("Repository link")));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   input.focus();
 }
@@ -70,14 +79,14 @@ async function addAndScan(project) {
   state.selected = project; state.filter = null;
   await call("projects/select", {project}); await load(); await call("projects/scan", {project}); pollProject();
 }
-function githubForm() {
+function githubForm(label = "Add from GitHub") {
   const url = h("input", {type: "text", inputmode: "url", id: "gh", autocomplete: "off", spellcheck: "false", placeholder: "https://github.com/owner/repository"});
   const add = async () => { try { const r = await call("projects/github", {url: url.value}); await addAndScan(r.project); } catch (e) {} };
   url.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
   const token = h("input", {type: "password", id: "ghtoken", autocomplete: "off"});
   const saveToken = async (value) => { try { await call("github/token", {token: value}); token.value = ""; await load(); } catch (e) {} };
   const saved = state.status.github_token;
-  return h("div", {}, h("label", {for: "gh", style: "margin-top:0"}, "Add from GitHub"), url,
+  return h("div", {}, h("label", {for: "gh", style: "margin-top:0"}, label), url,
     h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Download and scan")),
     h("details", {class: "more", style: "margin-top:12px"}, h("summary", {}, saved ? "Private repositories: token saved" : "Private repositories"),
       h("p", {}, "A fine-grained token with read-only Contents access. It is kept on this computer, readable only by you, and sent only to api.github.com."),
@@ -86,30 +95,43 @@ function githubForm() {
         saved ? h("button", {class: "btn quiet", onclick: () => saveToken("")}, "Remove token") : "")));
 }
 
+const TABS = ["projects", "endpoints"];
 function shell() {
-  const tab = (id, label) => h("button", {role: "tab", id: "tab-" + id, "aria-selected": String(state.tab === id), "aria-controls": "panel", onclick: () => { clearInterval(state.timer); state.tab = id; shell(); }}, label);
-  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist"}, tab("projects", "Projects"), tab("endpoints", "Endpoints")), h("div", {id: "panel", role: "tabpanel", "aria-labelledby": "tab-" + state.tab}));
+  const open = (id) => { clearInterval(state.timer); state.tab = id; shell(); $("#tab-" + id).focus(); };
+  const keys = (e) => {
+    const i = TABS.indexOf(state.tab), next = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1}[e.key];
+    if (next === undefined) return;
+    e.preventDefault(); open(TABS[(next + TABS.length) % TABS.length]);
+  };
+  const tab = (id, label) => h("button", {role: "tab", id: "tab-" + id, "aria-selected": String(state.tab === id), tabindex: state.tab === id ? "0" : "-1", "aria-controls": "panel",
+    onclick: () => open(id), onkeydown: keys}, label);
+  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist", "aria-label": "Console"}, tab("projects", "Projects"), tab("endpoints", "Endpoints")),
+    h("div", {id: "panel", role: "tabpanel", "aria-labelledby": "tab-" + state.tab}));
   (state.tab === "projects" ? projectsView : endpointsView)();
 }
 
 // ---- the readiness score and its trend
 
 const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+const stamp = (rows, r) => day(rows[0].finished) === day(rows[rows.length - 1].finished) ? when(r.finished).slice(11) : day(r.finished);
 function scoreView(score, rows, definition) {
   rows = rows.filter((r) => typeof r.score === "number");
-  const out = [h("div", {class: "score"}, h("b", {}, score == null ? "–" : String(score)), h("span", {}, score == null ? "nothing to score yet" : "/ 100 readiness score")),
-    h("p", {class: "legend", style: "margin-top:0"}, definition)];
-  if (rows.length < 2) return out;
-  const w = 440, ht = 120, pad = 22, x = (i) => pad + i * (w - 2 * pad) / (rows.length - 1), y = (v) => ht - pad - v * (ht - 2 * pad) / 100;
+  const first = rows.length > 1 ? rows[0] : null, change = first ? score - first.score : 0;
+  const out = [h("p", {class: "score"}, score == null ? "Nothing to score yet." : [
+    "Readiness ", h("strong", {}, score + " of 100"),
+    first ? (change ? (change > 0 ? ", up " : ", down ") + Math.abs(change) + " since " + stamp(rows, first) : ", unchanged since " + stamp(rows, first)) + "." : "."])];
+  if (rows.length < 2) return out.concat(h("details", {class: "more"}, h("summary", {}, "How the score works"), h("p", {}, definition)));
+  const w = 460, ht = 96, pad = 8, x = (i) => pad + i * (w - 2 * pad) / (rows.length - 1), y = (v) => ht - pad - v * (ht - 2 * pad) / 100;
   const pts = rows.map((r, i) => x(i).toFixed(1) + "," + y(Number(r.score)).toFixed(1)).join(" ");
   const dots = rows.map((r, i) => `<g><title>${when(Number(r.finished))}: ${Number(r.score)}</title><circle cx="${x(i).toFixed(1)}" cy="${y(Number(r.score)).toFixed(1)}" r="10" fill="transparent"/><circle cx="${x(i).toFixed(1)}" cy="${y(Number(r.score)).toFixed(1)}" r="4" fill="currentColor"/></g>`).join("");
   const box = document.createElement("div");
-  box.innerHTML = `<svg class="trend" viewBox="0 0 ${w} ${ht}" role="img" aria-label="Readiness score over the last ${rows.length} scans, from ${Number(rows[0].score)} to ${Number(rows[rows.length - 1].score)}">` +
-    `<line x1="${pad}" y1="${y(0)}" x2="${w - pad}" y2="${y(0)}" stroke="currentColor" stroke-opacity=".25"/><line x1="${pad}" y1="${y(100)}" x2="${w - pad}" y2="${y(100)}" stroke="currentColor" stroke-opacity=".12"/>` +
-    `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2"/>${dots}` +
-    `<text x="0" y="${y(100) + 4}" font-size="11" fill="currentColor">100</text><text x="8" y="${y(0) + 4}" font-size="11" fill="currentColor">0</text>` +
-    `<text x="${pad}" y="${ht - 4}" font-size="11" fill="currentColor">${day(Number(rows[0].finished))}</text><text x="${w - pad}" y="${ht - 4}" font-size="11" fill="currentColor" text-anchor="end">${day(Number(rows[rows.length - 1].finished))}</text></svg>`;
-  out.push(box.firstChild, h("details", {class: "more"}, h("summary", {}, "Score history as a table"),
+  box.innerHTML = `<svg viewBox="0 0 ${w} ${ht}" role="img" aria-label="Readiness score over the last ${rows.length} scans, from ${Number(rows[0].score)} to ${Number(rows[rows.length - 1].score)}">` +
+    `<line x1="${pad}" y1="${y(0)}" x2="${w - pad}" y2="${y(0)}" stroke="currentColor" stroke-opacity=".3"/><line x1="${pad}" y1="${y(100)}" x2="${w - pad}" y2="${y(100)}" stroke="currentColor" stroke-opacity=".12" stroke-dasharray="3 4"/>` +
+    `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>${dots}</svg>`;
+  const axis = (r) => h("span", {}, stamp(rows, r) + ": " + r.score);
+  out.push(h("figure", {class: "trend"}, box.firstChild, h("div", {class: "axis", "aria-hidden": "true"}, axis(rows[0]), axis(rows[rows.length - 1])),
+    h("figcaption", {}, "Readiness over the last " + rows.length + " scans, on a scale from 0 to 100. " + definition)),
+    h("details", {class: "more"}, h("summary", {}, "Score history as a table"),
     h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Score history"}, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Scanned"), h("th", {}, "Score"))),
       h("tbody", {}, rows.slice().reverse().map((r) => h("tr", {}, h("td", {}, when(r.finished)), h("td", {class: "num"}, String(r.score)))))))));
   return out;
@@ -120,6 +142,7 @@ function scoreView(score, rows, definition) {
 const tier = (t) => h("span", {class: "tag " + t}, t);
 function trackForm(asset) {
   const t = asset.tracking || {}, id = asset.id.slice(0, 8);
+  if (asset.tier === "ok" && !t.owner && (t.status || "open") === "open") return "";
   const owner = h("input", {type: "text", value: t.owner || "", id: "o" + id});
   const due = h("input", {type: "date", value: t.due || "", id: "d" + id});
   const status = h("select", {id: "s" + id}, [["open", "Open"], ["in_progress", "In progress"], ["exception", "Accepted risk"]].map(([v, l]) => h("option", {value: v, selected: (t.status || "open") === v}, l)));
@@ -156,9 +179,8 @@ function results(p) {
   const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || ""), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   out.replaceChildren(...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score})),
-      "The average priority of the listed findings: ok 100, low 75, medium 50, high 25, critical 0."),
+      "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average."),
     h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
-    h("p", {class: "legend"}, "Choose an asset to see where it is. Choose a priority to show only those."),
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
     last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "",
     exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")));
@@ -180,7 +202,7 @@ function projectsView() {
   panel.replaceChildren(h("div", {class: "split"}, side, main));
   if (!s.projects.length) { main.replaceChildren(h("h1", {}, "Add your first repository"), h("p", {class: "empty"}, "Choose one under Add a repository. It is scanned straight away, to show which cryptography it uses and what to migrate first.")); return; }
   const button = h("button", {class: "btn", id: "scan"}, "Scan repository");
-  main.replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, s.projects[state.selected].name), h("div", {class: "row"}, button)), h("p", {class: "state", id: "pj-state"}), h("div", {id: "pj-result"}));
+  main.replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, s.projects[state.selected].name), h("div", {class: "row"}, button)), h("p", {class: "state", id: "pj-state", role: "status"}), h("div", {id: "pj-result"}));
   button.addEventListener("click", async () => {
     const running = state.projects && state.projects.running;
     try { await call(running ? "projects/cancel" : "projects/scan", running ? {} : {project: state.selected}); pollProject(); } catch (e) {}
@@ -210,12 +232,17 @@ function endpointResults(e) {
   if (!out) return;
   const last = e.last;
   if (!last) { out.replaceChildren(); return; }
-  const rows = last.endpoints.map((r) => h("tr", {}, h("td", {}, r.target), h("td", {}, h("span", {class: "pill " + GRADE_TONE[r.grade]}, r.grade)), h("td", {}, r.negotiated || r.error || ""),
-    h("td", {}, r.certificate ? (r.certificate.key || "") + (!r.certificate.expires ? "" : r.certificate.days_left < 0 ? " · expired " + r.certificate.expires : " · " + r.certificate.days_left + " days left") : "",
+  const life = (c) => !c.expires ? "" : c.days_left < 0 ? h("span", {class: "pill bad"}, "expired " + c.expires)
+    : c.days_left < 30 ? h("span", {class: "pill warn"}, c.days_left + " days left") : c.days_left + " days left";
+  const rows = last.endpoints.map((r) => h("tr", {}, h("td", {class: "asset"}, r.target),
+    h("td", {}, h("span", {class: "pill " + GRADE_TONE[r.grade]}, r.grade, h("span", {class: "sr"}, ": " + GRADES[r.grade]))),
+    h("td", {class: r.negotiated ? "asset" : ""}, r.negotiated || r.error || ""),
+    h("td", {}, r.certificate ? [h("span", {class: "mono"}, r.certificate.key || ""), r.certificate.expires ? " · " : "", life(r.certificate)] : "",
       r.certificate && r.certificate.issuer ? h("div", {class: "legend", style: "margin:2px 0 0"}, "issued by " + ((r.certificate.issuer.match(/CN=([^,]+)/) || [])[1] || r.certificate.issuer)) : "")));
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));
-  out.replaceChildren(...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50, C 0. Endpoints that could not be graded (F) are left out."),
-    h("p", {class: "state"}, "Checked " + when(last.finished) + ". " + last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
+  out.replaceChildren(h("h2", {}, "Last check, " + when(last.finished)),
+    ...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50 and C 0; endpoints that could not be graded (F) are left out."),
+    h("p", {class: "state"}, last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
     pasted ? h("p", {class: "legend", style: "color:var(--ink)"}, "Only the host and port are checked: a server is graded as a whole, so anything after the host in an address is ignored.") : "",
     h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
     h("p", {class: "legend"}, Object.entries(GRADES).map(([g, t]) => g + ": " + t).join(" · ")),
@@ -230,8 +257,8 @@ function endpointResults(e) {
 function outlook(o) {
   if (!o) return [];
   const item = (i) => h("li", {}, i.text, i.targets.length ? h("small", {}, i.targets.join(", ")) : "");
-  return [o.risks.length ? h("section", {class: "outlook"}, h("h2", {}, "What can happen"), h("p", {class: "legend"}, "If nothing changes. Each point names the endpoints it applies to."), h("ul", {}, o.risks.map(item))) : "",
-    o.actions.length ? h("section", {class: "outlook"}, h("h2", {}, "What we recommend"), h("p", {class: "legend"}, "Most urgent first."), h("ol", {}, o.actions.map(item))) : ""];
+  return [o.risks.length ? h("section", {class: "outlook"}, h("h2", {}, "What can happen if nothing changes"), h("ul", {}, o.risks.map(item))) : "",
+    o.actions.length ? h("section", {class: "outlook"}, h("h2", {}, "What we recommend"), h("ol", {}, o.actions.map(item))) : ""];
 }
 function proxyNote(rows) {
   const issuers = rows.map((r) => r.certificate && r.certificate.issuer).filter(Boolean);
@@ -254,11 +281,12 @@ const exports = (csv) => h("div", {class: "row", style: "margin-top:20px"}, h("b
   h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF"));
 function endpointsView() {
   const area = h("textarea", {id: "targets", placeholder: "api.example.com:443\nssh://bastion.example.com", spellcheck: "false"}, state.targets);
+  state.restore = !state.targets;  // after a reload, the last check's hosts come back into the box
   const go = h("button", {class: "btn", id: "check"}, "Check endpoints");
   $("#panel").replaceChildren(h("h1", {}, "Are your endpoints ready?"),
     h("p", {class: "lede"}, "Grade live TLS and SSH servers on post-quantum key exchange, and see what changed since the last check."),
     h("label", {for: "targets", style: "margin-top:0"}, "Hosts to check (one per line)"), area,
-    h("div", {class: "row", style: "margin-top:12px"}, go), h("p", {class: "state", id: "ep-state"}), h("div", {id: "ep-result"}));
+    h("div", {class: "row", style: "margin-top:12px"}, go), h("p", {class: "state", id: "ep-state", role: "status"}), h("div", {id: "ep-result", class: "results", hidden: true}));
   go.addEventListener("click", async () => { state.targets = area.value; try { await call("endpoints/scan", {targets: area.value}); pollEndpoints(); } catch (e) {} });
   refreshEndpoints();
 }
@@ -268,6 +296,8 @@ async function refreshEndpoints() {
     const st = $("#ep-state"), b = $("#check");
     if (!st) return e;
     b.disabled = e.running; st.textContent = e.running ? "Checking endpoints…" : (e.error || ""); st.style.color = !e.running && e.error ? "var(--bad)" : "";
+    if (state.restore && e.last) { state.restore = false; $("#targets").value = state.targets = e.last.targets.join("\n"); }
+    $("#ep-result").hidden = !e.last;
     endpointResults(e); return e;
   } catch (e) { return null; }
 }

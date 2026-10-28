@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Windows: `install.ps1` writes its command wrapper in the console code page, so a user name such as José keeps its
+  path. ASCII turned it into `Jos?`.
+
 ## 1.0.2
 
 - Console: create the certificate authority in the console instead of the command line. The People tab asks where

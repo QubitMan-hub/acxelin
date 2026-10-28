@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Windows: `install.ps1` writes its command wrapper in the console code page, so a user name such as José keeps its
+  path. ASCII turned it into `Jos?`.
+
 ## 1.0.2
 
 - Console: type the CA passphrase twice, so a typo is caught before the CA exists. An issued server certificate shows where its

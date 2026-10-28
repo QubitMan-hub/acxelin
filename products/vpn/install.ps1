@@ -52,7 +52,7 @@ if (-not $ssl) { $note = "If doctor reports no OpenSSL 3.5+ below: choco install
 $wrapper = @("@echo off")
 if ($ssl) { $wrapper += "if not defined ACXELIN_OPENSSL set `"ACXELIN_OPENSSL=$ssl`"" }
 $wrapper += "`"$(Join-Path $home_ "Scripts\$cmd.exe")`" %*"
-Set-Content -Path (Join-Path $bin "$cmd.cmd") -Value $wrapper -Encoding ASCII
+Set-Content -Path (Join-Path $bin "$cmd.cmd") -Value $wrapper -Encoding Oem  # cmd.exe reads the console code page; ASCII would turn a name such as José into Jos?
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not (($userPath -split ";") -contains $bin)) {
