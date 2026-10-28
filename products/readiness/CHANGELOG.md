@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Endpoints: on a machine whose OpenSSL is older than 3.5, a server that speaks TLS 1.3 was graded C ("classical only")
+  because the check fell back to TLS 1.2. It is now graded from raw ClientHello messages, which need no new OpenSSL, and
+  says so; a server with no TLS 1.3 is still graded C.
+- SHA-1 (or MD5) used only inside HMAC, PBKDF2, RSA-OAEP or MGF1 is rated low, not broken: these need no collision
+  resistance. RSA with OAEP over SHA-1 is no longer called a signature over SHA-1. SHA-1 anywhere else is unchanged.
+- Java's `RSA/ECB/...` transformation no longer counts as ECB mode (Java's name for a single RSA block), so RSA is not
+  told to switch to AES-GCM. `AES/ECB/...` is still critical.
+- A finding lists its places in real code before its places in tests. `regress/`, `regression/` and `test-*` folders
+  count as tests. Deprecated DSA keys no longer print warnings during a scan.
 - Console: results now read as four analyses, each named on the page and reachable from an "At a glance" summary:
   Descriptive (what was found: a priority or grade bar and the table), Diagnostic (why: what each priority or grade means,
   what puts findings at risk, how they were seen, score, coverage and trend), Predictive (what can happen if nothing

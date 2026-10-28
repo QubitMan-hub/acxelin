@@ -138,3 +138,40 @@ def test_a_fully_qualified_java_class_is_read_like_an_imported_one(tmp_path):
         (root / "K.java").write_text("import java.security.*;\nclass K { void k() throws Exception {\n" + body.format(prefix) + "} }\n")
         result.append(sorted(a["name"] for a in workspace.scan(root)["assets"]))
     assert result[0] == result[1] and any("384" in n for n in result[1])
+
+
+def test_sha_1_inside_rsa_oaep_is_not_called_broken_but_sha_1_elsewhere_still_is(tmp_path):
+    (tmp_path / "oaep.py").write_text("from cryptography.hazmat.primitives import hashes\nfrom cryptography.hazmat.primitives.asymmetric import padding\n"
+                                      "OAEP = padding.OAEP(padding.MGF1(hashes.SHA1()), hashes.SHA1(), None)\n")
+    sha1 = next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "SHA-1")
+    assert sha1["tier"] == "low" and "OAEP" in sha1["why"]
+    (tmp_path / "sig.py").write_text("from cryptography.hazmat.primitives import hashes\nh = hashes.Hash(hashes.SHA1())\n")
+    assert next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "SHA-1")["tier"] == "critical"
+
+
+def test_a_findings_places_in_real_code_come_before_its_places_in_tests(tmp_path):
+    (tmp_path / "a_tests").mkdir()
+    (tmp_path / "a_tests/test_k.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    (tmp_path / "z.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    assert next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "MD5")["locations"][0][0] == "z.py"
+
+
+def test_javas_rsa_ecb_transformation_is_not_ecb_mode_but_aes_ecb_is(tmp_path):
+    (tmp_path / "K.java").write_text('import javax.crypto.Cipher;\nclass K { void k() throws Exception {\n'
+                                     'Cipher r = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");\nCipher a = Cipher.getInstance("AES/ECB/PKCS5Padding");\n} }\n')
+    found = {a["algorithm"]: a for a in workspace.scan(tmp_path)["assets"]}
+    assert found["RSA"]["tier"] != "critical" and "AES" not in found["RSA"]["action"]
+    assert found["AES"]["tier"] == "critical" and "ECB" in found["AES"]["why"]
+
+
+@pytest.mark.parametrize("src", ["export const algs = {\n  'RSA-OAEP': rsaes(1),\n  A256GCM: gcm(256),\n}\nawait crypto.subtle.decrypt('RSA-OAEP', key, data)\n", "import hmac, hashlib\nhmac.new(k, m, hashlib.sha1)\n"])
+def test_sha_1_carried_by_oaep_or_hmac_is_not_called_broken(tmp_path, src):
+    (tmp_path / ("a.ts" if "const" in src else "a.py")).write_text(src)
+    found = {a["algorithm"]: a for a in workspace.scan(tmp_path)["assets"]}
+    assert found["SHA-1"]["tier"] == "low" and "collision" in found["SHA-1"]["why"]
+    assert found.get("RSA", {}).get("tier") != "critical" and "Signature over" not in found.get("RSA", {}).get("why", "")
+
+
+def test_sha_1_of_the_message_handed_to_hmac_is_still_broken(tmp_path):
+    (tmp_path / "a.py").write_text("import hmac, hashlib\nhmac.new(k, hashlib.sha1(m).digest(), hashlib.sha256)\n")
+    assert next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "SHA-1")["tier"] == "critical"

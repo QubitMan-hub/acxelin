@@ -269,6 +269,8 @@ def grade(a):
     results = endpoints.scan(targets, a.workers, a.timeout)
     for r in results:
         print(f"{r.get('grade', 'F')}  {r.get('target', '?')}  {r.get('error') or r.get('negotiated') or ''}")
+        if r.get("note"):
+            print(f"   {r['note']}")
     for path, text in ((a.json, endpoints.to_json), (a.html, endpoints.report_html)):
         if path:
             try:

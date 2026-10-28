@@ -248,7 +248,7 @@ def assess(a, h, hybrid_files):
     a.exposure = label
     a.nist = nist_status(a.algo, a.params)
     a.action = c.replace
-    weak_hash = a.params.get("hash") in ("MD5", "SHA-1") and c.primitive in ("signature", "pke")
+    weak_hash = a.params.get("hash") in ("MD5", "SHA-1") and c.primitive in ("signature", "pke") and a.params.get("padding") != "oaep"
     if c.threat == LEGACY or (bits is not None and bits < 112) or a.params.get("mode") == "ECB" or weak_hash:
         tier = "critical" if w >= 3 else "high"
         if a.params.get("mode") == "ECB":
@@ -307,6 +307,10 @@ def assess(a, h, hybrid_files):
         tier = "low"
         a.why = "Declared not for security (usedforsecurity=False), so a checksum or cache key; this is the developer's statement, not verified"
         a.action = "Keep it out of passwords, signatures and integrity checks"
+    if tier in ("critical", "high", "medium") and a.detections and all(s.params.get("purpose") == "padding" for s in a.detections):
+        tier = "low"
+        a.why = "Only inside HMAC, PBKDF2, RSA-OAEP or MGF1, which need no collision resistance from it, so it is not broken there"
+        a.action = "Use SHA-256 for OAEP in new code; keep both sides of an existing exchange in step"
     if tier in ("critical", "high", "medium") and all("trust-store" in s.context for s in a.detections):
         tier = "low"
         a.why = "Root certificates in a trust store: keys the project trusts, not keys it holds"

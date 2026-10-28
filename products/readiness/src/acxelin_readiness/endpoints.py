@@ -11,12 +11,12 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
 from acxelin_core.config import read_text
 from acxelin_core.http import explain, hostport
-from acxelin_core.openssl import Context, TLSError
+from acxelin_core.openssl import Context, OpenSSLUnavailable, TLSError
 from acxelin_core.pki import algorithm_of
 
 from . import __version__
 from .brand import page as _page
-from .detectors.probe import legacy_versions
+from .detectors.probe import legacy_versions, tls_groups
 
 log = logging.getLogger(__name__)
 CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"  # every TLS 1.3 suite, so the probe never limits what the server can pick
@@ -65,6 +65,30 @@ def _legacy(host, port, server_name, timeout):
     with socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name) as s:
         der = s.getpeercert(binary_form=True)
         return s.version(), x509.load_der_x509_certificate(der) if der else None
+
+
+def _newest(host, port, server_name, timeout):
+    """(version, certificate) when this machine's Python offers the newest TLS it has."""
+    from cryptography import x509
+    with socket.create_connection((host, port), timeout=timeout) as raw, _unverified().wrap_socket(raw, server_hostname=server_name) as s:
+        der = s.getpeercert(binary_form=True)
+        return s.version(), x509.load_der_x509_certificate(der) if der else None
+
+
+def _raw(out, e, host, port, cert, server_name, timeout):
+    """A TLS 1.3 server graded from raw ClientHellos, when this machine's OpenSSL cannot ask for post-quantum groups."""
+    g = tls_groups(host, port, timeout)
+    if "error" in g or not g.get("supported"):
+        out["error"], out["grade"] = explain(e), "F"
+        return out
+    out["accepts"] = [n for n in PQ + CLASSICAL if n in g["supported"]]
+    out["negotiated"] = g.get("preferred") or (out["accepts"] or [None])[0]
+    pq, classical = (any(n in out["accepts"] for n in s) for s in (PQ, CLASSICAL))
+    out["grade"] = "A" if pq and not classical else "B" if pq else "C" if classical else "F"
+    out["certificate"], out["legacy"] = _cert_info(cert), _old_versions(host, port, server_name or host, timeout)
+    out["trusted"] = _trusted(host, port, server_name or host, timeout)
+    out["note"] = "Groups read with raw ClientHello messages: this machine's OpenSSL is older than 3.5."
+    return out
 
 
 def _trusted(host, port, server_name, timeout):
@@ -178,6 +202,10 @@ def probe(target, server_name=None, timeout=8.0):
         out["negotiated"], cert = _hello(host, port, ":".join(PQ + CLASSICAL), server_name or host, timeout)
     except (TLSError, OSError) as e:
         try:
+            if isinstance(e, OpenSSLUnavailable):
+                version, cert = _newest(host, port, server_name or host, timeout)
+                if version == "TLSv1.3":
+                    return _raw(out, e, host, port, cert, server_name, timeout)
             version, cert = _legacy(host, port, server_name or host, timeout)
         except (OSError, ValueError):
             out["error"], out["grade"] = explain(e), "F"

@@ -228,7 +228,7 @@ def parse_transformation(s):
     m = re.search(r"(128|192|256)", parts[0])
     if algo == "AES" and m:
         params["key_size"] = int(m.group(1))
-    if len(parts) > 1 and parts[1].upper() in MODES:
+    if len(parts) > 1 and parts[1].upper() in MODES and (algo not in CATALOG or CATALOG[algo].primitive == "block-cipher"):  # Java names RSA "RSA/ECB": one block, no mode
         params["mode"] = parts[1].upper()
     if len(parts) > 2:
         p = PADDINGS.get(parts[2].upper().replace(" ", ""))

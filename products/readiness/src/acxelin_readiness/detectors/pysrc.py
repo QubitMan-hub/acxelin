@@ -18,6 +18,7 @@ def _norm(q):
 class PythonDetector(ast.NodeVisitor):
     def __init__(self, path, src, flow=None):
         self.path, self.lines, self.alias, self.consts, self.out, self.seen = path, src.splitlines(), {}, {}, [], set()
+        self.padding = set()  # hashes inside HMAC, PBKDF2, RSA-OAEP or MGF1, where collisions do not matter
         self.flow = flow
         self.root = None
         self.skip = set()
@@ -122,6 +123,12 @@ class PythonDetector(ast.NodeVisitor):
         q = _norm(raw)
         self.root = raw.split(".")[0] if raw.split(".")[0] in ROOTS else None
         last = q.split(".")[-1]
+        inner = {"C.asymmetric.padding.OAEP": (0, 3, None), "C.asymmetric.padding.MGF1": (0, 1, None), "hmac.new": (2, 3, "digestmod"),
+                 "hmac.digest": (2, 3, "digest"), "C.hmac.HMAC": (1, 2, "algorithm")}.get(q)
+        if inner:
+            lo, hi, kw = inner
+            args = node.args[lo:hi] + [k.value for k in node.keywords if kw is None or k.arg == kw]
+            self.padding.update(id(c) for arg in args for c in ast.walk(arg) if isinstance(c, (ast.Call, ast.Attribute)))
         h = self.handle(node, q, last)
         if h is None and (raw.split(".")[0] in ROOTS or q.startswith("C.")):
             pq = pq_from_text(q)
@@ -140,7 +147,7 @@ class PythonDetector(ast.NodeVisitor):
             q = self.qual(node)
             if q.startswith("hashlib.") and q.split(".")[-1] in HASHLIB and q.count(".") == 1:
                 self.root = None
-                self.emit(node, lookup(q.split(".")[-1]))
+                self.emit(node, lookup(q.split(".")[-1]), {"purpose": "padding"} if id(node) in self.padding else {})
             n = _norm(q)
             if n.startswith("C.asymmetric.") and n.count(".") == 3 and n.split(".")[2] in ("rsa", "dsa", "dh", "ed25519", "ed448", "x25519", "x448"):
                 self.root = "cryptography"
@@ -212,7 +219,7 @@ class PythonDetector(ast.NodeVisitor):
             if base.startswith("ChaCha20"):
                 return self.emit(n, "ChaCha20-Poly1305") or True
         if q.startswith("C.hashes."):
-            return self.emit(n, lookup(last)) or True
+            return self.emit(n, lookup(last), {"purpose": "padding"} if id(n) in self.padding else {}) or True
         if q.startswith("C.kdf."):
             if "pbkdf2" in q.lower():
                 return self.emit(n, "PBKDF2", {"hash": self.hashname(a(0, "algorithm"))}) or True

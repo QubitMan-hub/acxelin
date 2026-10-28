@@ -93,7 +93,9 @@ def parse_pem(block, label, path, line):
     algo, params, encrypted = None, {}, "ENCRYPTED" in label
     try:
         if label == "OPENSSH PRIVATE KEY":
-            k = serialization.load_ssh_private_key(block, None)
+            with warnings.catch_warnings():  # DSA keys are deprecated, and finding them is the point
+                warnings.simplefilter("ignore")
+                k = serialization.load_ssh_private_key(block, None)
         elif kind == "private-key":
             k = serialization.load_pem_private_key(block, None)
         else:
@@ -123,7 +125,9 @@ def scan_bytes(data, path, base_ctx):
     for m in SSH_LINE.finditer(data):
         line = data.count(b"\n", 0, m.start()) + 1
         try:
-            k = serialization.load_ssh_public_key(m.group(1) + b" " + m.group(2))
+            with warnings.catch_warnings():  # DSA keys are deprecated, and finding them is the point
+                warnings.simplefilter("ignore")
+                k = serialization.load_ssh_public_key(m.group(1) + b" " + m.group(2))
             algo, params = key_info(k)
         except Exception:
             continue

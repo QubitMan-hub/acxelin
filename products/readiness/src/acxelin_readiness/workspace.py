@@ -9,6 +9,7 @@ from pathlib import Path
 from acxelin_core.files import locked, write
 
 from . import owners
+from .detectors import is_test
 
 
 class ScanStopped(ValueError):
@@ -89,7 +90,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     assets = [{"name": a.variant, "algorithm": a.algo, "tier": a.tier, "why": a.why, "action": a.action,
                "confidence": a.confidence, "test_only": a.test_only, "declared": a.declared,
                "uncertainty": "Algorithm inferred from names or literals; confirm the implementation and dynamic dispatch" if all(s.evidence in {"identifier", "import", "string"} for s in a.detections) else "Static evidence; runtime use is not established",
-               "locations": sorted({(s.file, s.line) for s in a.detections}), "impact": a.params.get("code_impact"), "hybrid_context": a.params.get("hybrid_context", [])}
+               "locations": sorted({(s.file, s.line) for s in a.detections}, key=lambda fl: (is_test(fl[0]), fl)), "impact": a.params.get("code_impact"), "hybrid_context": a.params.get("hybrid_context", [])}
               | evidence_view(a) for a in result.assets]
     patterns = [{k: v for k, v in p.as_dict().items() if k != "snippet"} for p in getattr(result, "patterns", [])][:500]
     graph = result.relationships

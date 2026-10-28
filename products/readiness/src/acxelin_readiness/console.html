@@ -357,7 +357,7 @@ function endpointResults(e) {
     : c.days_left < 30 ? h("span", {class: "pill warn"}, c.days_left + " days left") : c.days_left + " days left";
   const rows = last.endpoints.map((r) => h("tr", {}, h("td", {class: "asset"}, r.target),
     h("td", {}, h("span", {class: "pill " + GRADE_TONE[r.grade]}, r.grade, h("span", {class: "sr"}, ": " + GRADES[r.grade]))),
-    h("td", {class: r.negotiated ? "asset" : ""}, r.negotiated || r.error || ""),
+    h("td", {class: r.negotiated ? "asset" : ""}, r.negotiated || r.error || "", r.note ? h("small", {class: "basis"}, r.note) : ""),
     h("td", {}, r.certificate ? [h("span", {class: "mono"}, r.certificate.key || ""), r.certificate.expires ? " · " : "", life(r.certificate)] : "",
       r.certificate && r.certificate.issuer ? h("div", {class: "legend", style: "margin:2px 0 0"}, "issued by " + ((r.certificate.issuer.match(/CN=([^,]+)/) || [])[1] || r.certificate.issuer)) : "")));
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));

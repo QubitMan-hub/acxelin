@@ -17,7 +17,7 @@ from acxelin_readiness import endpoints
 from acxelin_readiness.detectors import probe, tls
 
 
-def server(request, tmp_path, oldest):
+def server(request, tmp_path, oldest, newest=ssl.TLSVersion.TLSv1_2):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "old.internal")])
     now = dt.datetime.now(dt.timezone.utc)
@@ -30,7 +30,7 @@ def server(request, tmp_path, oldest):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             ctx.set_ciphers("ALL:@SECLEVEL=0")
-            ctx.minimum_version, ctx.maximum_version = oldest, ssl.TLSVersion.TLSv1_2
+            ctx.minimum_version, ctx.maximum_version = oldest, newest
     except (ssl.SSLError, ValueError) as e:
         pytest.skip(f"this machine's OpenSSL cannot run a {oldest.name} server: {e}")
     ctx.load_cert_chain(tmp_path / "c.pem", tmp_path / "k.pem")
@@ -88,3 +88,20 @@ def test_the_grader_tells_the_operator_to_switch_old_versions_off(old, current):
     results = {r["target"]: r for r in endpoints.scan([f"127.0.0.1:{old}", f"127.0.0.1:{current}"], timeout=5)}
     assert results[f"127.0.0.1:{old}"]["legacy"] == ["TLSv1.0", "TLSv1.1"]
     assert results[f"127.0.0.1:{current}"]["legacy"] == []
+
+
+def test_an_openssl_too_old_to_offer_post_quantum_groups_does_not_grade_a_tls_1_3_server_classical(request, tmp_path, current, monkeypatch):
+    from acxelin_core.openssl import OpenSSLUnavailable
+
+    def too_old(*a):
+        raise OpenSSLUnavailable("this machine's OpenSSL 3.0 is too old: post-quantum TLS needs OpenSSL 3.5 or newer")
+    monkeypatch.setattr(endpoints, "_hello", too_old)
+    modern = server(request, tmp_path, ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3)
+    monkeypatch.setattr(endpoints, "tls_groups", lambda *a: {"error": "reset"})
+    r = endpoints.probe(f"127.0.0.1:{modern}", timeout=5)
+    assert r["grade"] == "F" and "too old" in r["error"] and r["negotiated"] is None
+    monkeypatch.setattr(endpoints, "tls_groups", lambda *a: {"tls13": True, "preferred": "X25519MLKEM768", "supported": ["X25519MLKEM768", "X25519"]})
+    r = endpoints.probe(f"127.0.0.1:{modern}", timeout=5)
+    assert (r["grade"], r["accepts"], r["negotiated"], r["error"]) == ("B", ["X25519MLKEM768", "X25519"], "X25519MLKEM768", None), "the raw ClientHello probe needs no new OpenSSL"
+    assert r["certificate"]["key"] == "RSA-2048" and "raw ClientHello" in r["note"]
+    assert endpoints.probe(f"127.0.0.1:{current}", timeout=5)["grade"] == "C", "a server with no TLS 1.3 cannot offer post-quantum groups"

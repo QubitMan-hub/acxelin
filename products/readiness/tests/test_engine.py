@@ -598,9 +598,9 @@ class Probe(unittest.TestCase):
 class Scope(unittest.TestCase):
     def test_test_and_benchmark_directories(self):
         from acxelin_readiness.detectors import is_test
-        for p in ("UnitTestsNet46/jwk/JwkTest.cs", "src/Jose.Tests/A.cs", "benches/x25519.rs", "browserTest/perf.js", "tests/a.py", "src/itest/resources/id_ecdsa", "t/unit/security/__init__.py", "lib/Crypto/SelfTest/PublicKey/vector.pem", "test_vectors/wycheproof/rsa.json"):
+        for p in ("UnitTestsNet46/jwk/JwkTest.cs", "src/Jose.Tests/A.cs", "benches/x25519.rs", "browserTest/perf.js", "tests/a.py", "src/itest/resources/id_ecdsa", "t/unit/security/__init__.py", "lib/Crypto/SelfTest/PublicKey/vector.pem", "test_vectors/wycheproof/rsa.json", "regress/rsa_openssh.pub", "test-ca/rsa-3072/ca.cert"):
             self.assertTrue(is_test(p), p)
-        for p in ("src/contests/a.py", "src/attestation/a.py", "latest/a.go", "src/jwt/a.py", "src/digest/a.java", "wittest/a.py", "src/units/convert.py", "unit.py", "src/selftest_loader.py", "src/test_vectors_service/crypto.py"):
+        for p in ("src/contests/a.py", "src/attestation/a.py", "latest/a.go", "src/jwt/a.py", "src/digest/a.java", "wittest/a.py", "src/units/convert.py", "unit.py", "src/selftest_loader.py", "src/test_vectors_service/crypto.py", "src/progress/a.py", "testament/a.py"):
             self.assertFalse(is_test(p), p)
 
 
