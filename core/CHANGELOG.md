@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Consoles read a request's body only after its session is checked (sign-in excepted), so an unauthenticated request never
+  has a body parsed or awaited. A route can take a larger body than the default (`App(..., limits=...)`).
 - Consoles: requests without a credential no longer count towards the lockout, and a signed-in session keeps working while
   wrong tokens from the same address are locked out. Before, a page on another local port could lock the real user out with
   ten image loads. Fetches marked `Sec-Fetch-Site: same-site` (another local port) are refused like cross-site ones.

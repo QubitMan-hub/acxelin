@@ -249,6 +249,14 @@ docker run -d --name readiness -v readiness:/data -p 127.0.0.1:8900:8900 acxelin
 docker exec -it readiness acxelin-readiness console link
 ```
 
+### Importing another tool's CBOM
+
+**Import a CBOM** takes a CycloneDX file from another tool, such as CodeQL, and shows it as a project: the same table,
+tracking, history and score. Priorities come from the file's own `acxelin:*` properties when it has them, otherwise from
+the algorithm alone, and the page says so. Names the catalogue does not recognise are counted, not rated. Nothing in the
+file is re-checked: it describes what the other tool found. Importing a file with the same name again replaces it and
+compares, like a rescan. Files up to 16 MB; for larger ones, use `acxelin-readiness merge`.
+
 ### Tracking a finding
 
 Choose **Assign an owner** on a finding to give it an owner, a due date and a status: **To do**, **Planned**, **In

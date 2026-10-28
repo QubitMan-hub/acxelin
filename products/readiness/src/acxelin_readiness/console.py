@@ -29,6 +29,7 @@ class Readiness:
         self.store = workspace.ProjectStore(self.home / "workspace.json")
         self.history = self.home / "history.json"
         self.remote_dir, self.remote_file, self.token_file = self.home / "github", self.home / "github.json", self.home / "github-token"
+        self.import_dir, self.import_file = self.home / "imports", self.home / "imports.json"
         self.folder = None
         self.projects = []
         self.cache = None
@@ -56,6 +57,7 @@ class Readiness:
             except (OSError, ValueError):
                 pass  # a stored name never grants access beyond today's chosen folder
         self.projects += [self.remote_dir / name for name in self.remotes()]
+        self.projects += [self.import_dir / name for name in self.imports()]
         saved = [(a["finished"], i, a) for i, a in enumerate(self.store.assessment(p) for p in self.projects) if a]
         self.job.update(last=None, selected=0, error=None, stage="")
         if saved:
@@ -110,7 +112,39 @@ class Readiness:
             return {}
 
     def label(self, path):
+        if path.parent == self.import_dir:
+            return "Imported: " + self.imports().get(path.name, path.name)
         return "github.com/" + remote.label(self.remotes()[path.name]) if path.parent == self.remote_dir else path.name
+
+    # --- CBOMs from other tools, kept owner-only in the console's folder
+
+    def imports(self):
+        try:
+            saved = json.loads(self.import_file.read_text()) if self.import_file.exists() else {}
+            return {k: v for k, v in saved.items() if isinstance(k, str) and isinstance(v, str) and re.fullmatch(r"[a-z0-9]{1,40}-[0-9a-f]{8}\.json", k)}
+        except (OSError, ValueError, AttributeError):
+            return {}
+
+    def import_cbom(self, body):
+        name, bom = body.get("name"), body.get("cbom")
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            raise ValueError("Give the CBOM a name of up to 200 characters, such as its file name")
+        if not isinstance(bom, dict) or bom.get("bomFormat") != "CycloneDX" or not isinstance(bom.get("components", []), list):
+            raise ValueError("Choose a CycloneDX CBOM: a JSON file with bomFormat CycloneDX and a list of components")
+        slug = re.sub(r"[^a-z0-9]+", "", name.lower())[:40] or "cbom"
+        file = f"{slug}-{hashlib.sha256(name.strip().encode()).hexdigest()[:8]}.json"
+        with self.lock:
+            if self.job["running"]:
+                raise ValueError("Wait for the running scan to finish, or stop it")
+            known = self.imports()
+            if file not in known and len(known) >= 200:
+                raise ValueError("The console keeps at most 200 imported CBOMs")
+            write(self.import_dir / file, json.dumps(bom).encode(), secret=True)
+            write(self.import_file, json.dumps(known | {file: name.strip()}).encode(), secret=True)
+            path = self.import_dir / file
+            if path not in self.projects:
+                self.projects.append(path)
+            return 200, {"project": self.projects.index(path)}
 
     def github(self, body):
         url = body.get("url")
@@ -153,6 +187,10 @@ class Readiness:
         if type(i) is not int or not 0 <= i < len(self.projects):
             raise ValueError("Choose a registered project")
         p = self.projects[i]
+        if p.parent == self.import_dir:
+            if p.name not in self.imports():
+                raise ValueError("Choose a registered project")
+            return i, p
         if p.parent == self.remote_dir:
             if p.name not in self.remotes():
                 raise ValueError("Choose a registered project")
@@ -200,7 +238,11 @@ class Readiness:
                     url = self.remotes()[path.name]
                     remote.fetch(url, path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
                     name = remote.label(url)
-                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
+                if path.parent == self.import_dir:
+                    progress("Reading the imported CBOM")
+                    result = workspace.imported(path, self.imports()[path.name])
+                else:
+                    result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
                 result["project_key"] = self.store.key(path)
                 try:
                     result = self.store.save(path, result)
@@ -330,11 +372,11 @@ def page():
 def build(home):
     r = Readiness(home)
     routes = {("GET", "/api/status"): r.status, ("POST", "/api/setup"): r.setup,
-              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
+              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
-    return core.App(page(), routes)
+    return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000})  # a CBOM can be large; read only after sign-in
 
 
 def run(home, port=8900, open_browser=True, host="127.0.0.1"):

@@ -333,3 +333,35 @@ def test_link_running_never_sends_the_automation_token_through_a_proxy(tmp_path,
     finally:
         server.shutdown()
         trap.close()
+
+
+def test_a_route_can_take_a_larger_body_than_the_rest(tmp_path):
+    app = console.App(b"<script>1</script>", {("POST", "/api/big"): lambda b: (200, {"n": len(b["x"])}), ("POST", "/api/small"): lambda b: (200, {})},
+                      body_limit=1000, limits={("POST", "/api/big"): 100_000})
+    app.sessions.tokens.add("t")
+    server = console.serve(app, ("127.0.0.1", 0))
+    port = server.server_address[1]
+    body = json.dumps({"x": "a" * 50_000}).encode()
+    auth = {"Authorization": "Bearer t", "Content-Type": "application/json"}
+    try:
+        assert raw(port, "POST", "/api/big", auth, body) == (200, b'{"n": 50000}')
+        assert raw(port, "POST", "/api/small", auth, body)[0] == 413
+    finally:
+        server.shutdown()
+
+
+def test_a_request_without_a_session_is_refused_before_its_body_is_read():
+    import socket
+    import time
+    app = console.App(b"<script>1</script>", {("POST", "/api/big"): lambda b: (200, {})}, limits={("POST", "/api/big"): 16_000_000})
+    server = console.serve(app, ("127.0.0.1", 0))
+    port = server.server_address[1]
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        s.sendall(f"POST /api/big HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: 15000000\r\n\r\n".encode())
+        start = time.monotonic()
+        answer = s.recv(4096)
+        s.close()
+        assert answer.split(b" ")[1] == b"401" and time.monotonic() - start < 3, "no 15 MB is awaited, parsed or buffered without a session"
+    finally:
+        server.shutdown()

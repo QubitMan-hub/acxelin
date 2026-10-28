@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Console: **Import a CBOM** turns another tool's CycloneDX CBOM (CodeQL's, for one) into a project with priorities, tracking,
+  history and a score. Tiers come from its `acxelin:*` properties or are estimated from the algorithm; unknown names are
+  counted, not rated. Imports are kept owner-only in the console's folder.
 - Console: findings move through To do, Planned, In progress, Fixed and Accepted risk. Each change of status, owner or due date
   is kept in the finding's history (the last 50). A finding marked Fixed that a later scan still finds is flagged, and the
   page counts findings by status. Workspaces from earlier versions keep their statuses.

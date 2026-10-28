@@ -183,8 +183,8 @@ class Download:
 class App:
     """One product console: its page, its routes {(method, path): handler(body) -> (status, json)} and its sessions."""
 
-    def __init__(self, html, routes, sessions=None, body_limit=1 << 17):
-        self.html, self.routes, self.body_limit = with_client(html), routes, body_limit
+    def __init__(self, html, routes, sessions=None, body_limit=1 << 17, limits=None):
+        self.html, self.routes, self.body_limit, self.limits = with_client(html), routes, body_limit, limits or {}
         self.sessions = sessions or Sessions()
 
 
@@ -222,8 +222,8 @@ def serve(app, listen=("127.0.0.1", 0)):
             # so requests another page can make without a credential cannot shut the real user out.
             addr = self.client_address[0]
             locked = {"error": "too many wrong attempts; wait a minute"}
-            body = self.json_body(app.body_limit)
             if method == "POST" and path == "/api/session":
+                body = self.json_body(app.body_limit)
                 if not isinstance(body, dict):
                     return self.reply(*body)
                 ticket = body.get("ticket")
@@ -242,7 +242,9 @@ def serve(app, listen=("127.0.0.1", 0)):
                     return self.reply(429, locked)
                 if credential:
                     backoff.failed(addr)
+                self.close_connection = True  # its body is never read
                 return self.reply(401, {"error": "sign in again: open the console from its command"})
+            body = self.json_body(app.limits.get((method, path), app.body_limit))  # only a signed-in caller's body is read
             if not isinstance(body, dict):
                 return self.reply(*body)
             if method == "POST" and path == "/api/ticket":

@@ -90,6 +90,26 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     return assessment
 
 
+def imported(path, name):
+    """An assessment from another tool's CycloneDX CBOM. Priorities come from its own acxelin:* properties when present, else
+    from the algorithm alone; components whose names this catalogue does not recognise are counted, not rated."""
+    from . import inventory
+    system = inventory.load(path, set())
+    assets = [{"name": a["name"], "algorithm": a["algo"], "tier": a["tier"], "action": a["recommendation"],
+               "why": "Priority estimated from the algorithm: the CBOM gives none" if a["estimated"] else "",
+               "confidence": None, "test_only": False, "declared": False,
+               "uncertainty": f"Imported from {system['tool']}; not verified by Acxelin Readiness",
+               "locations": sorted({(str(o.get("location", "")), int(o.get("line") or 0)) for o in a["occurrences"] if isinstance(o, dict)}),
+               "impact": None, "hybrid_context": []} for a in system["assets"] if a["tier"]]
+    unrated = sum(not a["tier"] for a in system["assets"])
+    notes = [f"Imported from {system['tool']}: {len(assets)} algorithm(s) rated"] + \
+            ([f"{unrated} algorithm name(s) not recognised and not rated"] if unrated else [])
+    return {"project": name, "finished": time.time(), "assets": assets, "patterns": [], "notes": ["; ".join(notes) + "."],
+            "summary": {"crypto_assets": len(assets), "priorities": dict(Counter(a["tier"] for a in assets)), "score": score(assets),
+                        "imported_from": system["tool"]},
+            "evidence_boundary": "Another tool's CBOM, read as given: its findings are not re-checked.", "relationships": {}}
+
+
 def read_history(path):
     f = Path(path)
     if not f.exists():

@@ -418,3 +418,45 @@ def test_the_change_log_keeps_the_last_fifty_changes(app, repos):
         track(app, asset["id"], status="in_progress", owner=f"owner {n}")
     log = call(app, "GET", "/api/projects/status")[1]["last"]["assets"][0]["tracking"]["log"]
     assert len(log) == 50 and log[-1]["owner"] == "owner 59"
+
+
+def other_tool_cbom(names=("RSA-2048", "SHA-1", "AES-256-GCM", "FancyCipher9000")):
+    return {"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": {"tools": [{"name": "codeql", "version": "2.19"}], "component": {"name": "billing"}},
+            "components": [{"type": "cryptographic-asset", "name": n, "bom-ref": n, "cryptoProperties": {"assetType": "algorithm"},
+                            "evidence": {"occurrences": [{"location": "src/Billing.java", "line": 10 + i}]}} for i, n in enumerate(names)]}
+
+
+def test_another_tools_cbom_is_imported_as_a_project_with_priorities_tracking_and_a_score(app, home):
+    r = call(app, "POST", "/api/projects/import", {"name": "billing.cbom.json", "cbom": other_tool_cbom()})[1]
+    assert call(app, "GET", "/api/status")[1]["projects"] == [{"id": r["project"], "name": "Imported: billing.cbom.json"}]
+    call(app, "POST", "/api/projects/scan", {"project": r["project"]})
+    last = wait(app)["last"]
+    tiers = {a["name"]: a["tier"] for a in last["assets"]}
+    assert tiers["RSA-2048"] in ("high", "critical") and tiers["SHA-1"] == "critical" and "FancyCipher9000" not in tiers
+    assert isinstance(last["summary"]["score"], int) and any("codeql" in n and "not recognised" in n for n in last["notes"])
+    rsa = next(a for a in last["assets"] if a["name"] == "RSA-2048")
+    assert rsa["locations"] == [["src/Billing.java", 10]] and "codeql" in rsa["uncertainty"]
+    assert call(app, "POST", "/api/projects/track", {"project": r["project"], "finding": rsa["id"], "status": "planned", "owner": "billing"})[0] == 200
+    again = rc.build(home)
+    assert again.routes[("GET", "/api/status")]({})[1]["projects"][0]["name"] == "Imported: billing.cbom.json", "kept across restarts"
+
+
+def test_importing_the_same_name_again_replaces_it_and_compares(app):
+    i = call(app, "POST", "/api/projects/import", {"name": "billing.cbom.json", "cbom": other_tool_cbom()})[1]["project"]
+    call(app, "POST", "/api/projects/scan", {"project": i})
+    wait(app)
+    assert call(app, "POST", "/api/projects/import", {"name": "billing.cbom.json", "cbom": other_tool_cbom(("RSA-2048",))})[1]["project"] == i
+    call(app, "POST", "/api/projects/scan", {"project": i})
+    last = wait(app)["last"]
+    assert [a["name"] for a in last["assets"]] == ["RSA-2048"] and {a["name"] for a in last["not_observed"]} >= {"SHA-1"}
+
+
+@pytest.mark.parametrize("body", [{"name": "x.json", "cbom": [1]}, {"name": "x.json", "cbom": {"bomFormat": "SPDX"}}, {"name": "", "cbom": {}},
+                                  {"name": "x" * 300, "cbom": {}}, {"name": "x.json"}, {"name": 5, "cbom": {}}])
+def test_anything_but_a_cyclonedx_cbom_with_a_name_is_refused(app, body):
+    with pytest.raises(ValueError):
+        app.routes[("POST", "/api/projects/import")](body)
+
+
+def test_the_import_route_takes_a_large_cbom_but_others_keep_their_limit(app):
+    assert app.limits[("POST", "/api/projects/import")] >= 16_000_000 and ("POST", "/api/projects/track") not in app.limits

@@ -26,6 +26,7 @@ details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--m
 details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
 @media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
 .scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
+input[type=file]{font:inherit;font-size:13.5px;color:var(--body);max-width:100%}
 ul.history{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
@@ -71,7 +72,7 @@ function setup() {
     h("p", {class: "lede"}, "Acxelin Readiness only scans folders inside the one you choose here. Enter the full path of the folder that holds your repositories. To grade servers instead, open Endpoints; it needs no folder."),
     h("label", {for: "dir"}, "Folder path"), input,
     h("div", {class: "row", style: "margin-top:18px"}, h("button", {class: "btn", onclick: go}, "Use this folder")),
-    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm("Repository link")));
+    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm("Repository link"), importForm()));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   input.focus();
 }
@@ -97,6 +98,21 @@ function githubForm(label = "Add from GitHub") {
 }
 
 const TABS = ["projects", "endpoints"];
+function importForm() {
+  const file = h("input", {type: "file", id: "cbomfile", accept: ".json,application/json"});
+  const go = async () => {
+    const f = file.files[0];
+    if (!f) return say("Choose a CBOM file first.");
+    if (f.size > 16e6) return say("That CBOM is over 16 MB. Merge it on the command line with `acxelin-readiness merge` instead.");
+    let cbom;
+    try { cbom = JSON.parse(await f.text()); } catch (e) { return say("That file is not JSON. Choose a CycloneDX CBOM (.json)."); }
+    try { const r = await call("projects/import", {name: f.name, cbom}); await addAndScan(r.project); } catch (e) {}
+  };
+  return h("div", {style: "margin-top:22px"}, h("label", {for: "cbomfile", style: "margin-top:0"}, "Import a CBOM"), file,
+    h("p", {class: "legend", style: "margin-top:4px"}, "A CycloneDX file from another tool, such as CodeQL."),
+    h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: go}, "Import and rate")));
+}
+
 function shell() {
   const open = (id) => { clearInterval(state.timer); state.tab = id; shell(); $("#tab-" + id).focus(); };
   const keys = (e) => {
@@ -211,7 +227,7 @@ function projectsView() {
     s.projects.length ? h("ul", {class: "list"}, s.projects.map((p) => h("li", {}, h("button", {"aria-current": String(p.id === state.selected), onclick: () => choose(p.id)}, p.name)))) : h("p", {class: "state"}, "None added yet."),
     addable.length ? h("div", {}, h("label", {for: "add", style: "margin-top:0"}, "Add a repository"), pick, h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Add and scan")))
       : !s.configured ? "" : h("p", {class: "state"}, s.available.length ? "Every repository in " + s.directory + " is added." : "No repositories found in " + s.directory + ". Put one there, then reload."),
-    h("div", {style: "margin-top:22px"}, githubForm()));
+    h("div", {style: "margin-top:22px"}, githubForm()), importForm());
   const main = h("div", {id: "pj-main"});
   panel.replaceChildren(h("div", {class: "split"}, side, main));
   if (!s.projects.length) { main.replaceChildren(h("h1", {}, "Add your first repository"), h("p", {class: "empty"}, "Choose one under Add a repository. It is scanned straight away, to show which cryptography it uses and what to migrate first.")); return; }

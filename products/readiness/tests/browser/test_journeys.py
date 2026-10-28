@@ -437,3 +437,20 @@ def test_a_finding_marked_fixed_shows_its_history_and_is_flagged_when_the_rescan
     page.locator("details.track details.more summary", has_text="History").first.click()
     assert page.locator("ul.history li").count() == 2
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_another_tools_cbom_is_imported_and_rated_from_the_first_screen(page, console, tmp_path):
+    cbom = {"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": {"tools": [{"name": "codeql"}]},
+            "components": [{"type": "cryptographic-asset", "name": "RSA-2048", "cryptoProperties": {"assetType": "algorithm"},
+                            "evidence": {"occurrences": [{"location": "src/Billing.java", "line": 10}]}}]}
+    (tmp_path / "billing.cbom.json").write_text(json.dumps(cbom))
+    (tmp_path / "notjson.json").write_text("{nope")
+    open_console(page, console)
+    page.get_by_label("Import a CBOM").set_input_files(str(tmp_path / "notjson.json"))
+    page.get_by_role("button", name="Import and rate").click()
+    page.get_by_text("That file is not JSON").wait_for()
+    page.get_by_label("Import a CBOM").set_input_files(str(tmp_path / "billing.cbom.json"))
+    page.get_by_role("button", name="Import and rate").click()
+    page.get_by_text("RSA-2048").wait_for(timeout=30000)
+    assert page.get_by_role("heading", name="Imported: billing.cbom.json").is_visible()
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
