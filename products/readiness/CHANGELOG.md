@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Binary (DER) private keys in PKCS#1, PKCS#8 or SEC1 form, encrypted ones included, DER public keys, and certificate
+  requests in DER or PEM are found like PEM keys; before, only DER certificates were. Files ending `.p8` and `.pk8` are read.
 - Captures: DTLS 1.0, 1.2 and 1.3 handshakes (WebRTC, VPN clients, CoAP) are read, their fragments put back together, and
   graded with the cryptography of the TLS each is built on. Captures of raw IP frames (link types 228 and 229, as taken on
   tunnel and VPN interfaces) are read. A TLS 1.2 suite with RSA key transport (`TLS_RSA_WITH_AES_128_CBC_SHA`) now names

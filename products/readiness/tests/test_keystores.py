@@ -133,3 +133,25 @@ def test_a_keystore_entry_with_a_key_type_this_library_cannot_load_is_reported_n
     arts, _, _ = found(tmp_path, "odd.jks", jks([(1, "odd", bytes(der))]))
     assert [(a.kind, a.algo) for a in arts if a.kind == "private-key"] == [("private-key", "unknown")]
     assert workspace.scan(tmp_path)["assets"] is not None
+
+
+def test_binary_der_keys_and_certificate_requests_are_found_like_pem_ones(tmp_path):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+
+    from acxelin_readiness import workspace
+    der, pem = serialization.Encoding.DER, serialization.Encoding.PEM
+    r, e, ed = rsa.generate_private_key(public_exponent=65537, key_size=2048), ec.generate_private_key(ec.SECP384R1()), ed25519.Ed25519PrivateKey.generate()
+    none = serialization.NoEncryption()
+    (tmp_path / "rsa.pkcs1.der").write_bytes(r.private_bytes(der, serialization.PrivateFormat.TraditionalOpenSSL, none))
+    (tmp_path / "ec.key").write_bytes(e.private_bytes(der, serialization.PrivateFormat.PKCS8, none))
+    (tmp_path / "ed.der").write_bytes(ed.private_bytes(der, serialization.PrivateFormat.PKCS8, none))
+    (tmp_path / "locked.der").write_bytes(r.private_bytes(der, serialization.PrivateFormat.PKCS8, serialization.BestAvailableEncryption(b"pw")))
+    csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "a")]))
+    (tmp_path / "small.csr").write_bytes(csr.sign(rsa.generate_private_key(public_exponent=65537, key_size=1024), hashes.SHA256()).public_bytes(der))
+    (tmp_path / "req.pem").write_bytes(csr.sign(ec.generate_private_key(ec.SECP256R1()), hashes.SHA256()).public_bytes(pem))
+    found = {a["name"]: {f for f, _ in a["locations"]} for a in workspace.scan(tmp_path)["assets"]}
+    assert {"rsa.pkcs1.der", "small.csr"} <= found.get("RSA-2048", set()) | found.get("RSA-1024", set())
+    assert found["RSA-2048"] >= {"rsa.pkcs1.der"} and found["RSA-1024"] == {"small.csr"}
+    assert found["ECC-P-384"] == {"ec.key"} and found["Ed25519"] == {"ed.der"} and "req.pem" in found["ECC-P-256"]

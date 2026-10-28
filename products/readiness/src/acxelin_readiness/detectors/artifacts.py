@@ -12,7 +12,7 @@ from ..model import Detection, Artifact
 from . import iter_files, rel, is_test
 from . import keystores
 
-EXT = {".pem", ".crt", ".cer", ".der", ".key", ".pub", ".csr", ".cert"}
+EXT = {".pem", ".crt", ".cer", ".der", ".key", ".pub", ".csr", ".cert", ".p8", ".pk8"}
 SSH_NAMES = re.compile(r"^(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|ssh_host_\w+_key(\.pub)?|authorized_keys|known_hosts)$")
 K8S_B64 = re.compile(rb"""(?m)^\s*["']?(tls\.crt|ca\.crt|tls\.key|[\w.-]*\.(?:pem|crt))["']?\s*:\s*["']?([A-Za-z0-9+/]{80,}={0,2})["']?\s*,?$""")
 PEM = re.compile(rb"-----BEGIN ([A-Z0-9 ]+)-----\r?\n.*?-----END \1-----", re.S)
@@ -80,11 +80,15 @@ def cert_record(cert, path, line, source="file"):
 
 def parse_pem(block, label, path, line):
     label = label.decode()
-    sights = []
     if label in ("CERTIFICATE", "TRUSTED CERTIFICATE", "X509 CERTIFICATE"):
         try:
             a, s = cert_record(x509.load_pem_x509_certificate(block), path, line)
             return [a], s
+        except Exception:
+            return [], []
+    if label in ("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST"):
+        try:
+            return request_record(x509.load_pem_x509_csr(block), path, line)
         except Exception:
             return [], []
     kind = "private-key" if "PRIVATE" in label else "public-key" if "PUBLIC" in label else None
@@ -106,13 +110,44 @@ def parse_pem(block, label, path, line):
     except Exception:
         pass
     if not algo:
-        hint = {"RSA": "RSA", "EC": "ECC", "DSA": "DSA"}.get(label.split()[0])
-        algo = hint
+        algo = {"RSA": "RSA", "EC": "ECC", "DSA": "DSA"}.get(label.split()[0])
+    return key_record(kind, algo, params, encrypted, label, path, line, "pem")
+
+
+def key_record(kind, algo, params, encrypted, label, path, line, lang):
     art = Artifact(kind=kind, file=path, line=line, algo=algo or "unknown", params=params, details={"encrypted": encrypted, "label": label})
-    if algo:
-        sights.append(Detection(algo=algo, file=path, line=line, evidence="artifact", detector="artifacts", snippet=f"{label.lower()}",
-                               lang="pem", params=dict(params, role=kind)))
+    sights = [Detection(algo=algo, file=path, line=line, evidence="artifact", detector="artifacts", snippet=label.lower(), lang=lang,
+                        params=dict(params, role=kind))] if algo else []
     return [art], sights
+
+
+def request_record(csr, path, line):
+    """A certificate signing request: the public key it asks to have certified."""
+    algo, params = key_info(csr.public_key())
+    return key_record("public-key", algo, params, False, "certificate request", path, line, "x509")
+
+
+def parse_der(data, path):
+    """A binary certificate, private key (PKCS#1, PKCS#8, SEC1; encrypted ones counted, unread), public key or certificate request."""
+    try:
+        art, sights = cert_record(x509.load_der_x509_certificate(data), path, 1)
+        return [art], sights
+    except Exception:
+        pass
+    try:
+        k = serialization.load_der_private_key(data, None)
+        return key_record("private-key", *key_info(k), False, "der private key", path, 1, "der")
+    except TypeError:
+        return key_record("private-key", None, {}, True, "encrypted der private key", path, 1, "der")
+    except Exception:
+        pass
+    for load, kind in ((serialization.load_der_public_key, "public-key"), (x509.load_der_x509_csr, "request")):
+        try:
+            k = load(data)
+        except Exception:
+            continue
+        return request_record(k, path, 1) if kind == "request" else key_record(kind, *key_info(k), False, "der public key", path, 1, "der")
+    return None
 
 
 def scan_bytes(data, path, base_ctx):
@@ -181,16 +216,14 @@ def scan(root, scope=False):
         if ext in CODE_EXT and b"-----BEGIN" not in data and b"ssh-" not in data:
             continue
         n += 1
-        if ext in (".der", ".cer", ".crt") and not data.lstrip().startswith(b"-----"):
-            try:
-                a, s = cert_record(x509.load_der_x509_certificate(data), path, 1)
-                for x in s:
+        if ext in (".der", ".cer", ".crt", ".key", ".csr", ".p8", ".pk8") and not data.lstrip().startswith(b"-----"):
+            found = parse_der(data, path)
+            if found:
+                for x in found[1]:
                     x.context |= base
-                arts.append(a)
-                sights += s
+                arts += found[0]
+                sights += found[1]
                 continue
-            except Exception:
-                pass
         a, s = scan_bytes(data, path, base)
         if ext in CODE_EXT:
             for x in s:
