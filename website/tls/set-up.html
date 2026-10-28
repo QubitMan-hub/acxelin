@@ -5,7 +5,7 @@
 <p class="lead">It needs Python 3.11 to 3.14 and OpenSSL 3.5 or newer. You do not need another Acxelin product, and nothing contacts Acxelin Quantum.</p>
 <ol class="steps">
 <li><h2>Download</h2>
-<p>From the <a href="https://github.com/QubitMan-hub/acxelin/releases/tag/tls-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
+<p>From the <a href="https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/tls-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
 <ul>
 <li><code>acxelin-tls-{{VERSION}}-wheelhouse.tar.gz</code>: the program</li>
 <li><code>SHA256SUMS</code>: a fingerprint of every file in the release</li>
@@ -24,7 +24,7 @@
 <p>If the check fails, delete the file and download it again. Do not install it.</p>
 <details><summary>Optional: confirm who built it</summary>
 <p>If you use the GitHub command line, this shows that our release workflow built the file from this repository:</p>
-<pre><code>gh attestation verify acxelin-tls-{{VERSION}}-wheelhouse.tar.gz --owner QubitMan-hub</code></pre>
+<pre><code>gh attestation verify acxelin-tls-{{VERSION}}-wheelhouse.tar.gz --owner AcxelinQuantum</code></pre>
 <p class="see">You should see <b>Verification succeeded</b>.</p>
 </details></li>
 <li><h2>Unpack it</h2>
@@ -79,7 +79,7 @@ powershell -ExecutionPolicy RemoteSigned -File .\install.ps1</code></pre>
 acxelin-tls console link --port 8900</code></pre>
 <p>Run the second command in that SSH session and open the address it prints on your laptop.</p>
 <h3>In Docker</h3>
-<pre><code>docker run -v acxelin-tls:/data -p 127.0.0.1:8900:8900 ghcr.io/qubitman-hub/acxelin-tls:{{VERSION}} console --container
+<pre><code>docker run -v acxelin-tls:/data -p 127.0.0.1:8900:8900 ghcr.io/acxelinquantum/acxelin-tls:{{VERSION}} console --container
 docker exec -it NAME acxelin-tls console link</code></pre></li>
 <li><h2>Keep it running</h2>
 <p>Once a day, the authority must renew certificates that are close to expiring and publish a fresh revocation list:</p>

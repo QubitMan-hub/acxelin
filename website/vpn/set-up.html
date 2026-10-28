@@ -5,7 +5,7 @@
 <p class="lead">Gateways need Linux, and the gateway image has everything else. People's computers need the desktop app and WireGuard. The administrator's command line needs Python 3.11 to 3.14 and OpenSSL 3.5 or newer. Nothing contacts Acxelin Quantum.</p>
 <ol class="steps">
 <li><h2>Download</h2>
-<p>From the <a href="https://github.com/QubitMan-hub/acxelin/releases/tag/vpn-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
+<p>From the <a href="https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
 <ul>
 <li><code>acxelin-vpn-{{VERSION}}-wheelhouse.tar.gz</code>: the program</li>
 <li><code>SHA256SUMS</code>: a fingerprint of every file in the release</li>
@@ -24,7 +24,7 @@
 <p>If the check fails, delete the file and download it again. Do not install it.</p>
 <details><summary>Optional: confirm who built it</summary>
 <p>If you use the GitHub command line, this shows that our release workflow built the file from this repository:</p>
-<pre><code>gh attestation verify acxelin-vpn-{{VERSION}}-wheelhouse.tar.gz --owner QubitMan-hub</code></pre>
+<pre><code>gh attestation verify acxelin-vpn-{{VERSION}}-wheelhouse.tar.gz --owner AcxelinQuantum</code></pre>
 <p class="see">You should see <b>Verification succeeded</b>.</p>
 </details></li>
 <li><h2>Unpack it</h2>
@@ -40,7 +40,7 @@ powershell -ExecutionPolicy RemoteSigned -File .\install.ps1</code></pre>
 <p class="see">It installs from the wheels in the folder, offline, then runs <code>acxelin-vpn doctor</code>. You should see each check and <b>Start here</b> with the next commands.</p>
 <dl class="rows">
 <div><dt>What it changes</dt><dd>A private Python environment in <code>~/.acxelin/vpn</code> and the command <code>~/.local/bin/acxelin-vpn</code>. On Windows, <code>%LOCALAPPDATA%\Acxelin\vpn</code> and <code>%LOCALAPPDATA%\Acxelin\bin</code>, which it adds to your user PATH.</dd></div>
-<div><dt>Gateways</dt><dd>Pull <code>ghcr.io/qubitman-hub/acxelin-vpn:{{VERSION}}</code>, or install on the host with the systemd units in <code>deploy/systemd</code>; the <a href="manual.html">manual</a> has both.</dd></div>
+<div><dt>Gateways</dt><dd>Pull <code>ghcr.io/acxelinquantum/acxelin-vpn:{{VERSION}}</code>, or install on the host with the systemd units in <code>deploy/systemd</code>; the <a href="manual.html">manual</a> has both.</dd></div>
 <div><dt>Remove it</dt><dd><code>sh install.sh --uninstall</code>, or <code>install.ps1 -Uninstall</code>. Your authority, certificates and settings stay where you put them.</dd></div>
 </dl></li>
 <li><h2>Create your certificate authority</h2>
@@ -54,7 +54,7 @@ powershell -ExecutionPolicy RemoteSigned -File .\install.ps1</code></pre>
 <p class="see">Each gateway gets its own folder under <code>pki/issued</code>. Copy that folder to the gateway, with <code>pki/ca.crt</code> and <code>pki/crl.pem</code>. The authority's key never leaves <code>pki</code>.</p></li>
 <li><h2>Connect the two sites</h2>
 <p>On each gateway, put its settings in <code>/etc/acxelin-vpn/site.toml</code>. Start from <code>config/site-hq.toml</code> or <code>config/site-branch.toml</code> in the release folder; every setting is explained there. Then start the VPN:</p>
-<pre><code>docker run -d --name vpn --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/etc/acxelin-vpn:ro ghcr.io/qubitman-hub/acxelin-vpn:{{VERSION}}</code></pre>
+<pre><code>docker run -d --name vpn --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/etc/acxelin-vpn:ro ghcr.io/acxelinquantum/acxelin-vpn:{{VERSION}}</code></pre>
 <p>It runs in the background. To see whether the tunnel is up:</p>
 <pre><code>docker exec vpn acxelin-vpn status --config /etc/acxelin-vpn/site.toml</code></pre>
 <p class="see">It lists each tunnel: the other site, its state (<code>ESTABLISHED</code> when up), its key exchange, whether the post-quantum PPK is in use, and how long it has been up. Open UDP 500 and 4500 between the gateways, and TCP 7443 to headquarters. Then send real traffic between the two networks and check that the byte counters go up: a tunnel that is up but carries nothing is not yet proof.</p></li>
@@ -64,7 +64,7 @@ powershell -ExecutionPolicy RemoteSigned -File .\install.ps1</code></pre>
 <p>Then start the enrollment service there. It keeps running and listens on port 9443:</p>
 <pre><code>acxelin-vpn ca serve --dir pki --cert pki/issued/enroll/chain.pem --key pki/issued/enroll/key.pem</code></pre>
 <p>On the headquarters gateway, put the address pool, routes and DNS for people in <code>/etc/acxelin-vpn/gateway.toml</code>, starting from <code>config/gateway.toml</code>, and start the WireGuard gateway:</p>
-<pre><code>docker run -d --name wg --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/etc/acxelin-vpn ghcr.io/qubitman-hub/acxelin-vpn:{{VERSION}} gateway --config /etc/acxelin-vpn/gateway.toml</code></pre>
+<pre><code>docker run -d --name wg --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/etc/acxelin-vpn ghcr.io/acxelinquantum/acxelin-vpn:{{VERSION}} gateway --config /etc/acxelin-vpn/gateway.toml</code></pre>
 <p class="see">Open UDP 51820 and TCP 7443 to the gateway, and TCP 9443 to the enrollment service.</p></li>
 <li><h2>Invite a person</h2>
 <p>This makes an invitation file for Alice. It tells her computer where to enroll and which gateway to use:</p>

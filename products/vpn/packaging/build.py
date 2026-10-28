@@ -102,7 +102,7 @@ AppId={{{{6B0F3C1E-5A7D-4E2B-9C8A-ACE1A1B00001}}
 AppName=Acxelin VPN
 AppVersion={{#Version}}
 AppPublisher=Acxelin Quantum
-AppPublisherURL=https://qubitman-hub.github.io/acxelin/
+AppPublisherURL=https://acxelinquantum.github.io/AQPQCSuite/
 DefaultDirName={{autopf}}\Acxelin VPN
 DisableProgramGroupPage=yes
 OutputDir={out}
@@ -191,7 +191,7 @@ def linux(folder, out):
     (stage / "DEBIAN" / "control").write_text(
         f"Package: acxelin-vpn\nVersion: {__version__}\nArchitecture: {arch}\nMaintainer: Acxelin Quantum <noreply@acxelin.example>\n"
         f"Installed-Size: {size}\nDepends: wireguard-tools, pkexec | policykit-1\nSection: net\nPriority: optional\n"
-        "Homepage: https://qubitman-hub.github.io/acxelin/\nDescription: Acxelin VPN, the post-quantum VPN client\n"
+        "Homepage: https://acxelinquantum.github.io/AQPQCSuite/\nDescription: Acxelin VPN, the post-quantum VPN client\n"
         " A tray icon that shows whether this computer is protected, and a window to join from an\n"
         " invitation file, connect and disconnect. OpenSSL 3.5 is included.\n", encoding="utf-8")
     deb = out / f"acxelin-vpn_{__version__}_{arch}.deb"

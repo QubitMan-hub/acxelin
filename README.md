@@ -10,7 +10,7 @@ release. A customer installs only the product that fits their problem.
 | **Acxelin VPN**: site-to-site IPsec with hybrid ML-KEM, WireGuard remote access and the desktop app | [`products/vpn`](products/vpn/README.md) | `acxelin-vpn` | 1.0.0 |
 
 Start with a product's own README: install (one command: `products/*/install.sh`, or `install.ps1` on Windows), first
-steps, the console and the manual. The website is https://qubitman-hub.github.io/acxelin/.
+steps, the console and the manual. The website is https://acxelinquantum.github.io/AQPQCSuite/.
 
 ## Repository layout
 

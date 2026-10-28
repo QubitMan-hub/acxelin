@@ -63,7 +63,7 @@
 <section aria-labelledby="runs">
 <h2 id="runs">Where it runs</h2>
 <div class="cols">
-<div><h3>Docker</h3><p>One image with OpenSSL 3.5 included, published to GHCR with each release. With no arguments it runs the tour in Fig. 1.</p><pre><code>docker run --rm ghcr.io/qubitman-hub/acxelin-tls:{{VERSION}}</code></pre></div>
+<div><h3>Docker</h3><p>One image with OpenSSL 3.5 included, published to GHCR with each release. With no arguments it runs the tour in Fig. 1.</p><pre><code>docker run --rm ghcr.io/acxelinquantum/acxelin-tls:{{VERSION}}</code></pre></div>
 <div><h3>systemd</h3><p>A unit for the edge, and a timer that runs authority maintenance daily. Both ship in the release folder.</p><pre><code>systemctl enable --now acxelin-tls-edge</code></pre></div>
 </div>
 </section>

@@ -72,7 +72,7 @@ def _create(service, s, out, host, ca, ca_dir, require_client_cert, policy):
         volumes += ["      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro", "      - ./passwd:/mosquitto/config/passwd:ro"]
     if volumes:
         lines += ["    volumes:"] + volumes
-    lines += ["  edge:", f"    image: ghcr.io/qubitman-hub/acxelin-tls:{__version__}", '    command: ["edge", "--config", "/etc/acxelin-tls/edge.toml"]',
+    lines += ["  edge:", f"    image: ghcr.io/acxelinquantum/acxelin-tls:{__version__}", '    command: ["edge", "--config", "/etc/acxelin-tls/edge.toml"]',
               "    restart: unless-stopped", f"    depends_on: [{service}]", f'    ports: ["{s["public"]}:{s["public"]}"]', "    volumes:",
               "      - ./edge.toml:/etc/acxelin-tls/edge.toml:ro", "      - ./edge:/edge:ro",
               f"      - {Path(ca_dir).resolve().as_posix() if ca_dir else './pki'}:/pki:ro"]

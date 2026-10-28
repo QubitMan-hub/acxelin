@@ -5,7 +5,7 @@
 <p class="lead">It runs on Linux, Windows and macOS with Python 3.11 to 3.14. You do not need another Acxelin product, and nothing contacts Acxelin Quantum.</p>
 <ol class="steps">
 <li><h2>Download</h2>
-<p>From the <a href="https://github.com/QubitMan-hub/acxelin/releases/tag/readiness-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
+<p>From the <a href="https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v{{VERSION}}">release page</a>, save two files in the same folder:</p>
 <ul>
 <li><code>acxelin-readiness-{{VERSION}}-wheelhouse.tar.gz</code>: the program</li>
 <li><code>SHA256SUMS</code>: a fingerprint of every file in the release</li>
@@ -24,7 +24,7 @@
 <p>If the check fails, delete the file and download it again. Do not install it.</p>
 <details><summary>Optional: confirm who built it</summary>
 <p>If you use the GitHub command line, this shows that our release workflow built the file from this repository:</p>
-<pre><code>gh attestation verify acxelin-readiness-{{VERSION}}-wheelhouse.tar.gz --owner QubitMan-hub</code></pre>
+<pre><code>gh attestation verify acxelin-readiness-{{VERSION}}-wheelhouse.tar.gz --owner AcxelinQuantum</code></pre>
 <p class="see">You should see <b>Verification succeeded</b>.</p>
 </details></li>
 <li><h2>Unpack it</h2>
@@ -55,14 +55,14 @@ powershell -ExecutionPolicy RemoteSigned -File .\install.ps1</code></pre>
 acxelin-readiness console link --port 8900</code></pre>
 <p>Run the second command in that SSH session and open the address it prints on your laptop.</p>
 <h3>In Docker</h3>
-<pre><code>docker run --rm -v "$PWD:/scan" ghcr.io/qubitman-hub/acxelin-readiness:{{VERSION}}</code></pre>
+<pre><code>docker run --rm -v "$PWD:/scan" ghcr.io/acxelinquantum/acxelin-readiness:{{VERSION}}</code></pre>
 <p>On Linux, add <code>--user "$(id -u):$(id -g)"</code> after <code>--rm</code> so the scan can write <code>readiness-out</code> into your folder; Docker Desktop on Windows and macOS needs nothing extra.</p>
 <p>For the console, start it with <code>--container</code> and publish its port to loopback only, then ask it for a link:</p>
-<pre><code>docker run -v readiness:/data -p 127.0.0.1:8900:8900 ghcr.io/qubitman-hub/acxelin-readiness:{{VERSION}} console --container
+<pre><code>docker run -v readiness:/data -p 127.0.0.1:8900:8900 ghcr.io/acxelinquantum/acxelin-readiness:{{VERSION}} console --container
 docker exec -it NAME acxelin-readiness console link</code></pre></li>
 <li><h2>Gate pull requests</h2>
 <p>Pin the action to the release you installed, so the check you trust is the check that runs:</p>
-<pre><code>- uses: QubitMan-hub/acxelin/products/readiness@readiness-v{{VERSION}}
+<pre><code>- uses: AcxelinQuantum/AQPQCSuite/products/readiness@readiness-v{{VERSION}}
   with:
     fail-on: high
     baseline: cbom.json</code></pre>

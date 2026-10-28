@@ -29,7 +29,7 @@ A key agreement that cannot meet the VPN's policy (TLS 1.3, hybrid ML-KEM, ML-DS
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/QubitMan-hub/acxelin/releases/tag/vpn-v1.0.2) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v1.0.2) and save them in one folder:
 
 - `acxelin-vpn-1.0.2-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
 - `SHA256SUMS`: a fingerprint of every file in the release
@@ -62,7 +62,7 @@ Get-FileHash .\acxelin-vpn-1.0.2-wheelhouse.tar.gz
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.0.2-wheelhouse.tar.gz --owner QubitMan-hub` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.0.2-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
@@ -95,8 +95,8 @@ If OpenSSL 3.5 is in a folder of its own, run `ACXELIN_OPENSSL=/path/to/openssl-
 **With Docker (recommended):** each release publishes a gateway image with strongSwan 6.1, OpenSSL 3.5 and WireGuard's tools. IPsec and WireGuard live in the host's kernel, so the container shares the host's network:
 
 ```
-docker pull ghcr.io/qubitman-hub/acxelin-vpn:1.0.2
-docker tag ghcr.io/qubitman-hub/acxelin-vpn:1.0.2 acxelin-vpn
+docker pull ghcr.io/acxelinquantum/acxelin-vpn:1.0.2
+docker tag ghcr.io/acxelinquantum/acxelin-vpn:1.0.2 acxelin-vpn
 docker run --rm acxelin-vpn doctor
 ```
 

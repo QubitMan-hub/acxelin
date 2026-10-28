@@ -25,7 +25,7 @@ It never changes the files it scans and never sends them anywhere.
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/QubitMan-hub/acxelin/releases/tag/readiness-v1.0.2) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v1.0.2) and save them in one folder:
 
 - `acxelin-readiness-1.0.2-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access, including the code crawler that follows values through JavaScript, TypeScript, Java and Go
 - `SHA256SUMS`: a fingerprint of every file in the release
@@ -56,7 +56,7 @@ Get-FileHash .\acxelin-readiness-1.0.2-wheelhouse.tar.gz
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-readiness-1.0.2-wheelhouse.tar.gz --owner QubitMan-hub` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-readiness-1.0.2-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
@@ -79,8 +79,8 @@ The installer checks your Python, puts `acxelin-readiness` on your PATH, runs `a
 **With Docker instead:** each release publishes an image. Pull it and give it a short name:
 
 ```
-docker pull ghcr.io/qubitman-hub/acxelin-readiness:1.0.2
-docker tag ghcr.io/qubitman-hub/acxelin-readiness:1.0.2 acxelin-readiness
+docker pull ghcr.io/acxelinquantum/acxelin-readiness:1.0.2
+docker tag ghcr.io/acxelinquantum/acxelin-readiness:1.0.2 acxelin-readiness
 ```
 
 ## 4. Your first scan in five minutes
@@ -180,7 +180,7 @@ acxelin-readiness scan . --baseline cbom.json --fail-on high
 **GitHub Actions:**
 
 ```
-- uses: QubitMan-hub/acxelin/products/readiness@<tag>
+- uses: AcxelinQuantum/AQPQCSuite/products/readiness@<tag>
   with:
     path: .
     fail-on: high
