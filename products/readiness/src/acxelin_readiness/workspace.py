@@ -13,6 +13,15 @@ class ScanStopped(ValueError):
     pass
 
 
+POINTS = {"ok": 100, "low": 75, "medium": 50, "high": 25, "critical": 0}
+
+
+def score(assets):
+    """0-100: the average priority of the listed (not test-only) findings; None when there is nothing to score."""
+    listed = [POINTS[a["tier"]] for a in assets if not a["test_only"]]
+    return round(sum(listed) / len(listed)) if listed else None
+
+
 def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None):
     notify = progress or (lambda stage: None)
     notify("Preparing project")
@@ -55,7 +64,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     patterns = [{k: v for k, v in p.as_dict().items() if k != "snippet"} for p in getattr(result, "patterns", [])][:500]
     graph = result.relationships
     assessment = {"project": root.name, "finished": time.time(), "assets": assets, "patterns": patterns, "notes": result.notes,
-                  "summary": {"crypto_assets": len(assets), "priorities": dict(Counter(a["tier"] for a in assets)),
+                  "summary": {"crypto_assets": len(assets), "priorities": dict(Counter(a["tier"] for a in assets)), "score": score(assets),
                               "python_files": graph.get("languages", {}).get("Python", 0), "languages": graph.get("languages", {}), "coverage_gaps": graph.get("skipped", {}),
                               "migration_candidates": sum(a["tier"] in {"critical", "high"} and not a["test_only"] and not a["declared"] for a in assets),
                               "security_patterns": sum(p["severity"] in {"critical", "high"} for p in patterns), "functions": sum(s["kind"] == "function" for s in graph["symbols"]),

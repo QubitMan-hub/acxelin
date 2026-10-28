@@ -239,6 +239,19 @@ docker run -d --name readiness -v readiness:/data -p 127.0.0.1:8900:8900 acxelin
 docker exec -it readiness acxelin-readiness console link
 ```
 
+### The readiness score
+
+Each scan gets a score from 0 to 100, shown with its trend over the last 30 scans. Hover a point for its date, or open the
+table. It is a plain average, not a prediction:
+
+- **Projects:** the average priority of the listed findings: ok 100, low 75, medium 50, high 25, critical 0. Test-only
+  findings are not listed, so they are not counted.
+- **Endpoints:** grade A counts 100, B 50, C 0. Endpoints that could not be graded (F) are left out, because their state
+  is unknown.
+
+With nothing to score, the console says so instead of showing 100: finding no cryptography is not proof there is none. Scores
+from different repositories, or from different lists of endpoints, are not comparable.
+
 ### GitHub repositories
 
 Paste a link such as `https://github.com/OWNER/REPO` under **Add from GitHub**. You don't need a folder for it. Each scan

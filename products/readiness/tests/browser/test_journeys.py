@@ -358,3 +358,24 @@ def test_a_private_repository_token_is_saved_without_ever_showing_it(page, conso
     page.get_by_text("Private repositories: token saved").click()
     page.get_by_role("button", name="Remove token").click()
     page.get_by_text("Private repositories", exact=True).wait_for()
+
+
+def test_the_readiness_score_and_its_trend_show_for_projects_and_endpoints(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    page.locator(".score b").wait_for()
+    assert page.locator(".score b").inner_text().isdigit()
+    page.get_by_role("button", name="Scan repository").click()
+    page.locator("svg.trend").wait_for(timeout=30000)
+    page.get_by_role("tab", name="Endpoints").click()
+    runs = iter([[grade("127.0.0.1:1", "C")], [grade("127.0.0.1:1", "A")]])
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: next(runs)):
+        for g in ("C", "A"):
+            page.get_by_label("Hosts to check").fill("127.0.0.1:1")
+            page.get_by_role("button", name="Check endpoints").click()
+            page.locator("#ep-result td .pill", has_text=g).wait_for()
+            page.wait_for_function("!document.querySelector('#check').disabled")
+    assert page.locator(".score b").inner_text() == "100"
+    assert "from 0 to 100" in page.locator("svg.trend").get_attribute("aria-label")
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []

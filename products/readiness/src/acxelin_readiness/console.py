@@ -31,7 +31,13 @@ class Readiness:
         self.projects = []
         self.cache = None
         self.job = {"running": False, "stage": "", "error": None, "selected": 0, "last": None}
-        self.ep = {"running": False, "error": None, "last": None}
+        self.ep_history = self.home / "endpoints-history.json"
+        self.ep = {"running": False, "error": None, "last": None, "history": []}
+        try:
+            saved = json.loads(self.ep_history.read_text()) if self.ep_history.exists() else []
+            self.ep["history"] = [r for r in saved if isinstance(r, dict) and isinstance(r.get("finished"), (int, float))][-30:] if isinstance(saved, list) else []
+        except (OSError, ValueError):
+            pass  # a damaged history starts again; it holds no findings
         settings = self.home / "settings.json"
         if settings.exists():
             self.folder = Path(json.loads(settings.read_text())["directory"])
@@ -259,6 +265,12 @@ class Readiness:
                                for r in results if r["target"] in before and before[r["target"]] != r["grade"]]
                     self.ep["last"] = {"finished": time.time(), "targets": targets, "summary": endpoints.summary(results), "endpoints": results, "changes": changes,
                                        "outlook": endpoints.outlook(results)}
+                    s = self.ep["last"]["summary"]
+                    self.ep["history"] = self.ep["history"][-29:] + [{"finished": self.ep["last"]["finished"], "score": s["score"], "endpoints": s["endpoints"]}]
+                    try:
+                        write(self.ep_history, json.dumps(self.ep["history"]).encode(), secret=True)
+                    except OSError:
+                        pass  # this session still shows the trend
             except Exception:
                 with self.lock:
                     self.ep["error"] = "The endpoint scan failed. Check the host names and your network, then try again."

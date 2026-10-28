@@ -224,8 +224,10 @@ def scan(targets, workers=16, timeout=8.0):
 
 def summary(results):
     counts = {g: sum(r["grade"] == g for r in results) for g in GRADES}
+    graded = counts["A"] + counts["B"] + counts["C"]
     certs = [r["certificate"] for r in results if r["certificate"]]
-    return {"endpoints": len(results), "grades": counts, "pq_key_exchange": counts["A"] + counts["B"], "cnsa2": sum(r.get("cnsa2", False) for r in results),
+    return {"endpoints": len(results), "grades": counts, "pq_key_exchange": counts["A"] + counts["B"],
+            "score": round((100 * counts["A"] + 50 * counts["B"]) / graded) if graded else None, "cnsa2": sum(r.get("cnsa2", False) for r in results),
             "pq_certificates": sum(c["quantum_safe"] for c in certs), "expiring_30d": sum(c["days_left"] < 30 for c in certs)}
 
 

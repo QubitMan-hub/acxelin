@@ -15,6 +15,10 @@ details.where summary{cursor:pointer;list-style:none;font-family:var(--mono);fon
 details.where summary::after{content:" ▸";color:var(--muted)}details.where[open] summary::after{content:" ▾"}
 details.where ul{margin:8px 0 2px;padding-left:16px;font:12.5px/1.6 var(--mono);color:var(--body)}details.where p{margin:6px 0 0;font-size:13px;color:var(--muted)}
 .counts button{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;border-radius:6px;padding:2px 4px}
+.score{display:flex;align-items:baseline;gap:8px;margin:4px 0 2px}.score b{font:500 40px/1 var(--display);color:var(--ink)}
+.trend{display:block;width:100%;max-width:440px;height:auto;color:var(--ink);margin:8px 0 0}
+details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--muted)}details.more summary::-webkit-details-marker{display:none}
+details.more summary::after{content:" ▸"}details.more[open] summary::after{content:" ▾"}details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
@@ -65,7 +69,7 @@ async function addAndScan(project) {
   await call("projects/select", {project}); await load(); await call("projects/scan", {project}); pollProject();
 }
 function githubForm() {
-  const url = h("input", {type: "url", id: "gh", autocomplete: "off", placeholder: "https://github.com/owner/repository"});
+  const url = h("input", {type: "text", inputmode: "url", id: "gh", autocomplete: "off", spellcheck: "false", placeholder: "https://github.com/owner/repository"});
   const add = async () => { try { const r = await call("projects/github", {url: url.value}); await addAndScan(r.project); } catch (e) {} };
   url.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
   const token = h("input", {type: "password", id: "ghtoken", autocomplete: "off"});
@@ -73,7 +77,7 @@ function githubForm() {
   const saved = state.status.github_token;
   return h("div", {}, h("label", {for: "gh", style: "margin-top:0"}, "Add from GitHub"), url,
     h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Download and scan")),
-    h("details", {class: "where", style: "margin-top:12px"}, h("summary", {}, saved ? "Private repositories: token saved" : "Private repositories"),
+    h("details", {class: "more", style: "margin-top:12px"}, h("summary", {}, saved ? "Private repositories: token saved" : "Private repositories"),
       h("p", {}, "A fine-grained token with read-only Contents access. It is kept on this computer, readable only by you, and sent only to api.github.com."),
       h("label", {for: "ghtoken"}, "Access token"), token,
       h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: () => saveToken(token.value)}, "Save token"),
@@ -84,6 +88,29 @@ function shell() {
   const tab = (id, label) => h("button", {role: "tab", id: "tab-" + id, "aria-selected": String(state.tab === id), "aria-controls": "panel", onclick: () => { clearInterval(state.timer); state.tab = id; shell(); }}, label);
   $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist"}, tab("projects", "Projects"), tab("endpoints", "Endpoints")), h("div", {id: "panel", role: "tabpanel", "aria-labelledby": "tab-" + state.tab}));
   (state.tab === "projects" ? projectsView : endpointsView)();
+}
+
+// ---- the readiness score and its trend
+
+const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+function scoreView(score, rows, definition) {
+  rows = rows.filter((r) => typeof r.score === "number");
+  const out = [h("div", {class: "score"}, h("b", {}, score == null ? "–" : String(score)), h("span", {}, score == null ? "nothing to score yet" : "/ 100 readiness score")),
+    h("p", {class: "legend", style: "margin-top:0"}, definition)];
+  if (rows.length < 2) return out;
+  const w = 440, ht = 120, pad = 22, x = (i) => pad + i * (w - 2 * pad) / (rows.length - 1), y = (v) => ht - pad - v * (ht - 2 * pad) / 100;
+  const pts = rows.map((r, i) => x(i).toFixed(1) + "," + y(Number(r.score)).toFixed(1)).join(" ");
+  const dots = rows.map((r, i) => `<g><title>${when(Number(r.finished))}: ${Number(r.score)}</title><circle cx="${x(i).toFixed(1)}" cy="${y(Number(r.score)).toFixed(1)}" r="10" fill="transparent"/><circle cx="${x(i).toFixed(1)}" cy="${y(Number(r.score)).toFixed(1)}" r="4" fill="currentColor"/></g>`).join("");
+  const box = document.createElement("div");
+  box.innerHTML = `<svg class="trend" viewBox="0 0 ${w} ${ht}" role="img" aria-label="Readiness score over the last ${rows.length} scans, from ${Number(rows[0].score)} to ${Number(rows[rows.length - 1].score)}">` +
+    `<line x1="${pad}" y1="${y(0)}" x2="${w - pad}" y2="${y(0)}" stroke="currentColor" stroke-opacity=".25"/><line x1="${pad}" y1="${y(100)}" x2="${w - pad}" y2="${y(100)}" stroke="currentColor" stroke-opacity=".12"/>` +
+    `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2"/>${dots}` +
+    `<text x="0" y="${y(100) + 4}" font-size="11" fill="currentColor">100</text><text x="8" y="${y(0) + 4}" font-size="11" fill="currentColor">0</text>` +
+    `<text x="${pad}" y="${ht - 4}" font-size="11" fill="currentColor">${day(Number(rows[0].finished))}</text><text x="${w - pad}" y="${ht - 4}" font-size="11" fill="currentColor" text-anchor="end">${day(Number(rows[rows.length - 1].finished))}</text></svg>`;
+  out.push(box.firstChild, h("details", {class: "more"}, h("summary", {}, "Score history as a table"),
+    h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Score history"}, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Scanned"), h("th", {}, "Score"))),
+      h("tbody", {}, rows.slice().reverse().map((r) => h("tr", {}, h("td", {}, when(r.finished)), h("td", {class: "num"}, String(r.score)))))))));
+  return out;
 }
 
 // ---- projects
@@ -126,7 +153,9 @@ function results(p) {
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
   const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || ""), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
-  out.replaceChildren(h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + " cryptographic assets found" + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
+  out.replaceChildren(...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score})),
+      "The average priority of the listed findings: ok 100, low 75, medium 50, high 25, critical 0."),
+    h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
     h("p", {class: "legend"}, "Choose an asset to see where it is. Choose a priority to show only those."),
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
     last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "");
@@ -182,7 +211,8 @@ function endpointResults(e) {
     h("td", {}, r.certificate ? (r.certificate.key || "") + (!r.certificate.expires ? "" : r.certificate.days_left < 0 ? " · expired " + r.certificate.expires : " · " + r.certificate.days_left + " days left") : "",
       r.certificate && r.certificate.issuer ? h("div", {class: "legend", style: "margin:2px 0 0"}, "issued by " + ((r.certificate.issuer.match(/CN=([^,]+)/) || [])[1] || r.certificate.issuer)) : "")));
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));
-  out.replaceChildren(h("p", {class: "state"}, "Checked " + when(last.finished) + ". " + last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
+  out.replaceChildren(...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50, C 0. Endpoints that could not be graded (F) are left out."),
+    h("p", {class: "state"}, "Checked " + when(last.finished) + ". " + last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
     pasted ? h("p", {class: "legend", style: "color:var(--ink)"}, "Only the host and port are checked: a server is graded as a whole, so anything after the host in an address is ignored.") : "",
     h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
     h("p", {class: "legend"}, Object.entries(GRADES).map(([g, t]) => g + ": " + t).join(" · ")),

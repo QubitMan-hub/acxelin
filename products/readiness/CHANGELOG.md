@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A 0-100 readiness score for each project scan and endpoint check, with its trend in the console (the last 30, as a line
+  and a table). Projects average their listed findings' priorities; endpoints count A 100, B 50, C 0 and leave out F.
+  Console assessment summaries gain `score`; endpoint checks are kept in `endpoints-history.json` in the console's folder.
 - Scan a GitHub repository by link, in the console (**Add from GitHub**, no folder needed) or with `scan https://github.com/OWNER/REPO`.
   Private repositories use a read-only token: saved owner-only by the console, or `GITHUB_TOKEN` on the command line, and
   sent only to `api.github.com`. Downloads and unpacking are size-limited and keep regular files only. A downloaded
