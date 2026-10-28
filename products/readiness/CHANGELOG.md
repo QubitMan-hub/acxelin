@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Console: each finding says how it was seen (negotiated, offered, in code, configured, or supported only), how sure the scan
+  is (high, medium, low), and what it could not see (a key size, a curve, a mode, a hash, or any observed use). The CSV
+  export carries the same three columns.
 - Console: **Import a CBOM** turns another tool's CycloneDX CBOM (CodeQL's, for one) into a project with priorities, tracking,
   history and a score. Tiers come from its `acxelin:*` properties or are estimated from the algorithm; unknown names are
   counted, not rated. Imports are kept owner-only in the console's folder.

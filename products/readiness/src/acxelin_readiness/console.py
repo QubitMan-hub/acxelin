@@ -292,8 +292,10 @@ class Readiness:
         if not last:
             raise ValueError("Scan this repository first")
         rows = [[a["name"], a["algorithm"], a["tier"], a["action"] or a["why"], "; ".join(f"{f}:{n}" for f, n in a["locations"][:50]),
+                 ", ".join(a.get("seen", [])), a.get("confidence_level") or "", ", ".join(a.get("missing", [])),
                  a["tracking"]["owner"], a["tracking"]["status"], a["tracking"]["due"]] for a in last["assets"] if not a["test_only"]]
-        return 200, {"csv": evidence.csv_text(["Asset", "Algorithm", "Priority", "What to do", "Places", "Owner", "Status", "Due"], rows)}
+        return 200, {"csv": evidence.csv_text(["Asset", "Algorithm", "Priority", "What to do", "Places", "Seen as", "Confidence", "Not seen",
+                                               "Owner", "Status", "Due"], rows)}
 
     # --- endpoints
 

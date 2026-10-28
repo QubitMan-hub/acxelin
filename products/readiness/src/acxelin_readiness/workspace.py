@@ -17,6 +17,31 @@ STATUSES = ('open', 'planned', 'in_progress', 'fixed', 'exception')
 
 
 POINTS = {"ok": 100, "low": 75, "medium": 50, "high": 25, "critical": 0}
+SEEN = {"call": "in code", "constant": "in code", "identifier": "in code", "config": "configured", "artifact": "configured",
+        "import": "supported", "string": "supported", "binary": "supported"}
+ORDER = ("negotiated", "offered", "in code", "configured", "supported")
+NEEDS = {"RSA": "key_size", "DSA": "key_size", "DH": "key_size", "ECC": "curve", "ECDSA": "curve", "ECDH": "curve", "HMAC": "hash", "PBKDF2": "hash"}
+
+
+def evidence_view(a):
+    """How a finding was seen (strongest first), how sure the scan is, and the inputs it did not observe."""
+    seen = set()
+    for s in a.detections:
+        if s.evidence == "live":
+            seen.add("negotiated" if s.params.get("negotiated") or s.params.get("observed") else "offered")
+        else:
+            seen.add(SEEN.get(s.evidence, "supported"))
+    if a.declared:
+        seen = (seen - {"in code"}) | {"supported"}  # listed in a table of supported algorithms, not called
+    if seen - {"supported"}:
+        seen.discard("supported")  # calling, configuring or negotiating it already says it is supported
+    missing = [{"key_size": "key size", "curve": "curve", "hash": "hash"}[NEEDS[a.algo]]] if a.algo in NEEDS and not a.params.get(NEEDS[a.algo]) else []
+    if a.algo == "AES":
+        missing += [n for k, n in (("key_size", "key size"), ("mode", "mode")) if not a.params.get(k)]
+    if seen <= {"supported"}:
+        missing.append("observed use")
+    level = "high" if a.confidence >= 0.85 else "medium" if a.confidence >= 0.6 else "low"
+    return {"seen": [x for x in ORDER if x in seen], "missing": missing, "confidence_level": level}
 
 
 def score(assets):
@@ -63,7 +88,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
                "confidence": a.confidence, "test_only": a.test_only, "declared": a.declared,
                "uncertainty": "Algorithm inferred from names or literals; confirm the implementation and dynamic dispatch" if all(s.evidence in {"identifier", "import", "string"} for s in a.detections) else "Static evidence; runtime use is not established",
                "locations": sorted({(s.file, s.line) for s in a.detections}), "impact": a.params.get("code_impact"), "hybrid_context": a.params.get("hybrid_context", [])}
-              for a in result.assets]
+              | evidence_view(a) for a in result.assets]
     patterns = [{k: v for k, v in p.as_dict().items() if k != "snippet"} for p in getattr(result, "patterns", [])][:500]
     graph = result.relationships
     assessment = {"project": name or root.name, "finished": time.time(), "assets": assets, "patterns": patterns, "notes": result.notes,
@@ -100,7 +125,8 @@ def imported(path, name):
                "confidence": None, "test_only": False, "declared": False,
                "uncertainty": f"Imported from {system['tool']}; not verified by Acxelin Readiness",
                "locations": sorted({(str(o.get("location", "")), int(o.get("line") or 0)) for o in a["occurrences"] if isinstance(o, dict)}),
-               "impact": None, "hybrid_context": []} for a in system["assets"] if a["tier"]]
+               "impact": None, "hybrid_context": [], "seen": ["imported"], "missing": [], "confidence_level": None}
+              for a in system["assets"] if a["tier"]]
     unrated = sum(not a["tier"] for a in system["assets"])
     notes = [f"Imported from {system['tool']}: {len(assets)} algorithm(s) rated"] + \
             ([f"{unrated} algorithm name(s) not recognised and not rated"] if unrated else [])

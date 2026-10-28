@@ -454,3 +454,11 @@ def test_another_tools_cbom_is_imported_and_rated_from_the_first_screen(page, co
     page.get_by_text("RSA-2048").wait_for(timeout=30000)
     assert page.get_by_role("heading", name="Imported: billing.cbom.json").is_visible()
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_each_finding_says_how_it_was_seen_and_how_sure_the_scan_is(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    basis = page.locator("#pj-result td small.basis").first.inner_text()
+    assert "In code" in basis and "confidence" in basis

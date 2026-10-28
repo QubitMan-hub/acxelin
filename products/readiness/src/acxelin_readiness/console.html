@@ -27,6 +27,7 @@ details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
 @media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
 .scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
 input[type=file]{font:inherit;font-size:13.5px;color:var(--body);max-width:100%}
+small.basis{display:block;margin-top:3px;font-size:12.5px;color:var(--muted)}
 ul.history{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
@@ -157,6 +158,12 @@ function scoreView(score, rows, definition) {
 // ---- projects
 
 const tier = (t) => h("span", {class: "tag " + t}, t);
+const SEEN = {negotiated: "Negotiated", offered: "Offered", "in code": "In code", configured: "Configured", supported: "Supported only", imported: "Imported"};
+const basis = (a) => {
+  const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : "",
+    (a.missing || []).length ? "not seen: " + a.missing.join(", ") : ""].filter(Boolean);
+  return parts.length ? h("small", {class: "basis"}, parts.join(" · ")) : "";
+};
 const STATUS = {open: "To do", planned: "Planned", in_progress: "In progress", fixed: "Fixed", exception: "Accepted risk"};
 function progress(assets) {
   const n = {}, still = assets.filter((a) => a.tracking && a.tracking.still_found).length;
@@ -206,7 +213,7 @@ function results(p) {
   const counts = h("div", {class: "counts"}, ["critical", "high", "medium", "low", "ok"].filter((k) => pri[k]).map((k) =>
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
   const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
-  const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || ""), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
+  const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   out.replaceChildren(...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score})),
       "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average."),
     progress(shownAssets),

@@ -257,6 +257,19 @@ the algorithm alone, and the page says so. Names the catalogue does not recognis
 file is re-checked: it describes what the other tool found. Importing a file with the same name again replaces it and
 compares, like a rescan. Files up to 16 MB; for larger ones, use `acxelin-readiness merge`.
 
+### How a finding was seen
+
+Under each finding's action, the console says how it was seen, strongest first:
+
+- **Negotiated:** in a live check or a capture.
+- **Offered:** accepted by a live server but not chosen.
+- **In code:** called, or set as a constant.
+- **Configured:** in configuration, or as a key or certificate.
+- **Supported only:** imported, named, or present in a library, with no use seen.
+
+It also gives the scan's confidence (from the strength of its evidence) and anything it could not see, such as an RSA
+key's size or an AES mode. A finding with "not seen: observed use" may never run.
+
 ### Tracking a finding
 
 Choose **Assign an owner** on a finding to give it an owner, a due date and a status: **To do**, **Planned**, **In
