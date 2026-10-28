@@ -92,7 +92,7 @@ def test_add_scan_see_priorities_and_assign_an_owner(page, console, repos):
     fill_setup(page, repos)
     scan_shop(page)
     assert page.locator("td .tag.critical, td .tag.high").first.is_visible()
-    page.get_by_text("Assign an owner").first.click()
+    page.locator("details.track summary").first.click()
     page.get_by_label("Owner").first.fill("payments team")
     page.get_by_role("button", name="Save").first.click()
     page.get_by_text("Owner: payments team").wait_for()
@@ -271,7 +271,7 @@ def test_a_finding_can_be_accepted_as_a_risk_until_a_date(page, console, repos):
     open_console(page, console)
     fill_setup(page, repos)
     scan_shop(page)
-    page.get_by_text("Assign an owner").first.click()
+    page.locator("details.track summary").first.click()
     page.get_by_label("Status").first.select_option("exception")
     page.get_by_label("Why it is accepted").first.fill("Vendor appliance, replaced in 2027")
     assert page.get_by_label("Due date").first.get_attribute("type") == "date"
@@ -476,3 +476,20 @@ def test_coverage_shows_beside_the_score_and_a_fall_in_coverage_is_called_out(pa
             page.wait_for_function("!document.querySelector('#check').disabled")
     page.get_by_text("Coverage 50%: 1 of 2 endpoints could be graded.").wait_for()
     assert "Coverage fell from 100% to 50%" in page.locator("#ep-result").inner_text(), "the score rose to 100 only because one endpoint went dark"
+
+
+def test_owners_come_from_codeowners_and_a_cmdb_export_and_unowned_findings_ask_for_review(page, console, repos, tmp_path):
+    (repos / "shop/.github").mkdir()
+    (repos / "shop/.github/CODEOWNERS").write_text("keys.py @payments-team\n")
+    (repos / "shop/legacy.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    page.get_by_text("Owner: @payments-team (from CODEOWNERS)").first.wait_for()
+    assert page.get_by_text("No owner · review needed").count() >= 1
+    (tmp_path / "owners.csv").write_text("path,owner\n*.py,Platform Security\n")
+    page.get_by_text("Owners from a CMDB export").click()
+    page.get_by_label("CSV file").set_input_files(str(tmp_path / "owners.csv"))
+    page.get_by_role("button", name="Use these owners").click()
+    page.get_by_text("Owner: Platform Security (from CMDB export)").first.wait_for()
+    assert page.get_by_text("No owner · review needed").count() == 0

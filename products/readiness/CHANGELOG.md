@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Owners: a finding suggests its owner from the repository's CODEOWNERS file, read as GitHub reads it, or from a CMDB
+  export (a CSV of path patterns and owners) loaded per project. The CMDB export comes first, and an owner set by hand
+  always wins. A finding with no owner reads "No owner · review needed". The CSV export names the owner's source.
 - Coverage beside the score: for a project, the share of source and configuration files fully analysed (files over 2 MB and
   Python that could not be parsed are not); for endpoints, the share that could be graded. It is shown in the console, kept
   in the score history and printed by `scan`. When coverage falls by 10 points or more, the console says the score rests

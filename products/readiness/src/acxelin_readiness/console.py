@@ -15,7 +15,7 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, endpoints, evidence, pipeline, remote, workspace
+from . import cbom, endpoints, evidence, owners, pipeline, remote, workspace
 
 MAX_TARGETS = 500
 TOKEN = re.compile(r"[A-Za-z0-9_]{20,255}")
@@ -286,6 +286,16 @@ class Readiness:
                 self.job["last"] = result
         return 200, {"saved": True}
 
+    def owners(self, body):
+        i, path = self.selected(body)
+        text = body.get("csv")
+        rules = [] if text == "" else owners.from_csv(text)
+        with self.lock:
+            n = self.store.set_owners(path, rules)
+            if self.job["last"] and self.job["last"].get("project_key") == self.store.key(path):
+                self.job["last"] = self.store.assessment(path)
+        return 200, {"rules": n}
+
     def project_csv(self, body):
         i, path = self.selected(body)
         last = self.store.assessment(path)
@@ -293,7 +303,8 @@ class Readiness:
             raise ValueError("Scan this repository first")
         rows = [[a["name"], a["algorithm"], a["tier"], a["action"] or a["why"], "; ".join(f"{f}:{n}" for f, n in a["locations"][:50]),
                  ", ".join(a.get("seen", [])), a.get("confidence_level") or "", ", ".join(a.get("missing", [])),
-                 a["tracking"]["owner"], a["tracking"]["status"], a["tracking"]["due"]] for a in last["assets"] if not a["test_only"]]
+                 a["tracking"]["owner"] or (f"{a['owner_hint']['owner']} ({a['owner_hint']['source']})" if a.get("owner_hint") else ""),
+                 a["tracking"]["status"], a["tracking"]["due"]] for a in last["assets"] if not a["test_only"]]
         return 200, {"csv": evidence.csv_text(["Asset", "Algorithm", "Priority", "What to do", "Places", "Seen as", "Confidence", "Not seen",
                                                "Owner", "Status", "Due"], rows)}
 
@@ -374,11 +385,11 @@ def page():
 def build(home):
     r = Readiness(home)
     routes = {("GET", "/api/status"): r.status, ("POST", "/api/setup"): r.setup,
-              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
+              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/projects/owners"): r.owners, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
-    return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000})  # a CBOM can be large; read only after sign-in
+    return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000, ("POST", "/api/projects/owners"): 2_000_000})  # a CBOM can be large; read only after sign-in
 
 
 def run(home, port=8900, open_browser=True, host="127.0.0.1"):

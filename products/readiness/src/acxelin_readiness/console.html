@@ -179,7 +179,8 @@ function progress(assets) {
 function trackForm(asset) {
   const t = asset.tracking || {}, id = asset.id.slice(0, 8);
   if (asset.tier === "ok" && !t.owner && (t.status || "open") === "open") return "";
-  const owner = h("input", {type: "text", value: t.owner || "", id: "o" + id});
+  const hint = asset.owner_hint;
+  const owner = h("input", {type: "text", value: t.owner || "", id: "o" + id, placeholder: hint ? hint.owner : ""});
   const due = h("input", {type: "date", value: t.due || "", id: "d" + id});
   const status = h("select", {id: "s" + id}, Object.entries(STATUS).map(([v, l]) => h("option", {value: v, selected: (t.status || "open") === v}, l)));
   const reason = h("textarea", {id: "r" + id, rows: "2"}, t.reason || "");
@@ -188,7 +189,8 @@ function trackForm(asset) {
   status.addEventListener("change", () => { accept.hidden = status.value !== "exception"; });
   const save = async (ev) => { ev.preventDefault(); try { await call("projects/track", {project: state.selected, finding: asset.id, owner: owner.value, due: due.value, status: status.value, reason: reason.value, until: until.value}); await refreshProject(); } catch (e) {} };
   const label = t.still_found ? "Fixed, still found" : t.status === "exception" ? "Accepted risk until " + t.until
-    : t.status && t.status !== "open" ? STATUS[t.status] + (t.owner ? ": " + t.owner : "") : t.owner ? "Owner: " + t.owner : "Assign an owner";
+    : t.status && t.status !== "open" ? STATUS[t.status] + (t.owner ? ": " + t.owner : "") : t.owner ? "Owner: " + t.owner
+    : hint ? "Owner: " + hint.owner + " (from " + hint.source + ")" : "No owner · review needed";
   const log = (t.log || []).slice().reverse().map((e) => h("li", {}, when(e.at) + " · " + STATUS[e.status] + (e.owner ? " · " + e.owner : "") + (e.due ? " · due " + e.due : "")));
   return h("details", {class: "track"}, h("summary", {style: t.still_found ? "color:var(--bad)" : ""}, label),
     h("form", {onsubmit: save}, h("label", {for: owner.id}, "Owner"), owner, h("label", {for: due.id}, "Due date"), due, h("label", {for: status.id}, "Status"), status, accept,
@@ -209,7 +211,7 @@ function results(p) {
   if (!out) return;
   const last = p.last;
   if (!last) { out.replaceChildren(h("p", {class: "empty"}, p.running ? "The first scan of this repository is running. Results appear here when it finishes." : "Not scanned yet. Choose Scan repository to see which cryptography this project uses and what to migrate first.")); return; }
-  const shown = JSON.stringify([last.finished, state.filter, last.assets.map((a) => a.tracking)]);
+  const shown = JSON.stringify([last.finished, state.filter, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
   if (out.dataset.shown === shown) return;  // polling during a scan must not close what the reader opened
   out.dataset.shown = shown;
   const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
@@ -227,7 +229,7 @@ function results(p) {
     h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
     last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "",
-    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")));
+    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")), ownersForm(last));
 }
 
 function projectsView() {
@@ -324,6 +326,16 @@ async function exportCbom() {
 async function exportCsv(path, body, name) { try { save(name, (await call(path, body)).csv, "text/csv"); } catch (e) {} }
 const exports = (csv) => h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"),
   h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF"));
+function ownersForm(last) {
+  const file = h("input", {type: "file", id: "ownersfile", accept: ".csv,text/csv"});
+  const send = async (csv) => { try { await call("projects/owners", {project: state.selected, csv}); await refreshProject(); } catch (e) {} };
+  const use = async () => { const f = file.files[0]; if (!f) return say("Choose a CSV file first."); await send(await f.text()); };
+  return h("details", {class: "more", style: "margin-top:18px"}, h("summary", {}, last.owner_rules ? "Owners from a CMDB export: " + last.owner_rules + " rules" : "Owners from a CMDB export"),
+    h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns; the last matching row wins. It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),
+    h("label", {for: "ownersfile"}, "CSV file"), file,
+    h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: use}, "Use these owners"),
+      last.owner_rules ? h("button", {class: "btn quiet", onclick: () => send("")}, "Remove them") : ""));
+}
 function endpointsView() {
   const area = h("textarea", {id: "targets", placeholder: "api.example.com:443\nssh://bastion.example.com", spellcheck: "false"}, state.targets);
   state.restore = !state.targets;  // after a reload, the last check's hosts come back into the box

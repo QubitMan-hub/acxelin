@@ -8,6 +8,8 @@ from pathlib import Path
 
 from acxelin_core.files import locked, write
 
+from . import owners
+
 
 class ScanStopped(ValueError):
     pass
@@ -100,7 +102,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
                               "resolved_calls": sum(bool(c["target"]) for c in graph["calls"]), "calls": len(graph["calls"]),
                               "libraries": result.stats["libraries"], "seconds": result.stats["seconds"], "graph_limited": graph["limited"], "truncated_files": len(graph.get("truncated_files", {})), "incremental": graph.get("incremental", {})},
                   "evidence_boundary": "Static source evidence is not runtime protection or proof of business ownership.",
-                  "relationships": graph}
+                  "codeowners": owners.codeowners(root), "relationships": graph}
     if out:
         folder = Path(out)
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -265,6 +267,10 @@ class ProjectStore:
         result['history'] = copy.deepcopy(project.get('history', []))
         result['not_observed'] = copy.deepcopy(project.get('missing', []))
         result['verifications'] = copy.deepcopy(project.get('verifications', []))
+        cmdb, repo = project.get('owners', []), result.get('codeowners', [])
+        result['owner_rules'] = len(cmdb)
+        for asset in result['assets'] + result['not_observed']:
+            asset['owner_hint'] = owners.suggest(cmdb, repo, sorted({f for f, _ in asset['locations']}))
         present = {a['id'] for a in result['assets']}
         for evidence in result['verifications']:
             evidence['source_state'] = 'observed' if evidence['finding'] in present else 'not_observed'
@@ -296,6 +302,15 @@ class ProjectStore:
                                                 'mapping_basis': 'Operator-supplied deployment association; source-to-release provenance is not independently verified'}
             project['verifications'] = project.get('verifications', [])[-99:] + [evidence]
             return self.view(project)
+        return self.update(change)
+
+    def set_owners(self, root, rules):
+        def change(data):
+            project = data['projects'].get(self.key(root))
+            if not project:
+                raise ValueError('Scan this repository first')
+            project['owners'] = [list(r) for r in rules]
+            return len(rules)
         return self.update(change)
 
     def track(self, root, body):

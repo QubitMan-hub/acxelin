@@ -257,6 +257,17 @@ the algorithm alone, and the page says so. Names the catalogue does not recognis
 file is re-checked: it describes what the other tool found. Importing a file with the same name again replaces it and
 compares, like a rescan. Files up to 16 MB; for larger ones, use `acxelin-readiness merge`.
 
+### Owners
+
+Each finding suggests an owner and says where it came from:
+
+1. An owner you set on the finding.
+2. A CMDB export: under **Owners from a CMDB export**, a CSV whose first row has a `path` (or `pattern`) column and an
+   `owner` (or `team`, `owned by`, `support group`) column. Paths are CODEOWNERS patterns, and the last matching row wins.
+3. The repository's `CODEOWNERS` file (in `.github/`, the root or `docs/`, as GitHub looks for it).
+
+A finding none of these covers reads **No owner · review needed**.
+
 ### How a finding was seen
 
 Under each finding's action, the console says how it was seen, strongest first:
