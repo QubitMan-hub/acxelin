@@ -2,7 +2,9 @@
 
 Runs on acxelin-core's console mechanism; this module is only the product's pages, routes and state.
 """
+import hashlib
 import json
+import math
 import re
 import tempfile
 import threading
@@ -35,7 +37,9 @@ class Readiness:
         self.ep = {"running": False, "error": None, "last": None, "history": []}
         try:
             saved = json.loads(self.ep_history.read_text()) if self.ep_history.exists() else []
-            self.ep["history"] = [r for r in saved if isinstance(r, dict) and isinstance(r.get("finished"), (int, float))][-30:] if isinstance(saved, list) else []
+            number = lambda v, top: type(v) in (int, float) and math.isfinite(v) and 0 <= v <= top
+            self.ep["history"] = [r for r in saved if isinstance(r, dict) and number(r.get("finished"), 2**33) and (r.get("score") is None or number(r.get("score"), 100))][-30:] \
+                if isinstance(saved, list) else []
         except (OSError, ValueError):
             pass  # a damaged history starts again; it holds no findings
         settings = self.home / "settings.json"
@@ -72,13 +76,16 @@ class Readiness:
 
     def setup(self, body):
         d = body.get("directory")
-        path = Path(d).expanduser().resolve() if isinstance(d, str) and d.strip() else None
+        try:
+            path = Path(d).expanduser().resolve() if isinstance(d, str) and d.strip() else None
+        except (RuntimeError, OSError):
+            path = None  # ~someone for an unknown user, or a path the system refuses
         if not path or not path.is_dir():
             raise ValueError("Choose an existing folder: the one that holds the repositories you want to scan")
-        write(self.home / "settings.json", json.dumps({"directory": str(path)}).encode(), secret=True)
         with self.lock:
             if self.job["running"]:
                 raise ValueError("Wait for the running scan to finish, or stop it, before choosing another folder")
+            write(self.home / "settings.json", json.dumps({"directory": str(path)}).encode(), secret=True)
             self.folder = path
             self.reload()
         return 200, {"directory": str(path)}
@@ -95,7 +102,12 @@ class Readiness:
     # --- GitHub repositories, downloaded into the console's own folder for each scan
 
     def remotes(self):
-        return json.loads(self.remote_file.read_text()) if self.remote_file.exists() else {}
+        """The saved GitHub links by folder name; a damaged file starts again rather than stopping the console."""
+        try:
+            saved = json.loads(self.remote_file.read_text()) if self.remote_file.exists() else {}
+            return {k: v for k, v in saved.items() if isinstance(k, str) and isinstance(v, str) and remote.parse(v)}
+        except (OSError, ValueError, AttributeError):
+            return {}
 
     def label(self, path):
         return "github.com/" + remote.label(self.remotes()[path.name]) if path.parent == self.remote_dir else path.name
@@ -103,7 +115,8 @@ class Readiness:
     def github(self, body):
         url = body.get("url")
         owner, repo, ref = remote.parse(url)
-        name = f"{owner}--{repo}" + (f"@{ref.replace('/', '~')}" if ref else "")
+        exact = f"{owner}/{repo}" + (f"@{ref}" if ref else "")  # branches differ by case; Windows folders do not
+        name = f"{owner}--{repo}-{hashlib.sha256(exact.encode()).hexdigest()[:8]}"
         with self.lock:
             known = self.remotes()
             if name not in known:
@@ -181,10 +194,13 @@ class Readiness:
 
         def work():
             try:
+                name = None
                 if path.parent == self.remote_dir:
                     progress("Downloading from GitHub")
-                    remote.fetch(self.remotes()[path.name], path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
-                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache)
+                    url = self.remotes()[path.name]
+                    remote.fetch(url, path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
+                    name = remote.label(url)
+                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
                 result["project_key"] = self.store.key(path)
                 try:
                     result = self.store.save(path, result)

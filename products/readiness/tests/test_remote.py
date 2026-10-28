@@ -193,3 +193,29 @@ def test_the_command_line_scans_a_link_with_the_token_from_the_environment_only(
     assert "MD5" in cbom and "acme/shop" in cbom
     assert run.call_args.args[2] == [], "a downloaded repository's own settings never choose which hosts this computer probes"
     assert not seen["dest"].exists(), "the downloaded copy is deleted after the scan"
+
+
+def test_a_connection_that_drops_mid_download_is_a_refusal_with_advice(tmp_path, monkeypatch):
+    class Dropping:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            raise TimeoutError("timed out")
+    monkeypatch.setattr(remote, "opener", lambda: type("O", (), {"open": lambda self, req, timeout: Dropping()})())
+    with pytest.raises(remote.Refused, match="reach GitHub"):
+        remote.fetch("https://github.com/acme/shop", tmp_path / "shop")
+
+
+def test_a_local_folder_named_like_a_github_path_is_scanned_where_it_is(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from acxelin_readiness import cli
+    (tmp_path / "github.com/acme/app").mkdir(parents=True)
+    (tmp_path / "github.com/acme/app/a.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    monkeypatch.chdir(tmp_path)
+    with patch("acxelin_readiness.cli.remote.fetch", side_effect=AssertionError("downloaded")):
+        assert cli.main(["scan", "github.com/acme/app", "--out", str(tmp_path / "out"), "--quiet"]) == 0
+    assert "MD5" in (tmp_path / "out/cbom.json").read_text()

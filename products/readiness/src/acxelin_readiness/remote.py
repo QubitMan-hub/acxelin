@@ -75,6 +75,8 @@ def _download(owner, repo, ref, token, api, into):
             else f"GitHub answered {e.code}; try again later.")) from None
     except urllib.error.URLError as e:
         raise Refused(f"Could not reach GitHub ({e.reason}); check the network or proxy") from None
+    except OSError as e:
+        raise Refused(f"Could not reach GitHub ({e.__class__.__name__}: the connection dropped or timed out); try again") from None
 
 
 def _unpack(archive, dest):

@@ -102,7 +102,7 @@ def main(argv=None):
     if a.cmd == "console":
         return console(a)
 
-    link = a.path and a.path.startswith(("https://github.com/", "github.com/", "http://github.com/"))
+    link = a.path and (a.path.startswith(("https://github.com/", "http://github.com/")) or a.path.startswith("github.com/") and not Path(a.path).exists())
     cfg = settings(a.config, None if link or a.path is None and (a.tls or a.ssh or a.pcap) else Path(a.path or "."))  # a downloaded repository's settings are not trusted
     a.exclude = cfg.get("exclude", []) + a.exclude
     a.tls = cfg.get("tls", []) + a.tls

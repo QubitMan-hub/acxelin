@@ -286,7 +286,7 @@ def test_a_github_repository_is_added_by_link_and_downloaded_again_for_each_scan
         last = wait(app)["last"]
         call(app, "POST", "/api/projects/scan", {"project": r["project"]})
         wait(app)
-    assert last["project"] == "acme--payments" and any(a["name"] == "RSA-2048" for a in last["assets"]) and len(fake_fetch.tokens) == 2
+    assert last["project"] == "acme/payments" and any(a["name"] == "RSA-2048" for a in last["assets"]) and len(fake_fetch.tokens) == 2
     again = rc.build(home)
     assert [p["name"] for p in again.routes[("GET", "/api/status")]({})[1]["projects"]] == ["github.com/acme/payments"], "kept across restarts, no folder needed"
 
@@ -333,3 +333,41 @@ def test_the_access_token_is_saved_owner_only_used_for_downloads_and_never_retur
 def test_a_token_that_cannot_be_one_is_refused(app, bad):
     with pytest.raises(ValueError):
         app.routes[("POST", "/api/github/token")]({"token": bad})
+
+
+def test_a_refused_folder_change_is_not_saved(app, repos, home, tmp_path):
+    setup(app, repos)
+    call(app, "POST", "/api/projects/register", {"name": "shop"})
+    with patch("acxelin_readiness.console.workspace.scan", side_effect=lambda *a, **k: time.sleep(0.5) or {}):
+        call(app, "POST", "/api/projects/scan", {"project": 0})
+        with pytest.raises(ValueError):
+            app.routes[("POST", "/api/setup")]({"directory": str(tmp_path)})
+        wait(app)
+    assert json.loads((home / "settings.json").read_text())["directory"] == str(repos.resolve())
+
+
+def test_a_home_folder_of_an_unknown_user_is_a_message_not_a_crash(app):
+    with pytest.raises(ValueError):
+        app.routes[("POST", "/api/setup")]({"directory": "~nosuchuser_zz/x"})
+
+
+@pytest.mark.parametrize("damage", ['{"truncated', '{"o--r": 5}', '["x"]', '{"acme--shop": "https://gitlab.com/a/b"}'])
+def test_a_damaged_github_list_starts_empty_instead_of_stopping_the_console(home, damage):
+    home.mkdir(parents=True)
+    (home / "github.json").write_text(damage)
+    assert rc.build(home).routes[("GET", "/api/status")]({})[1]["projects"] == []
+
+
+def test_unreadable_numbers_in_the_endpoint_history_are_dropped(home):
+    home.mkdir(parents=True)
+    (home / "endpoints-history.json").write_text('[{"finished": NaN, "score": 50}, {"finished": 1e300, "score": 1}, {"finished": 5, "score": Infinity},'
+                                                  ' {"finished": 7, "score": 70}]')
+    assert rc.build(home).routes[("GET", "/api/endpoints/status")]({})[1]["history"] == [{"finished": 7, "score": 70}]
+
+
+def test_branches_that_differ_only_in_case_get_separate_folders(app):
+    with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
+        a = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/shop/tree/Main"})[1]["project"]
+        b = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/shop/tree/main"})[1]["project"]
+    console = app.routes[("GET", "/api/status")].__self__
+    assert a != b and len({p.name.lower() for p in console.projects}) == 2, "Windows folders are case-insensitive"

@@ -123,3 +123,13 @@ def test_a_keystore_scan_writes_a_valid_cyclonedx_cbom(tmp_path, key):
     formats = {c["cryptoProperties"]["relatedCryptoMaterialProperties"]["format"] for c in cbom["components"]
                if c.get("cryptoProperties", {}).get("assetType") == "related-crypto-material"}
     assert {"PKCS#12", "JKS"} <= formats
+
+
+def test_a_keystore_entry_with_a_key_type_this_library_cannot_load_is_reported_not_fatal(tmp_path, key):
+    der = bytearray(certificate(key).public_bytes(serialization.Encoding.DER))
+    oid = bytes([0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01])  # id-ecPublicKey, 1.2.840.10045.2.1
+    at = der.index(oid)
+    der[at + 8] = 0x7F  # 1.2.840.10045.2.127: no library knows it
+    arts, _, _ = found(tmp_path, "odd.jks", jks([(1, "odd", bytes(der))]))
+    assert [(a.kind, a.algo) for a in arts if a.kind == "private-key"] == [("private-key", "unknown")]
+    assert workspace.scan(tmp_path)["assets"] is not None

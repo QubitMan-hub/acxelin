@@ -42,10 +42,13 @@ def _sight(algo, path, what, size=None, role="keystore-protection"):
 
 def _key(der, path, fmt, encrypted):
     """A private-key entry, named by its certificate's public key: the key itself is never read."""
-    algo, params = artifacts.key_info(x509.load_der_x509_certificate(der).public_key())
+    try:
+        algo, params = artifacts.key_info(x509.load_der_x509_certificate(der).public_key())
+    except Exception:  # noqa: BLE001 - a key type this library cannot load is still a private key in the repository
+        algo, params = None, {}
+    art = Artifact(kind="private-key", file=path, line=1, algo=algo or "unknown", params=params, details={"encrypted": encrypted, "format": fmt})
     if not algo:
-        return [], []
-    art = Artifact(kind="private-key", file=path, line=1, algo=algo, params=params, details={"encrypted": encrypted, "format": fmt})
+        return [art], []
     return [art], [Detection(algo=algo, file=path, line=1, evidence="artifact", detector="artifacts", snippet=f"{fmt} private key entry",
                              lang="keystore", params=dict(params, role="private-key"))]
 
@@ -104,10 +107,7 @@ def read(data, path):
         for der in certs:
             add(der, "keystore")
         for der in keys:
-            try:
-                a, s = _key(der, path, fmt, True)
-            except ValueError:
-                continue
+            a, s = _key(der, path, fmt, True)
             arts += a
             sights += s
         sights.append(_sight("SHA-1", path, f"{fmt} keystore integrity check"))
@@ -126,7 +126,7 @@ def read(data, path):
                     sights.append(_sight(algo, path, "PKCS#12 keystore protection", size))
     try:
         store = pkcs12.load_pkcs12(data, None)
-    except (ValueError, TypeError):
+    except Exception:  # noqa: BLE001 - password-protected, damaged, or an algorithm this library cannot load
         return arts, sights  # protected by a password: its protection is all that can be told
     for c in ([store.cert] if store.cert else []) + list(store.additional_certs):
         add(c.certificate.public_bytes(Encoding.DER), "keystore")

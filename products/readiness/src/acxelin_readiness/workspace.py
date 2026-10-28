@@ -22,7 +22,7 @@ def score(assets):
     return round(sum(listed) / len(listed)) if listed else None
 
 
-def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None):
+def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None, name=None):
     notify = progress or (lambda stage: None)
     notify("Preparing project")
     root = Path(path).resolve()
@@ -45,7 +45,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
             except ValueError:
                 pass
     try:
-        result = pack.run(root, root.name, scope=Scope(exclude=tuple(excluded), checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes), cache=cache)
+        result = pack.run(root, name or root.name, scope=Scope(exclude=tuple(excluded), checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes), cache=cache)
     except ScanLimitError as error:
         raise ScanStopped(str(error)) from None
     checkpoint()
@@ -63,7 +63,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
               for a in result.assets]
     patterns = [{k: v for k, v in p.as_dict().items() if k != "snippet"} for p in getattr(result, "patterns", [])][:500]
     graph = result.relationships
-    assessment = {"project": root.name, "finished": time.time(), "assets": assets, "patterns": patterns, "notes": result.notes,
+    assessment = {"project": name or root.name, "finished": time.time(), "assets": assets, "patterns": patterns, "notes": result.notes,
                   "summary": {"crypto_assets": len(assets), "priorities": dict(Counter(a["tier"] for a in assets)), "score": score(assets),
                               "python_files": graph.get("languages", {}).get("Python", 0), "languages": graph.get("languages", {}), "coverage_gaps": graph.get("skipped", {}),
                               "migration_candidates": sum(a["tier"] in {"critical", "high"} and not a["test_only"] and not a["declared"] for a in assets),
@@ -75,7 +75,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     if out:
         folder = Path(out)
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-        report.write_results(folder, root.name, result)
+        report.write_results(folder, name or root.name, result)
     if history:
         try:
             append_history(history, assessment)
