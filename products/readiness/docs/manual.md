@@ -127,6 +127,7 @@ Live endpoints show what your servers actually negotiate, which configuration fi
 |---|---|
 | Scan a repository | `acxelin-readiness scan PATH` |
 | Scan a GitHub repository | `acxelin-readiness scan https://github.com/OWNER/REPO` (a branch: `…/tree/BRANCH`) |
+| Scan this computer's keys and certificates | `acxelin-readiness scan ~/.ssh`, `scan /etc/ssl` or, on Windows, a folder of exported `.pfx` files |
 | Scan a container image | `docker save IMAGE -o image.tar`, then `acxelin-readiness scan image.tar` |
 | Include live endpoints | `acxelin-readiness scan PATH --tls HOST:443 --ssh HOST` |
 | Read handshakes from a packet capture | `acxelin-readiness scan PATH --pcap traffic.pcapng` |
@@ -283,7 +284,7 @@ Grades, accepted groups and SSH algorithms need nothing extra. To read the certi
 |---|---|
 | Code | Python, JavaScript, TypeScript, Java, Go, C and C++, Rust, C#, Swift, PHP, Ruby, shell, Dockerfiles and more: calls, imports, constants, names and parameters |
 | Configuration | YAML, JSON, TOML, INI, nginx, Apache, sshd, Kubernetes, Terraform: algorithm and cipher lists |
-| Keys and certificates | PEM and DER certificates, keys, keystores, SSH keys and known hosts |
+| Keys and certificates | PEM and DER certificates and keys, SSH keys and known hosts. PKCS#12 (`.p12`, `.pfx`) and Java keystores (`.jks`, `.jceks`, `.keystore`, `.truststore`): the algorithms that protect them, read without a password, and the certificates they hold in the clear. A key's algorithm is named from its certificate; key material is never read or written out |
 | Binaries and images | Library versions and algorithm strings in compiled files; container images saved with `docker save` or as OCI archives |
 | Dependencies | Package manifests and lockfiles of the common ecosystems |
 | Live | TLS endpoints (accepted groups, certificate, grade) and SSH servers (algorithm lists, host keys) |

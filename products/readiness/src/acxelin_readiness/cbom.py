@@ -110,7 +110,7 @@ def build(project, assets, arts, libs, endpoints=()):
                 rp["algorithmRef"] = algo_ref
             if art.params.get("key_size"):
                 rp["size"] = art.params["key_size"]
-            rp["format"] = "PEM" if art.details.get("format") != "openssh" else "OpenSSH"
+            rp["format"] = {"openssh": "OpenSSH", "JKS": "JKS", "JCEKS": "JCEKS", "PKCS12": "PKCS#12"}.get(art.details.get("format"), "PEM")
             comps.append({"type": "cryptographic-asset", "bom-ref": f"crypto/{art.kind}/{i}", "name": f"{art.algo} {art.kind}",
                           "cryptoProperties": {"assetType": "related-crypto-material", "relatedCryptoMaterialProperties": rp}, "evidence": loc,
                           "properties": _props(encrypted=art.details.get("encrypted"))})

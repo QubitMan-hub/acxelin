@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448, x
 from ..catalog import curve, CATALOG
 from ..model import Detection, Artifact
 from . import iter_files, rel, is_test
+from . import keystores
 
 EXT = {".pem", ".crt", ".cer", ".der", ".key", ".pub", ".csr", ".cert"}
 SSH_NAMES = re.compile(r"^(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|ssh_host_\w+_key(\.pub)?|authorized_keys|known_hosts)$")
@@ -137,6 +138,18 @@ def scan(root, scope=False):
     arts, sights, n = [], [], 0
     for p in iter_files(root, scope):
         ext = p.suffix.lower()
+        if ext in keystores.EXT:
+            try:
+                a, s = keystores.read(p.read_bytes(), rel(root, p))
+            except OSError:
+                continue
+            base = {"test"} if is_test(rel(root, p)) else set()
+            for x in s:
+                x.context |= base
+            arts += a
+            sights += s
+            n += 1
+            continue
         if not (ext in EXT or SSH_NAMES.match(p.name) or ext in CODE_EXT):
             continue
         try:

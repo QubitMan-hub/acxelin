@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keystores: PKCS#12 (`.p12`, `.pfx`) and Java keystores (`.jks`, `.jceks`, `.keystore`, `.truststore`) are read without a
+  password. Findings show what protects them (40-bit RC2, 3DES, RC4, SHA-1, MD5, or PBKDF2 with AES), the certificates they
+  hold in the clear, and private-key entries named by their certificate. The CBOM gives such keys the format `PKCS#12`, `JKS`
+  or `JCEKS` instead of `PEM`.
 - A 0-100 readiness score for each project scan and endpoint check, with its trend in the console (the last 30, as a line
   and a table). Projects average their listed findings' priorities; endpoints count A 100, B 50, C 0 and leave out F.
   Console assessment summaries gain `score`; endpoint checks are kept in `endpoints-history.json` in the console's folder.
