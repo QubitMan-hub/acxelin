@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Exports: `report` also writes `assessment.csv`, and the console has **Download CSV** for findings and endpoint grades.
+  Formula-like cells are neutralised. Every HTML report and the console print cleanly to PDF through the browser.
+- Evidence rows name the NIST CSF 2.0, DORA (Delegated Regulation (EU) 2024/1774) and NIS2 Art. 21(2)(h) controls they
+  support, in `assessment.json` (`frameworks`), the CSV and the report. They are not a compliance verdict.
 - Keystores: PKCS#12 (`.p12`, `.pfx`) and Java keystores (`.jks`, `.jceks`, `.keystore`, `.truststore`) are read without a
   password. Findings show what protects them (40-bit RC2, 3DES, RC4, SHA-1, MD5, or PBKDF2 with AES), the certificates they
   hold in the clear, and private-key entries named by their certificate. The CBOM gives such keys the format `PKCS#12`, `JKS`

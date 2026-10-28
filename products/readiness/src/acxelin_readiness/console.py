@@ -13,7 +13,7 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, endpoints, pipeline, remote, workspace
+from . import cbom, endpoints, evidence, pipeline, remote, workspace
 
 MAX_TARGETS = 500
 TOKEN = re.compile(r"[A-Za-z0-9_]{20,255}")
@@ -228,6 +228,15 @@ class Readiness:
                 self.job["last"] = result
         return 200, {"saved": True}
 
+    def project_csv(self, body):
+        i, path = self.selected(body)
+        last = self.store.assessment(path)
+        if not last:
+            raise ValueError("Scan this repository first")
+        rows = [[a["name"], a["algorithm"], a["tier"], a["action"] or a["why"], "; ".join(f"{f}:{n}" for f, n in a["locations"][:50]),
+                 a["tracking"]["owner"], a["tracking"]["status"], a["tracking"]["due"]] for a in last["assets"] if not a["test_only"]]
+        return 200, {"csv": evidence.csv_text(["Asset", "Algorithm", "Priority", "What to do", "Places", "Owner", "Status", "Due"], rows)}
+
     # --- endpoints
 
     @staticmethod
@@ -280,6 +289,16 @@ class Readiness:
         threading.Thread(target=work, daemon=True, name="endpoint-scan").start()
         return 200, {"started": len(targets)}
 
+    def endpoint_csv(self, body):
+        with self.lock:
+            last = self.ep["last"]
+        if not last:
+            raise ValueError("Check endpoints first")
+        c = lambda r, k: (r.get("certificate") or {}).get(k, "")
+        return 200, {"csv": evidence.csv_text(["Endpoint", "Grade", "Negotiated", "Certificate key", "Expires", "Issuer"],
+                                              [[r["target"], r["grade"], r.get("negotiated") or r.get("error") or "", c(r, "key"), c(r, "expires"), c(r, "issuer")]
+                                               for r in last["endpoints"]])}
+
     def endpoint_cbom(self, body):
         targets = self.targets(body)
         with tempfile.TemporaryDirectory(prefix="readiness-endpoints-") as empty:
@@ -298,7 +317,7 @@ def build(home):
               ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
-              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom}
+              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
     return core.App(page(), routes)
 
 

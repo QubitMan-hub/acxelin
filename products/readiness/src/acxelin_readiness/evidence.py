@@ -4,8 +4,10 @@ NIST IR 8547 (initial public draft, November 2024): quantum-vulnerable public-ke
 after 2030 and all of them are disallowed after 2035; ML-KEM and ML-DSA are the replacements.
 CNSA 2.0 (NSA, 2022, updated 2024): ML-KEM-1024, ML-DSA-87, AES-256 and SHA-384/512, used exclusively by the category's deadline.
 """
+import csv
 import datetime as dt
 import html
+import io
 import json
 from pathlib import Path
 
@@ -23,11 +25,36 @@ LIMIT = 64_000_000
 STATUS = {"action": "action needed", "plan": "quantum-vulnerable: plan its migration", "transition": "quantum-safe, classical fallback still allowed",
           "note": "not used for security (declared in code)", "ready": "quantum-safe"}
 KINDS = {"tls": "TLS endpoints", "ssh": "SSH endpoints", "pki": "Certificates", "code": "Code and systems"}
+DORA_RTS = "Delegated Regulation (EU) 2024/1774 "
+CONTROLS = {"tls": ("PR.DS-02", 6), "ssh": ("PR.DS-02", 6), "pki": ("PR.AA-03", 7), "code": ("ID.RA-01", 6)}
+FRAMEWORK_NOTE = ("The framework columns name the control each row is evidence for: NIST CSF 2.0 (PR.DS-02 data in transit, PR.AA-03 "
+                  "authentication, ID.RA-01 vulnerabilities), DORA's ICT risk management standard (Delegated Regulation (EU) 2024/1774, Art. 6 "
+                  "encryption, Art. 7 key management) and NIS2 Art. 21(2)(h) (cryptography). They show what the evidence supports; they are not a "
+                  "compliance verdict.")
 
 
 def _row(kind, name, detail, status, nist, cnsa2, evidence):
+    csf, article = CONTROLS[kind]
     return {"kind": kind, "name": name, "detail": detail, "status": status, "nist_ir_8547": nist, "cnsa2": cnsa2,
-            "cnsa2_deadline": CNSA2_DEADLINE[kind], "evidence": evidence}
+            "cnsa2_deadline": CNSA2_DEADLINE[kind], "evidence": evidence,
+            "frameworks": {"NIST CSF 2.0": csf, "DORA": f"{DORA_RTS}Art. {article}", "NIS2": "Art. 21(2)(h)"}}
+
+
+def csv_text(header, rows):
+    """CSV a spreadsheet opens as text: a cell starting with = + - @ or a control character gets a leading apostrophe."""
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(header)
+    for row in rows:
+        w.writerow(["'" + c if isinstance(c, str) and c[:1] in ("=", "+", "-", "@", "\t", "\r") else "" if c is None else c for c in row])
+    return out.getvalue()
+
+
+def to_csv(rep):
+    f = lambda r, k: r.get("frameworks", {}).get(k, "")
+    return csv_text(["Area", "Asset", "Status", "NIST IR 8547", "CNSA 2.0", "NIST CSF 2.0", "DORA", "NIS2", "Evidence"],
+                    [[KINDS[r["kind"]], r["name"], STATUS[r["status"]], r["nist_ir_8547"], r["cnsa2"], f(r, "NIST CSF 2.0"), f(r, "DORA"), f(r, "NIS2"), r["detail"]]
+                     for r in rep["items"]])
 
 
 def certificates(folder):
@@ -158,7 +185,9 @@ def to_html(rep, title="Post-quantum readiness"):
                     for k in KINDS for rows in [[r for r in items if r["kind"] == k]] if rows)
     rows = "".join(
         f"<tr data-status={r['status']}><td>{e(KINDS[r['kind']])}</td><td><b>{e(r['name'])}</b></td><td><span class='pill {cls[r['status']]}'>{e(STATUS[r['status']])}</span></td>"
-        f"<td>{e(r['nist_ir_8547'])}</td><td class={'ok' if r['cnsa2'] == 'compliant' else 'mute'}>{e(r['cnsa2'])}</td><td><small>{e(r['detail'])}</small></td></tr>"
+        f"<td>{e(r['nist_ir_8547'])}</td><td class={'ok' if r['cnsa2'] == 'compliant' else 'mute'}>{e(r['cnsa2'])}</td>"
+        f"<td><small>{e(' · '.join(f'{k} {v.removeprefix(DORA_RTS)}' for k, v in r.get('frameworks', {}).items()))}</small></td>"
+        f"<td><small>{e(r['detail'])}</small></td></tr>"
         for r in order)
     options = "".join(f"<option value={k}>{e(v)}</option>" for k, v in STATUS.items() if s[k])
     sub = ("Every certificate, endpoint and CBOM asset you included, mapped to NIST IR 8547 (draft: quantum-vulnerable public-key "
@@ -170,8 +199,8 @@ def to_html(rep, title="Post-quantum readiness"):
             + "".join(f"<th>{e(v)}</th>" for v in STATUS.values()) + f"<th>CNSA 2.0 deadline</th></tr></thead><tbody>{areas}</tbody></table></div></section>"
             f"<section class=panel><h2>Every asset</h2><div class=filters hidden><label>Search<input id=q type=search placeholder='name, file, algorithm'></label>"
             f"<label>Status<select id=st><option value=''>All</option>{options}</select></label><span id=n role=status></span></div>"
-            f"<div class=scroll tabindex=0 role=region aria-label='Every asset'><table><thead><tr><th>Area</th><th>Asset</th><th>Status</th><th>NIST IR 8547</th><th>CNSA 2.0</th><th>Evidence</th></tr></thead>"
-            f"<tbody id=rows>{rows}</tbody></table></div></section>" + DASHBOARD)
+            f"<div class=scroll tabindex=0 role=region aria-label='Every asset'><table><thead><tr><th>Area</th><th>Asset</th><th>Status</th><th>NIST IR 8547</th><th>CNSA 2.0</th><th>Frameworks</th><th>Evidence</th></tr></thead>"
+            f"<tbody id=rows>{rows}</tbody></table></div><p><small>{e(FRAMEWORK_NOTE)}</small></p></section>" + DASHBOARD)
     return _page(title, "Readiness assessment", title, e(sub), body, f"Acxelin Readiness {__version__}")
 
 

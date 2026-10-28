@@ -312,11 +312,12 @@ def report_command(a):
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.html").write_text(evidence.to_html(rep), encoding="utf-8")
     (out / "assessment.json").write_text(evidence.to_json(rep), encoding="utf-8")
+    (out / "assessment.csv").write_text(evidence.to_csv(rep), encoding="utf-8")
     first = [r for r in rows if r["status"] == "action"]
     print(f"{rep['assets']} assets: " + ", ".join(f"{n} {evidence.STATUS[s]}" for s, n in rep["status"].items() if n))
     for r in first[:5]:
         print(f"  do first: {r['name']}: {r['detail']}")
     if len(first) > 5:
         print(f"  ({len(first) - 5} more: see the report)")
-    print(f"Report: {out / 'report.html'} (open it in a browser); assessment.json holds the evidence")
+    print(f"Report: {out / 'report.html'} (open it in a browser); assessment.json and assessment.csv hold the evidence")
     return 0

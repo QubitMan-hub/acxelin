@@ -72,5 +72,6 @@ def page(title, kicker, heading, sub, body, footer):
 <title>{e(title)}</title><style>@font-face{{font-family:"Host Grotesk";font-weight:400 600;src:url(data:font/woff2;base64,{font}) format("woff2")}}{CSS}</style></head>
 <body><main><div class="brandbar">{logo}<small>Acxelin Readiness {__version__}</small></div>
 <p class="kicker">{e(kicker)}</p><h1>{e(heading)}</h1><p class="sub">{sub}</p>
+<div class="tools"><button type="button" onclick="print()">Print or save as PDF</button></div>
 {body}
 <footer>{footer} · Acxelin Readiness by Acxelin Quantum</footer></main></body></html>"""

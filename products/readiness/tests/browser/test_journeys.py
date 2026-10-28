@@ -379,3 +379,23 @@ def test_the_readiness_score_and_its_trend_show_for_projects_and_endpoints(page,
     assert page.locator(".score b").inner_text() == "100"
     assert "from 0 to 100" in page.locator("svg.trend").get_attribute("aria-label")
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_findings_and_grades_download_as_csv_and_print_without_the_controls(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    with page.expect_download() as d:
+        page.get_by_role("button", name="Download CSV").click()
+    assert d.value.suggested_filename == "shop-findings.csv" and Path(d.value.path()).read_text().startswith("Asset,Algorithm,Priority")
+    page.emulate_media(media="print")
+    assert not page.get_by_role("button", name="Scan repository").is_visible() and page.get_by_text("RSA-2048").is_visible()
+    page.emulate_media(media="screen")
+    page.get_by_role("tab", name="Endpoints").click()
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: [grade("127.0.0.1:1", "C")]):
+        page.get_by_label("Hosts to check").fill("127.0.0.1:1")
+        page.get_by_role("button", name="Check endpoints").click()
+        page.locator("#ep-result td .pill", has_text="C").wait_for()
+    with page.expect_download() as d:
+        page.get_by_role("button", name="Download CSV").click()
+    assert Path(d.value.path()).read_text().splitlines()[1].startswith("127.0.0.1:1,C,")

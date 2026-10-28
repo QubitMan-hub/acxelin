@@ -19,6 +19,8 @@ details.where ul{margin:8px 0 2px;padding-left:16px;font:12.5px/1.6 var(--mono);
 .trend{display:block;width:100%;max-width:440px;height:auto;color:var(--ink);margin:8px 0 0}
 details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--muted)}details.more summary::-webkit-details-marker{display:none}
 details.more summary::after{content:" ▸"}details.more[open] summary::after{content:" ▾"}details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
+@media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more{display:none!important}.split{display:block}
+.scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
@@ -158,7 +160,8 @@ function results(p) {
     h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
     h("p", {class: "legend"}, "Choose an asset to see where it is. Choose a priority to show only those."),
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
-    last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "");
+    last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "",
+    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")));
 }
 
 function projectsView() {
@@ -219,7 +222,9 @@ function endpointResults(e) {
     proxyNote(last.endpoints),
     ...outlook(last.outlook),
     last.changes.length ? h("div", {class: "changed"}, h("h2", {}, "Changed since the scan before"), h("ul", {class: "list"}, last.changes.map((c) => h("li", {}, c.target + ": " + c.before + " → " + c.after)))) : "",
-    h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM")),
+    h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM"),
+      h("button", {class: "btn quiet", onclick: () => exportCsv("endpoints/csv", {}, "endpoints.csv")}, "Download CSV"),
+      h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")),
     h("p", {class: "legend", id: "ep-export"}, "The CBOM (CycloneDX 1.6) is built from a fresh check of these endpoints."));
 }
 function outlook(o) {
@@ -233,14 +238,20 @@ function proxyNote(rows) {
   if (issuers.length < 2 || new Set(issuers).size !== 1 || new Set(rows.map((r) => r.target.split(":")[0])).size < 2) return "";
   return h("p", {class: "legend", style: "color:var(--ink)"}, "Every endpoint presented a certificate from the same issuer. That usually means a TLS-inspecting proxy answered for all of them, so these grades describe the proxy, not the servers. Check from a network without inspection.");
 }
+function save(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], {type}));
+  const a = h("a", {href: url, download: name}); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
 async function exportCbom() {
   try {
     const r = await call("endpoints/cbom", {targets: state.endpoints.last.targets});
-    const url = URL.createObjectURL(new Blob([JSON.stringify(r.cbom, null, 2)], {type: "application/json"}));
-    const a = h("a", {href: url, download: "endpoints-cbom.json"}); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    save("endpoints-cbom.json", JSON.stringify(r.cbom, null, 2), "application/json");
     $("#ep-export").textContent = "Downloaded endpoints-cbom.json.";
   } catch (e) {}
 }
+async function exportCsv(path, body, name) { try { save(name, (await call(path, body)).csv, "text/csv"); } catch (e) {} }
+const exports = (csv) => h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"),
+  h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF"));
 function endpointsView() {
   const area = h("textarea", {id: "targets", placeholder: "api.example.com:443\nssh://bastion.example.com", spellcheck: "false"}, state.targets);
   const go = h("button", {class: "btn", id: "check"}, "Check endpoints");

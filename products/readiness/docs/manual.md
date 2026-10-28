@@ -167,7 +167,16 @@ The finding is kept as *suppressed* in `findings.json`, so the decision stays vi
 - `--targets HOST ...`: endpoints, graded now
 - `--cbom PATH` (repeatable): a scan's output folder, or any CycloneDX CBOM, including the exported inventory of another system
 
-It writes `report.html` and `assessment.json` to the folder given with `-o` (default `readiness-report`).
+It writes `report.html`, `assessment.json` and `assessment.csv` to the folder given with `-o` (default `readiness-report`).
+
+Each row also names the control it is evidence for: NIST CSF 2.0 (PR.DS-02 for endpoints, PR.AA-03 for certificates, ID.RA-01
+for code), DORA's ICT risk management standard (Delegated Regulation (EU) 2024/1774, Art. 6 encryption or Art. 7 key
+management) and NIS2 Art. 21(2)(h) (cryptography). These show what the evidence supports. They are not a compliance verdict:
+an auditor judges the controls as a whole.
+
+Every HTML report has a **Print or save as PDF** button, which uses your browser's own print dialog, and printing leaves out
+the controls. In the console, **Download CSV** exports a repository's findings (with owners and due dates) or the endpoint
+grades. CSV cells that a spreadsheet would run as a formula (starting with `=`, `+`, `-` or `@`) are prefixed with `'`.
 
 ## 6. Running it in CI
 
