@@ -136,6 +136,10 @@ def terminal(r):
            f"detectors {st['raw_detections']} raw  ->  verify {st['accepted']} verified, {st['quarantined']} held, {st['rejected']} rejected, "
            f"{st['suppressed']} suppressed  ->  rank {st['promoted_on_second_look']} promoted, {st['references_followed']} trails  ->  {len(r.assets)} assets",
            f"quantum-safe asymmetric: {rd['pq_safe']}/{rd['asymmetric']} ({rd['percent']}%)   hybrid KEX: {'yes' if rd['hybrid'] else 'no'}"]
+    cov = st.get("coverage") or {}
+    if cov.get("files"):
+        gaps = ", ".join(f"{n} {k}" for k, n in cov["not_read"].items())
+        out.append(f"coverage: {cov['read']}/{cov['files']} source and configuration files analysed ({cov['percent']}%)" + (f"; not read: {gaps}" if gaps else ""))
     for ep in r.endpoints:
         if ep.get("error"):
             out.append(f"  endpoint {ep['target']}: unreachable ({ep['error']})")

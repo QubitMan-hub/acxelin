@@ -462,3 +462,17 @@ def test_each_finding_says_how_it_was_seen_and_how_sure_the_scan_is(page, consol
     scan_shop(page)
     basis = page.locator("#pj-result td small.basis").first.inner_text()
     assert "In code" in basis and "confidence" in basis
+
+
+def test_coverage_shows_beside_the_score_and_a_fall_in_coverage_is_called_out(page, console):
+    open_console(page, console)
+    page.get_by_role("tab", name="Endpoints").click()
+    runs = iter([[grade("127.0.0.1:1", "C"), grade("127.0.0.1:2", "C")], [grade("127.0.0.1:1", "A"), grade("127.0.0.1:2", "F")]])
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: next(runs)):
+        for g in ("C", "A"):
+            page.get_by_label("Hosts to check").fill("127.0.0.1:1\n127.0.0.1:2")
+            page.get_by_role("button", name="Check endpoints").click()
+            page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).first.wait_for()
+            page.wait_for_function("!document.querySelector('#check').disabled")
+    page.get_by_text("Coverage 50%: 1 of 2 endpoints could be graded.").wait_for()
+    assert "Coverage fell from 100% to 50%" in page.locator("#ep-result").inner_text(), "the score rose to 100 only because one endpoint went dark"

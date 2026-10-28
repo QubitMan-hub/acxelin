@@ -335,7 +335,7 @@ class Readiness:
                     self.ep["last"] = {"finished": time.time(), "targets": targets, "summary": endpoints.summary(results), "endpoints": results, "changes": changes,
                                        "outlook": endpoints.outlook(results)}
                     s = self.ep["last"]["summary"]
-                    self.ep["history"] = self.ep["history"][-29:] + [{"finished": self.ep["last"]["finished"], "score": s["score"], "endpoints": s["endpoints"]}]
+                    self.ep["history"] = self.ep["history"][-29:] + [{"finished": self.ep["last"]["finished"], "score": s["score"], "coverage": s["coverage"], "endpoints": s["endpoints"]}]
                     try:
                         write(self.ep_history, json.dumps(self.ep["history"]).encode(), secret=True)
                     except OSError:

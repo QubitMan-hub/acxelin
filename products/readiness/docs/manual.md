@@ -288,6 +288,11 @@ table. It is a plain average, not a prediction:
 - **Endpoints:** grade A counts 100, B 50, C 0. Endpoints that could not be graded (F) are left out, because their state
   is unknown.
 
+Coverage is shown beside the score, because a score can rise simply because less was read. For a project it is the
+share of source and configuration files fully analysed (files over 2 MB, and Python that could not be parsed, are not).
+For endpoints it is the share that could be graded. When coverage falls by 10 points or more since the scan before, the
+console says so.
+
 With nothing to score, the console says so instead of showing 100: finding no cryptography is not proof there is none. Scores
 from different repositories, or from different lists of endpoints, are not comparable.
 

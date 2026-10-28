@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Coverage beside the score: for a project, the share of source and configuration files fully analysed (files over 2 MB and
+  Python that could not be parsed are not); for endpoints, the share that could be graded. It is shown in the console, kept
+  in the score history and printed by `scan`. When coverage falls by 10 points or more, the console says the score rests
+  on less than the scan before.
 - Console: each finding says how it was seen (negotiated, offered, in code, configured, or supported only), how sure the scan
   is (high, medium, low), and what it could not see (a key size, a curve, a mode, a hash, or any observed use). The CSV
   export carries the same three columns.

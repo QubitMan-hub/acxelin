@@ -8,7 +8,8 @@ from pathlib import Path
 
 from . import verify, rank, remedy
 from .crawler import CodeCrawler
-from .detectors import MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns
+from .detectors.lexer import LANGS
+from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns
 
 DETECTORS = ("source", "implementations", "config", "artifacts", "volumes", "binary")
 
@@ -25,6 +26,15 @@ class Detected:
     endpoints: list = field(default_factory=list)
     crawler: CodeCrawler = field(default_factory=CodeCrawler)
     patterns: list = field(default_factory=list)
+    coverage: dict = field(default_factory=dict)
+
+
+def coverage(root, scope, oversized_files, unparsed_python):
+    """Of the source and configuration files, how many were fully analysed: none over the read limit, none left unparsed."""
+    files = sum(1 for p in iter_files(root, scope, max_bytes=float("inf")) if p.suffix.lower() in LANGS or config.is_config(p))
+    not_read = {k: v for k, v in (("over 2 MB", oversized_files), ("Python that could not be parsed", unparsed_python)) if v}
+    read = max(files - sum(not_read.values()), 0)
+    return {"files": files, "read": read, "not_read": not_read, "percent": round(100 * read / files) if files else None}
 
 
 def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache=None):
@@ -56,6 +66,7 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
             h.crawler.gap("Source exceeds 2 MB read limit", path)
         h.notes.append(f"{len(big)} source file(s) over {MAX_BYTES // 1_000_000} MB not read (usually generated or minified code): "
                        + ", ".join(big[:5]) + (" ..." if len(big) > 5 else ""))
+    h.coverage = coverage(root, scope, len(big), len(unparsed))
     h.detections += params.scan(root, scope)
     h.patterns = patterns.ordered(h.patterns)
     s, h.files["implementations"] = implementations.scan(root, scope)
@@ -153,6 +164,6 @@ def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False,
              "libraries": len(h.libraries), "endpoints": len(h.endpoints), "raw_detections": len(h.detections),
              **{v: verdicts[v] for v in ("accepted", "quarantined", "rejected", "suppressed")},
              "promoted_on_second_look": sum(looks.values()), "patterns": len(found), "second_look": looks, "held_as_formats": held, "references_followed": references,
-             "seconds": round(time.time() - t0, 2), "horizon": vars(horizon) | {"years_to_crqc": horizon.z}}
+             "coverage": h.coverage, "seconds": round(time.time() - t0, 2), "horizon": vars(horizon) | {"years_to_crqc": horizon.z}}
     return Result(project, detections, assets, h.artifacts, h.libraries, al, rank.readiness(assets), stats, h.notes, h.endpoints, str(baseline or ""), relationships=relationships,
                   patterns=found)

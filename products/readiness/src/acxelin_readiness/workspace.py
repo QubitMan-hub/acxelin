@@ -93,6 +93,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     graph = result.relationships
     assessment = {"project": name or root.name, "finished": time.time(), "assets": assets, "patterns": patterns, "notes": result.notes,
                   "summary": {"crypto_assets": len(assets), "priorities": dict(Counter(a["tier"] for a in assets)), "score": score(assets),
+                              "coverage": result.stats["coverage"].get("percent"), "coverage_detail": {k: v for k, v in result.stats["coverage"].items() if k != "percent"},
                               "python_files": graph.get("languages", {}).get("Python", 0), "languages": graph.get("languages", {}), "coverage_gaps": graph.get("skipped", {}),
                               "migration_candidates": sum(a["tier"] in {"critical", "high"} and not a["test_only"] and not a["declared"] for a in assets),
                               "security_patterns": sum(p["severity"] in {"critical", "high"} for p in patterns), "functions": sum(s["kind"] == "function" for s in graph["symbols"]),
