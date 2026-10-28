@@ -15,6 +15,8 @@ details.where summary{cursor:pointer;list-style:none;font-family:var(--mono);fon
 details.where summary::after{content:" ▸";color:var(--muted)}details.where[open] summary::after{content:" ▾"}
 details.where ul{margin:8px 0 2px;padding-left:16px;font:12.5px/1.6 var(--mono);color:var(--body)}details.where p{margin:6px 0 0;font-size:13px;color:var(--muted)}
 .counts button{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;border-radius:6px;padding:2px 4px}
+.outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
+.outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
 </style>
 </head>
@@ -96,13 +98,14 @@ function results(p) {
   const shown = JSON.stringify([last.finished, state.filter, last.assets.map((a) => a.tracking)]);
   if (out.dataset.shown === shown) return;  // polling during a scan must not close what the reader opened
   out.dataset.shown = shown;
-  const pri = last.summary.priorities || {};
+  const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
+  for (const a of shownAssets) pri[a.tier] = (pri[a.tier] || 0) + 1;
   const pick = (k) => { state.filter = state.filter === k ? null : k; results(state.projects); };
   const counts = h("div", {class: "counts"}, ["critical", "high", "medium", "low", "ok"].filter((k) => pri[k]).map((k) =>
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
-  const assets = last.assets.filter((a) => !a.test_only && (!state.filter || a.tier === state.filter));
+  const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || ""), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
-  out.replaceChildren(h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + last.summary.crypto_assets + " cryptographic assets found."), counts,
+  out.replaceChildren(h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + " cryptographic assets found" + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
     h("p", {class: "legend"}, "Choose an asset to see where it is. Choose a priority to show only those."),
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
     last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "");
@@ -154,7 +157,7 @@ function endpointResults(e) {
   const last = e.last;
   if (!last) { out.replaceChildren(); return; }
   const rows = last.endpoints.map((r) => h("tr", {}, h("td", {}, r.target), h("td", {}, h("span", {class: "pill " + GRADE_TONE[r.grade]}, r.grade)), h("td", {}, r.negotiated || r.error || ""),
-    h("td", {}, r.certificate ? (r.certificate.key || "") + " · " + r.certificate.days_left + " days left" : "",
+    h("td", {}, r.certificate ? (r.certificate.key || "") + (!r.certificate.expires ? "" : r.certificate.days_left < 0 ? " · expired " + r.certificate.expires : " · " + r.certificate.days_left + " days left") : "",
       r.certificate && r.certificate.issuer ? h("div", {class: "legend", style: "margin:2px 0 0"}, "issued by " + ((r.certificate.issuer.match(/CN=([^,]+)/) || [])[1] || r.certificate.issuer)) : "")));
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));
   out.replaceChildren(h("p", {class: "state"}, "Checked " + when(last.finished) + ". " + last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
@@ -162,9 +165,16 @@ function endpointResults(e) {
     h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
     h("p", {class: "legend"}, Object.entries(GRADES).map(([g, t]) => g + ": " + t).join(" · ")),
     proxyNote(last.endpoints),
+    ...outlook(last.outlook),
     last.changes.length ? h("div", {class: "changed"}, h("h2", {}, "Changed since the scan before"), h("ul", {class: "list"}, last.changes.map((c) => h("li", {}, c.target + ": " + c.before + " → " + c.after)))) : "",
     h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM")),
     h("p", {class: "legend", id: "ep-export"}, "The CBOM (CycloneDX 1.6) is built from a fresh check of these endpoints."));
+}
+function outlook(o) {
+  if (!o) return [];
+  const item = (i) => h("li", {}, i.text, i.targets.length ? h("small", {}, i.targets.join(", ")) : "");
+  return [o.risks.length ? h("section", {class: "outlook"}, h("h2", {}, "What can happen"), h("p", {class: "legend"}, "If nothing changes. Each point names the endpoints it applies to."), h("ul", {}, o.risks.map(item))) : "",
+    o.actions.length ? h("section", {class: "outlook"}, h("h2", {}, "What we recommend"), h("p", {class: "legend"}, "Most urgent first."), h("ol", {}, o.actions.map(item))) : ""];
 }
 function proxyNote(rows) {
   const issuers = rows.map((r) => r.certificate && r.certificate.issuer).filter(Boolean);
@@ -201,7 +211,7 @@ async function refreshEndpoints() {
 function pollEndpoints() { clearInterval(state.timer); state.timer = setInterval(async () => { const e = await refreshEndpoints(); if (!e || !e.running) clearInterval(state.timer); }, 600); refreshEndpoints(); }
 
 async function load() {
-  try { state.status = await call("status"); } catch (e) { return signedOut(); }
+  try { state.status = await call("status"); state.selected = state.status.selected || 0; } catch (e) { return signedOut(); }
   shell();
   if (!state.status.configured && state.tab === "projects") $("#dir").focus();
 }

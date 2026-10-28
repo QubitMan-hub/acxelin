@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Console, Endpoints: below the grades, **What can happen** (if nothing changes) and **What we recommend** (most urgent first),
+  each naming the endpoints it applies to. They are rules from what the check observed, not forecasts: expired and expiring
+  certificates, classical-only key exchange, classical fallback, TLS 1.0 and 1.1, untrusted certificates, unreachable hosts
+  and classical certificate keys.
+- Console fixes: the priority counts and the asset total no longer include test-only findings the table does not list; after a
+  restart, the highlighted repository is the one whose results show; choosing a folder keeps its registered repositories and
+  never shows another folder's results (it is refused while a scan runs); SSH host keys no longer show "9999 days left", and an
+  expired certificate says so.
+- A bare IPv6 address such as `::1` is the address on the default port; it was read as host `:` on port 1. A port on IPv6
+  needs brackets: `[::1]:8443`.
+- An endpoint that fails unexpectedly keeps its `host:port` name, so the next check compares it.
+
 ## 1.0.2
 
 - Console: the Endpoints tab works before you choose a folder. **Add and scan** adds a repository and scans it in one step.

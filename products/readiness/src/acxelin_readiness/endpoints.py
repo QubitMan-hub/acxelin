@@ -162,7 +162,8 @@ def endpoint(target):
     """(protocol, host, port) of a target written as host, host:port, [v6]:port, https://host/path or ssh://host[:port]."""
     ssh = target.startswith("ssh://")
     t = target.split("://", 1)[-1].split("/", 1)[0]
-    host, port = (t.strip("[]"), None) if ":" not in t or t.endswith("]") else hostport(t, "")
+    bare = ":" not in t or t.endswith("]") or t.count(":") > 1 and not t.startswith("[")  # a port on IPv6 needs brackets
+    host, port = (t.strip("[]"), None) if bare else hostport(t, "")
     if not host or not re.fullmatch(r"[\w.:%-]+", host):
         raise ValueError(f"expected host, host:port or ssh://host, got {target!r}")
     return ("ssh" if ssh else "tls"), host, port or (22 if ssh else 443)
@@ -204,6 +205,11 @@ def probe(target, server_name=None, timeout=8.0):
     return out
 
 
+def _label(target):
+    kind, host, port = endpoint(target)
+    return ("ssh://" if kind == "ssh" else "") + _join(host, port)
+
+
 def scan(targets, workers=16, timeout=8.0):
     """Every target gets a result: one server answering in a way nobody planned for is graded F, not the end of the scan."""
     def one(t):
@@ -211,7 +217,7 @@ def scan(targets, workers=16, timeout=8.0):
             return probe(t, timeout=timeout)
         except Exception as e:
             log.exception("readiness: probing %s failed", t)
-            return _result(t, "ssh" if t.startswith("ssh://") else "tls", error=f"unexpected answer: {e}", grade="F")
+            return _result(_label(t), "ssh" if t.startswith("ssh://") else "tls", error=f"unexpected answer: {e}", grade="F")
     with ThreadPoolExecutor(workers) as pool:
         return list(pool.map(one, targets))
 
@@ -221,6 +227,51 @@ def summary(results):
     certs = [r["certificate"] for r in results if r["certificate"]]
     return {"endpoints": len(results), "grades": counts, "pq_key_exchange": counts["A"] + counts["B"], "cnsa2": sum(r.get("cnsa2", False) for r in results),
             "pq_certificates": sum(c["quantum_safe"] for c in certs), "expiring_30d": sum(c["days_left"] < 30 for c in certs)}
+
+
+def outlook(results):
+    """What can happen if nothing changes, and what to do about it, most urgent first. Rules, not forecasts: each names its evidence."""
+    cert = lambda r: r["certificate"] if r["protocol"] == "tls" and r["grade"] != "F" and r["certificate"] else None
+    expired = [r for r in results if cert(r) and cert(r)["days_left"] < 0]
+    soon = sorted((r for r in results if cert(r) and 0 <= cert(r)["days_left"] < 30), key=lambda r: cert(r)["expires"])
+    tls_c = [r for r in results if r["grade"] == "C" and r["protocol"] == "tls"]
+    ssh_c = [r for r in results if r["grade"] == "C" and r["protocol"] == "ssh"]
+    hybrid = [r for r in results if r["grade"] == "B"]
+    legacy = [r for r in results if r.get("legacy")]
+    untrusted = [r for r in results if r.get("trusted") is False]
+    down = [r for r in results if r["grade"] == "F"]
+    classical_key = [r for r in results if cert(r) and not cert(r)["quantum_safe"]]
+    names = lambda rows: [r["target"] for r in rows]
+    risks = [
+        (expired, "Certificate already expired: clients that check certificates refuse these connections now."),
+        (soon, f"Certificate expires within 30 days (the first on {soon and cert(soon[0])['expires']}): from then on, clients that check certificates refuse these connections."),
+        (tls_c + ssh_c, "Classical key exchange only: traffic recorded today can be decrypted once a large enough quantum computer exists (harvest now, "
+                        "decrypt later). NIST IR 8547 (draft) deprecates quantum-vulnerable key exchange after 2030 at 112-bit strength and disallows it after 2035."),
+        (hybrid, "Post-quantum offered, classical still accepted: a client that offers only classical key exchange gets a classical session, "
+                 "which can be recorded now and decrypted later."),
+        (legacy, "TLS 1.0 and 1.1 still accepted: a client that falls back to them uses protocols deprecated since 2021 (RFC 8996)."),
+        (untrusted, "Certificate not trusted by this computer: a private CA, or a TLS-inspecting proxy answered instead, and then these grades describe the proxy."),
+        (down, "Endpoint could not be graded: unreachable from here, or no TLS or SSH. Its exposure is unknown until it answers."),
+        (classical_key, "Certificate key is classical (not ML-DSA): its signature is quantum-vulnerable, so a large enough quantum computer could "
+                        "impersonate the server. Unlike recorded traffic, this risk only starts once such a computer exists."),
+    ]
+    actions = [
+        (expired + soon, "Renew the certificate before it expires, and automate renewal (ACME)."),
+        (tls_c, "Enable TLS 1.3 with hybrid X25519MLKEM768 key exchange alongside the current groups (OpenSSL 3.5 or later, or a TLS front end that has it). "
+                "Clients without it keep working on classical key exchange."),
+        (ssh_c, "Add mlkem768x25519-sha256 (OpenSSH 9.9 or later) or sntrup761x25519-sha512 (OpenSSH 9.0 or later) to KexAlgorithms."),
+        (legacy, "Switch off TLS 1.0 and 1.1: set the minimum version to TLS 1.2."),
+        (untrusted, "Check again from a network without TLS inspection, or confirm the private CA is intended."),
+        (down, "Check the host name, port and firewall, then check again."),
+        (hybrid, "Once your clients all offer post-quantum key exchange, stop accepting classical groups to reach grade A. Check client support "
+                 "first: clients without it would be locked out."),
+        (classical_key, "Plan ML-DSA certificates for when your CA and clients support them. Key exchange comes first: recorded traffic is the risk that starts today."),
+    ]
+    out = {"risks": [{"targets": names(rows), "text": t} for rows, t in risks if rows],
+           "actions": [{"targets": names(rows), "text": t} for rows, t in actions if rows]}
+    if results and not out["actions"]:
+        out["actions"].append({"targets": [], "text": "Nothing to change now. Check again after configuration changes and certificate renewals."})
+    return out
 
 
 def report_html(results, title="Post-quantum readiness"):

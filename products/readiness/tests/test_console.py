@@ -212,3 +212,56 @@ def test_registered_repositories_survive_a_restart_but_never_widen_when_the_fold
     (repos / "shop").rename(repos / "moved")
     (repos / "shop").symlink_to(other, target_is_directory=True)
     assert rc.build(home).routes[("GET", "/api/status")]({})[1]["projects"] == []
+
+
+def test_choosing_another_folder_after_a_scan_starts_clean(app, repos, tmp_path):
+    setup(app, repos)
+    for name in ("empty", "shop"):
+        call(app, "POST", "/api/projects/register", {"name": name})
+    call(app, "POST", "/api/projects/select", {"project": 1})
+    call(app, "POST", "/api/projects/scan", {"project": 1})
+    wait(app)
+    (tmp_path / "other/web").mkdir(parents=True)
+    call(app, "POST", "/api/setup", {"directory": str(tmp_path / "other")})
+    call(app, "POST", "/api/projects/register", {"name": "web"})
+    status = call(app, "GET", "/api/projects/status")[1]
+    assert status["selected"] == 0 and status["last"] is None, "results from the old folder are never shown under a new repository"
+
+
+def test_a_folder_cannot_change_while_a_scan_runs(app, repos, tmp_path):
+    setup(app, repos)
+    call(app, "POST", "/api/projects/register", {"name": "shop"})
+    with patch("acxelin_readiness.console.workspace.scan", side_effect=lambda *a, **k: time.sleep(0.5) or {}):
+        call(app, "POST", "/api/projects/scan", {"project": 0})
+        with pytest.raises(ValueError, match="scan"):
+            app.routes[("POST", "/api/setup")]({"directory": str(tmp_path)})
+        wait(app)
+
+
+def test_after_a_restart_the_most_recent_repository_is_the_selected_one(app, repos, home):
+    setup(app, repos)
+    for name in ("empty", "shop"):
+        call(app, "POST", "/api/projects/register", {"name": name})
+    call(app, "POST", "/api/projects/scan", {"project": 0})
+    wait(app)
+    call(app, "POST", "/api/projects/select", {"project": 1})
+    call(app, "POST", "/api/projects/scan", {"project": 1})
+    wait(app)
+    again = rc.build(home)
+    assert again.routes[("GET", "/api/status")]({})[1]["selected"] == 1
+    status = again.routes[("GET", "/api/projects/status")]({})[1]
+    assert status["selected"] == 1 and status["last"]["project"] == "shop"
+
+
+def test_endpoint_results_carry_what_can_happen_and_what_to_do(app):
+    with patch("acxelin_readiness.console.endpoints.scan", return_value=[grade("a.example.invalid:443", "C")]):
+        call(app, "POST", "/api/endpoints/scan", {"targets": "a.example.invalid:443"})
+        outlook = wait(app, "endpoints")["last"]["outlook"]
+    assert outlook["risks"][0]["targets"] == ["a.example.invalid:443"] and "X25519MLKEM768" in outlook["actions"][0]["text"]
+
+
+def test_choosing_the_same_folder_again_keeps_its_repositories(app, repos):
+    setup(app, repos)
+    call(app, "POST", "/api/projects/register", {"name": "shop"})
+    setup(app, repos)
+    assert call(app, "GET", "/api/status")[1]["projects"] == [{"id": 0, "name": "shop"}]

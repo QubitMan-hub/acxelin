@@ -277,3 +277,55 @@ def test_a_finding_can_be_accepted_as_a_risk_until_a_date(page, console, repos):
     page.get_by_label("Accepted until").first.fill("2099-01-01")
     page.get_by_role("button", name="Save").first.click()
     page.get_by_text("Accepted risk until 2099-01-01").wait_for()
+
+
+def test_endpoints_say_what_can_happen_and_what_to_do_next(page, console):
+    rows = [grade("a.example:443", "C") | {"certificate": {"key": "RSA-2048", "issuer": "CN=Old CA", "expires": "2026-01-01", "days_left": -5, "quantum_safe": False}},
+            grade("ssh.example:22", "C") | {"target": "ssh://ssh.example:22", "protocol": "ssh",
+                                            "certificate": {"key": "ssh-ed25519", "expires": "", "days_left": 9999, "quantum_safe": False}}]
+    open_console(page, console)
+    page.get_by_role("tab", name="Endpoints").click()
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: rows):
+        page.get_by_label("Hosts to check").fill("a.example\nssh://ssh.example")
+        page.get_by_role("button", name="Check endpoints").click()
+        page.get_by_role("heading", name="What can happen").wait_for()
+    recommend = page.locator("section.outlook", has=page.get_by_role("heading", name="What we recommend"))
+    assert recommend.locator("ol > li").first.inner_text().startswith("Renew the certificate")
+    assert "X25519MLKEM768" in recommend.inner_text() and "mlkem768x25519-sha256" in recommend.inner_text()
+    table = page.locator("#ep-result table").inner_text()
+    assert "expired 2026-01-01" in table and "9999" not in table, "SSH host keys have no expiry; an expired certificate says so"
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_counts_match_the_listed_findings_when_some_are_only_in_tests(page, console, tmp_path):
+    root = tmp_path / "tested"
+    (root / "shop/tests").mkdir(parents=True)
+    (root / "shop/keys.py").write_text("from cryptography.hazmat.primitives.asymmetric import rsa\nrsa.generate_private_key(public_exponent=65537, key_size=2048)\n")
+    (root / "shop/tests/test_keys.py").write_text("import hashlib\nhashlib.md5(b'x')\nhashlib.sha1(b'y')\n")
+    open_console(page, console)
+    fill_setup(page, root)
+    scan_shop(page)
+    page.get_by_text("only in tests").wait_for()
+    assert page.locator(".counts button").inner_text().split()[-1] == str(page.locator("#pj-result tbody tr").count())
+
+
+def test_after_a_restart_the_selected_repository_is_the_one_whose_results_show(browser, tmp_path, repos):
+    first = rc.build(tmp_path / "home")
+    first.routes[("POST", "/api/setup")]({"directory": str(repos)})
+    for i, name in enumerate(("api", "shop")):
+        first.routes[("POST", "/api/projects/register")]({"name": name})
+        first.routes[("POST", "/api/projects/select")]({"project": i})
+        first.routes[("POST", "/api/projects/scan")]({"project": i})
+        while first.routes[("GET", "/api/projects/status")]({})[1]["running"]:
+            pass
+    app = rc.build(tmp_path / "home")
+    server = core.start(app, tmp_path / "home", port=0)
+    ctx = browser.new_context()
+    try:
+        page = ctx.new_page()
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}/#{app.sessions.ticket()}")
+        page.get_by_text("RSA", exact=False).first.wait_for()
+        assert page.locator(".list button[aria-current=true]").inner_text() == "shop"
+    finally:
+        ctx.close()
+        server.shutdown()

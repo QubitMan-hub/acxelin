@@ -33,13 +33,20 @@ class Readiness:
         settings = self.home / "settings.json"
         if settings.exists():
             self.folder = Path(json.loads(settings.read_text())["directory"])
-            for name in self.store.read()["registrations"].get(self.store.key(self.folder), []):
-                try:
-                    self.projects.append(self.approved(name))
-                except (OSError, ValueError):
-                    pass  # a stored name never grants access beyond today's chosen folder
-            saved = [self.store.assessment(p) for p in self.projects]
-            self.job["last"] = max((a for a in saved if a), key=lambda a: a["finished"], default=None)
+            self.reload()
+
+    def reload(self):
+        """The chosen folder's registered repositories, with the most recently scanned one selected."""
+        self.projects = []
+        for name in self.store.read()["registrations"].get(self.store.key(self.folder), []):
+            try:
+                self.projects.append(self.approved(name))
+            except (OSError, ValueError):
+                pass  # a stored name never grants access beyond today's chosen folder
+        saved = [(a["finished"], i, a) for i, a in enumerate(self.store.assessment(p) for p in self.projects) if a]
+        self.job.update(last=None, selected=0, error=None, stage="")
+        if saved:
+            _, self.job["selected"], self.job["last"] = max(saved, key=lambda s: s[:2])
 
     # --- first run and the repository folder
 
@@ -51,7 +58,7 @@ class Readiness:
             except OSError:
                 pass
         return 200, {"configured": bool(self.folder), "directory": str(self.folder or ""), "available": available, "example": str(Path.home() / "code"),
-                     "projects": [{"id": i, "name": p.name} for i, p in enumerate(self.projects)]}
+                     "projects": [{"id": i, "name": p.name} for i, p in enumerate(self.projects)], "selected": self.job["selected"]}
 
     def setup(self, body):
         d = body.get("directory")
@@ -60,7 +67,10 @@ class Readiness:
             raise ValueError("Choose an existing folder: the one that holds the repositories you want to scan")
         write(self.home / "settings.json", json.dumps({"directory": str(path)}).encode(), secret=True)
         with self.lock:
-            self.folder, self.projects = path, []
+            if self.job["running"]:
+                raise ValueError("Wait for the running scan to finish, or stop it, before choosing another folder")
+            self.folder = path
+            self.reload()
         return 200, {"directory": str(path)}
 
     def approved(self, name):
@@ -202,7 +212,8 @@ class Readiness:
                     before = {e["target"]: e["grade"] for e in (self.ep["last"] or {}).get("endpoints", [])}
                     changes = [{"target": r["target"], "before": before[r["target"]], "after": r["grade"]}
                                for r in results if r["target"] in before and before[r["target"]] != r["grade"]]
-                    self.ep["last"] = {"finished": time.time(), "targets": targets, "summary": endpoints.summary(results), "endpoints": results, "changes": changes}
+                    self.ep["last"] = {"finished": time.time(), "targets": targets, "summary": endpoints.summary(results), "endpoints": results, "changes": changes,
+                                       "outlook": endpoints.outlook(results)}
             except Exception:
                 with self.lock:
                     self.ep["error"] = "The endpoint scan failed. Check the host names and your network, then try again."

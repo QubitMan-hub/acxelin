@@ -643,6 +643,12 @@ class Regressions(unittest.TestCase):
         self.assertEqual(_split("[::1]:8443", 443), ("::1", 8443))
         self.assertEqual(_split("https://bank.example/login", 443), ("bank.example", 443))
         self.assertEqual(_split("ssh://bank.example:2222", 22), ("bank.example", 2222))
+        self.assertEqual(_split("::1", 443), ("::1", 443), "a port on an IPv6 address needs brackets")
+        self.assertEqual(_split("2001:db8::1", 22), ("2001:db8::1", 22))
+        from acxelin_readiness.endpoints import endpoint
+        self.assertEqual(endpoint("::1"), ("tls", "::1", 443))
+        self.assertEqual(endpoint("ssh://2001:db8::1"), ("ssh", "2001:db8::1", 22))
+        self.assertEqual(endpoint("[2001:db8::1]:8443"), ("tls", "2001:db8::1", 8443))
 
     def test_nuget_without_inline_version(self):
         import tempfile
