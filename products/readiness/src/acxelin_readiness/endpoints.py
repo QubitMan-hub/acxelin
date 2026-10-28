@@ -116,8 +116,8 @@ def ssh_kexinit(host, port, timeout):
         s.sendall(b"SSH-2.0-acxelin_readiness_scan\r\n")
         try:
             n, pad = struct.unpack(">IB", f.read(5))
-            if n > 35000:
-                raise OSError("oversized SSH packet")
+            if not 5 <= n <= 35000:  # a length below 5 would make the read below unbounded
+                raise OSError("malformed SSH packet length")
             payload = f.read(n - 1)[:n - 1 - pad]
             if not payload or payload[0] != 20:
                 raise OSError("the server did not send KEXINIT")

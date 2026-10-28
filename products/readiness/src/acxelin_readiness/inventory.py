@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import re
+import sys
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -42,7 +43,7 @@ def estimate(algo, name):
 
 def prop(component, key):
     """A CBOM property; for acxelin:* names, the old wolfpack:* name is read when the new one is absent (1.x)."""
-    props = {p.get("name"): p.get("value") for p in component.get("properties", [])}
+    props = {p.get("name"): p.get("value") for p in component.get("properties") or [] if isinstance(p, dict)}
     if key in props:
         return props[key]
     return props.get("wolfpack:" + key.removeprefix("acxelin:")) if key.startswith("acxelin:") else None
@@ -57,20 +58,31 @@ def cbom_files(paths):
 
 def load(path, taken):
     """One system from one CBOM. Tiers come from Acxelin Readiness's own properties; other tools' CBOMs get a tier estimated from the catalogue."""
-    bom = json.loads(Path(path).read_text(encoding="utf-8"))
-    meta = bom.get("metadata") or {}
-    name = (meta.get("component") or {}).get("name") or Path(path).parent.name or Path(path).stem
+    try:
+        bom = json.loads(Path(path).read_text(encoding="utf-8"))
+    except ValueError:
+        raise ValueError(f"{path} is not valid JSON") from None
+    if not isinstance(bom, dict) or not isinstance(bom.get("components", []), list):
+        raise ValueError(f"{path} is not a CycloneDX CBOM")
+    dicts = lambda v: v if isinstance(v, dict) else {}
+    meta = dicts(bom.get("metadata"))
+    name = str(dicts(meta.get("component")).get("name") or Path(path).parent.name or Path(path).stem)
     base, n = name, 2
     while name in taken:
         name, n = f"{base} ({n})", n + 1
     taken.add(name)
-    tool = next((f"{t.get('name')} {t.get('version', '')}".strip() for t in (meta.get("tools") or {}).get("components", [])), "unknown")
+    tools = meta.get("tools")
+    tools = dicts(tools).get("components", []) if not isinstance(tools, list) else tools  # CycloneDX 1.5+ nests them; 1.4 lists them
+    tool = next((f"{t.get('name')} {t.get('version', '')}".strip() for t in tools if isinstance(t, dict)), "unknown")
+    components = [c | {"name": str(c["name"]) if c.get("name") is not None else "?"} for c in bom.get("components", []) if isinstance(c, dict)]
+    if any(str(p.get("name", "")).startswith("wolfpack:") for c in components for p in c.get("properties") or [] if isinstance(p, dict)):
+        print(f"acxelin-readiness: {path}: read through the old wolfpack:* property names; scan again to write acxelin:* names", file=sys.stderr)
     assets = []
-    for c in bom.get("components", []):
-        cp = c.get("cryptoProperties") or {}
+    for c in components:
+        cp = dicts(c.get("cryptoProperties"))
         if c.get("type") != "cryptographic-asset" or cp.get("assetType") != "algorithm":
             continue
-        algo = algo_of(c.get("name", ""))
+        algo = algo_of(c["name"])
         tier = prop(c, "acxelin:tier")
         estimated = tier not in RANK
         if estimated:
@@ -81,8 +93,8 @@ def load(path, taken):
                        "occurrences": (c.get("evidence") or {}).get("occurrences", [])})
     assets.sort(key=lambda a: (RANK.get(a["tier"], len(TIERS)), a["name"]))
     others = [{"name": c.get("name", "?"), "tier": None, "component": c, "occurrences": (c.get("evidence") or {}).get("occurrences", [])}
-              for c in bom.get("components", []) if c.get("type") == "cryptographic-asset"
-              and (c.get("cryptoProperties") or {}).get("assetType") in ("certificate", "related-crypto-material", "protocol")]
+              for c in components if c.get("type") == "cryptographic-asset"
+              and dicts(c.get("cryptoProperties")).get("assetType") in ("certificate", "related-crypto-material", "protocol")]
     return {"name": name, "source": str(path), "tool": tool, "assets": assets, "others": others, "readiness": readiness(assets)}
 
 
@@ -259,7 +271,14 @@ def record(history, org, systems):
            "critical": sm["systems_at"]["critical"], "high": sm["systems_at"]["high"],
            "breaches": sum(s["readiness"]["policy_breaches"] for s in systems)}
     history = Path(history)
-    rows = [json.loads(line) for line in history.read_text(encoding="utf-8").splitlines() if line.strip()] if history.exists() else []
+    rows = []
+    for line in history.read_text(encoding="utf-8").splitlines() if history.exists() else []:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue  # a damaged line is dropped rather than ending the merge
+        if isinstance(r, dict) and isinstance(r.get("date"), str) and all(type(r.get(k)) in (int, float) for k in row if k != "date"):
+            rows.append({k: r[k] for k in row})
     if rows and rows[-1]["date"] == row["date"]:
         rows[-1] = row
     else:

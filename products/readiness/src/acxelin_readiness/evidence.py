@@ -9,6 +9,7 @@ import datetime as dt
 import html
 import io
 import json
+import sys
 from pathlib import Path
 
 from acxelin_core.pki import algorithm_of
@@ -67,7 +68,11 @@ def certificates(folder):
             continue
         for c in certs:
             name = next((str(a.value) for a in c.subject if a.oid == x509.NameOID.COMMON_NAME), f.stem)
-            algo = algorithm_of(c.public_key()) or (f"RSA-{c.public_key().key_size}" if hasattr(c.public_key(), "key_size") else c.public_key_algorithm_oid.dotted_string)
+            try:
+                key = c.public_key()
+                algo = algorithm_of(key) or (f"RSA-{key.key_size}" if hasattr(key, "key_size") else c.public_key_algorithm_oid.dotted_string)
+            except Exception:  # noqa: BLE001 - a key type this library cannot load (GOST, SM2, a new OID) is still a certificate
+                algo = c.public_key_algorithm_oid.dotted_string
             expired, when = c.not_valid_after_utc < now, c.not_valid_after_utc.date().isoformat()
             detail = f"certificate, {algo}, {'expired' if expired else 'expires'} {when}"
             evidence = {"serial": format(c.serial_number, "x"), "file": f.name}
@@ -115,12 +120,15 @@ def code(path):
     if not isinstance(bom, dict) or bom.get("bomFormat") != "CycloneDX" or not isinstance(bom.get("components"), list):
         raise ValueError(f"{path} is not a CycloneDX CBOM; give a scan's output folder or its cbom.json")
     project = str(((bom.get("metadata") or {}).get("component") or {}).get("name") or folder.name)
-    out = []
+    out, warned = [], False
     for c in bom["components"]:
         if not isinstance(c, dict) or c.get("type") != "cryptographic-asset":
             continue
         props = {p.get("name"): str(p.get("value", "")) for p in c.get("properties") or [] if isinstance(p, dict)}
-        props |= {"acxelin:" + k.removeprefix("wolfpack:"): v for k, v in props.items() if k.startswith("wolfpack:") and "acxelin:" + k.removeprefix("wolfpack:") not in props}  # old prefix, read through 1.x
+        old = {"acxelin:" + k.removeprefix("wolfpack:"): v for k, v in props.items() if k.startswith("wolfpack:") and "acxelin:" + k.removeprefix("wolfpack:") not in props}
+        if old and not warned:
+            warned = print(f"acxelin-readiness: {path}: read through the old wolfpack:* property names; scan again to write acxelin:* names", file=sys.stderr) or True
+        props |= old  # old prefix, read through 1.x
         tier, name = props.get("acxelin:tier"), str(c.get("name", "?"))
         if tier is None:
             continue

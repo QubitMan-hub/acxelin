@@ -43,7 +43,7 @@ runs:
         ARGS: ${{ inputs.args }}
         OUT: ${{ inputs.output }}
       run: |
-        set +e
+        set +e -f  # -f: args such as --exclude *.min.js reach the scanner as written, not expanded against the workspace
         acxelin-readiness scan "$SCAN_PATH" -o "$OUT" ${FAIL_ON:+--fail-on "$FAIL_ON"} ${BASELINE:+--baseline "$BASELINE"} $ARGS
         code=$?
         echo "cbom=$OUT/cbom.json" >> "$GITHUB_OUTPUT"

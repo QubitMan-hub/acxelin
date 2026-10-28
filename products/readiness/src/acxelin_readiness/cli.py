@@ -1,4 +1,5 @@
 import argparse
+import atexit
 import os
 import shutil
 import sys
@@ -126,6 +127,7 @@ def main(argv=None):
         try:
             owner, repo, _ = remote.parse(a.path)
             downloaded = Path(tempfile.mkdtemp(prefix="readiness-github-"))
+            atexit.register(shutil.rmtree, downloaded, True)  # also when a later check exits early: it may hold private code
             root = remote.fetch(a.path, downloaded / repo, token=os.environ.get("GITHUB_TOKEN"))
         except ValueError as e:
             sys.exit(f"acxelin-readiness: {e}")
@@ -133,6 +135,8 @@ def main(argv=None):
     else:
         downloaded = None
         root = Path(tempfile.mkdtemp()) if targets_only else Path(a.path or ".").resolve()
+        if targets_only:
+            atexit.register(shutil.rmtree, root, True)
     if not root.exists():
         sys.exit(f"acxelin-readiness: {a.path} does not exist")
     name = a.name or ((a.tls + a.ssh + [Path(p).name for p in a.pcap])[0] if targets_only else root.name)
@@ -151,6 +155,7 @@ def main(argv=None):
     unpacked, notes = None, []
     if image.is_image(root):
         unpacked = Path(tempfile.mkdtemp(prefix="readiness-image-"))
+        atexit.register(shutil.rmtree, unpacked, True)
         notes = image.unpack(root, unpacked)
         name = a.name or root.name.split(".")[0]
     try:
@@ -188,10 +193,14 @@ def main(argv=None):
 def changed_files(root, ref):
     """Paths changed since `ref` plus uncommitted and untracked ones, relative to `root`, from git."""
     import subprocess
-    run = lambda *args: subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout.splitlines()
+    if not ref or ref.startswith("-"):
+        sys.exit(f"acxelin-readiness: --changed-since needs a git ref such as main or HEAD~1, not {ref!r}")
+    git = lambda *args: subprocess.run(["git", "-C", str(root), "-c", "core.quotePath=false", *args], capture_output=True, check=True).stdout.decode("utf-8", "surrogateescape")
+    run = lambda *args: [n for n in git(*args).split("\0") if n]  # -z: names exactly as stored, never quoted or split at newlines
     try:
-        top = Path(run("rev-parse", "--show-toplevel")[0])
-        names = run("diff", "--name-only", ref) + run("ls-files", "--others", "--exclude-standard", "--full-name")
+        top = Path(git("rev-parse", "--show-toplevel").strip())
+        git("rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}")
+        names = run("diff", "--name-only", "-z", "--end-of-options", ref) + run("ls-files", "-z", "--others", "--exclude-standard", "--full-name")
     except (OSError, subprocess.CalledProcessError, IndexError) as err:
         sys.exit(f"acxelin-readiness: --changed-since needs a git repository and a valid ref ({err})")
     out = set()
@@ -204,7 +213,8 @@ def changed_files(root, ref):
 
 
 def merge(a):
-    files = inventory.cbom_files(a.cboms)
+    out = Path(a.out).resolve()
+    files = [f for f in inventory.cbom_files(a.cboms) if not f.resolve().is_relative_to(out)]  # never this command's own earlier output
     if not files:
         sys.exit("acxelin-readiness: no cbom.json found in " + ", ".join(a.cboms))
     try:
@@ -256,10 +266,12 @@ def grade(a):
     results = endpoints.scan(targets, a.workers, a.timeout)
     for r in results:
         print(f"{r.get('grade', 'F')}  {r.get('target', '?')}  {r.get('error') or r.get('negotiated') or ''}")
-    if a.json:
-        Path(a.json).write_text(endpoints.to_json(results), encoding="utf-8")
-    if a.html:
-        Path(a.html).write_text(endpoints.report_html(results), encoding="utf-8")
+    for path, text in ((a.json, endpoints.to_json), (a.html, endpoints.report_html)):
+        if path:
+            try:
+                Path(path).write_text(text(results), encoding="utf-8")
+            except OSError as e:
+                sys.exit(f"acxelin-readiness: cannot write {path}: {e.strerror or e}")
     return 0
 
 
@@ -309,10 +321,13 @@ def report_command(a):
         sys.exit(f"acxelin-readiness: {e}")
     rep = evidence.report(rows)
     out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "report.html").write_text(evidence.to_html(rep), encoding="utf-8")
-    (out / "assessment.json").write_text(evidence.to_json(rep), encoding="utf-8")
-    (out / "assessment.csv").write_text(evidence.to_csv(rep), encoding="utf-8")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "report.html").write_text(evidence.to_html(rep), encoding="utf-8")
+        (out / "assessment.json").write_text(evidence.to_json(rep), encoding="utf-8")
+        (out / "assessment.csv").write_text(evidence.to_csv(rep), encoding="utf-8")
+    except OSError as e:
+        sys.exit(f"acxelin-readiness: cannot write to {out}: {e.strerror or e}")
     first = [r for r in rows if r["status"] == "action"]
     print(f"{rep['assets']} assets: " + ", ".join(f"{n} {evidence.STATUS[s]}" for s, n in rep["status"].items() if n))
     for r in first[:5]:

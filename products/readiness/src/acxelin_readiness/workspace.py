@@ -121,6 +121,7 @@ def finding_id(asset):
 class ProjectStore:
     """Bounded single-administrator workspace. Shared locks preserve competing updates."""
     LIMIT = 16_000_000
+    FINDINGS = 5000
     GRAPH_LIMIT = 64_000_000
 
     def __init__(self, path):
@@ -179,8 +180,11 @@ class ProjectStore:
             missing = {a['id']: a for a in previous.get('missing', [])}
             missing.update({k: a for k, a in old.items() if k not in ids})
             missing = {k: a for k, a in missing.items() if k not in ids}
-            if len(ids) + len(missing) > 5000:
-                raise ValueError('Workspace supports at most 5000 current and historical findings per project')
+            if len(ids) > self.FINDINGS:
+                raise ValueError(f'Workspace supports at most {self.FINDINGS} findings per project; narrow the repository scope')
+            keep = self.FINDINGS - len(ids)  # findings no longer observed are retired oldest first, with their tracking
+            missing = dict(list(missing.items())[-keep:]) if keep else {}
+            tracking = {k: v for k, v in tracking.items() if k in ids or k in missing}
             current['comparison'] = {'baseline': bool(previous), 'new': len(ids - old.keys()), 'persisting': len(ids & old.keys()),
                                      'not_observed': len(old.keys() - ids), 'previous_finished': previous.get('assessment', {}).get('finished')}
             history = previous.get('history', [])[-29:] + [{k: current[k] for k in ('project', 'finished', 'summary', 'comparison')}]

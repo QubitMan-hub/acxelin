@@ -2,6 +2,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
+from urllib.parse import quote
 
 from . import __version__
 from .crawler import impact_property
@@ -192,7 +193,7 @@ def sarif(assets, alerts, patterns=()):
             quiet = quiet or ("declared as supported here (an algorithm list or table), not seen in use" if a.declared else None)
             text = f"{a.variant}, {quiet}" if quiet else f"{a.variant} [{a.tier}]: {a.why}. Fix: {a.action}"
             results.append({"ruleId": rid, "level": LEVEL["low" if quiet else a.tier], "message": {"text": text},
-                            "locations": [{"physicalLocation": {"artifactLocation": {"uri": s.file}, "region": {"startLine": max(1, s.line)}}}],
+                            "locations": [{"physicalLocation": {"artifactLocation": {"uri": quote(s.file, safe="/")}, "region": {"startLine": max(1, s.line)}}}],
                             "properties": {"confidence": s.confidence, "evidence": s.evidence}})
     for sev, title, where, fix in alerts:
         if sev not in LEVEL:
@@ -200,13 +201,13 @@ def sarif(assets, alerts, patterns=()):
         f, _, ln = where.rpartition(":")
         rules.setdefault("WP-ALERT", {"id": "WP-ALERT", "name": "hygiene", "shortDescription": {"text": "Crypto hygiene alert"}})
         results.append({"ruleId": "WP-ALERT", "level": LEVEL[sev], "message": {"text": f"{title}. {fix}".strip()},
-                        "locations": [{"physicalLocation": {"artifactLocation": {"uri": f}, "region": {"startLine": max(1, int(ln or 1))}}}]})
+                        "locations": [{"physicalLocation": {"artifactLocation": {"uri": quote(f, safe="/")}, "region": {"startLine": max(1, int(ln or 1))}}}]})
     for p in patterns:
         rules.setdefault(p.rule, {"id": p.rule, "name": p.title, "shortDescription": {"text": p.title}, "help": {"text": p.fix, "markdown": p.fix},
                                   "properties": {"tags": ["security", "external/cwe/" + p.cwe.lower()], "security-severity": SEVERITY[RULES[p.rule][2]],
                                                  "precision": "medium", "detection": "pattern on one line; not taint tracking"}})
         results.append({"ruleId": p.rule, "level": LEVEL[p.severity], "message": {"text": f"{p.title} ({p.cwe}). {p.fix}" + (" (test code)" if p.test else "")},
-                        "locations": [{"physicalLocation": {"artifactLocation": {"uri": p.file}, "region": {"startLine": max(1, p.line)}}}]})
+                        "locations": [{"physicalLocation": {"artifactLocation": {"uri": quote(p.file, safe="/")}, "region": {"startLine": max(1, p.line)}}}]})
     return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
             "runs": [{"tool": {"driver": {"name": "acxelin-readiness", "version": __version__, "rules": list(rules.values())}}, "results": results}]}
 

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Fixes from a review:
+  - `--changed-since` refuses a ref that starts with `-`. Such a ref could pass options to git and write a file.
+  - `--changed-since` no longer misses changed files with non-ASCII names. Missing them let `--fail-on` pass.
+  - `merge` reads other tools' CBOMs: the CycloneDX 1.4 tools list, missing or numeric names, and non-object entries. A file
+    that is not a CBOM gets a message instead of a traceback.
+  - `merge DIR` skips its own earlier output.
+  - Old `wolfpack:*` properties print their one-line warning, as `docs/upgrade.md` says.
+  - A damaged `--history` line is dropped, and history values are escaped in the page.
+  - An SSH server announcing a zero-length packet is refused at once. Before, the reader read until the server stopped.
+  - `report --certs` lists certificates whose key type the library cannot load.
+  - The workspace retires the oldest findings no longer observed, instead of refusing every save after 5,000.
+  - SARIF locations are percent-encoded URIs.
+  - The GitHub Action passes `args` such as `--exclude *.min.js` unexpanded.
+  - `grade` and `report` say when they cannot write their output.
+  - The Windows installer writes its wrapper in the console code page, so a user name such as José keeps its path.
+  - Temporary copies, including downloaded private repositories, are removed when a scan stops early.
 - Exports: `report` also writes `assessment.csv`, and the console has **Download CSV** for findings and endpoint grades.
   Formula-like cells are neutralised. Every HTML report and the console print cleanly to PDF through the browser.
 - Evidence rows name the NIST CSF 2.0, DORA (Delegated Regulation (EU) 2024/1774) and NIS2 Art. 21(2)(h) controls they
