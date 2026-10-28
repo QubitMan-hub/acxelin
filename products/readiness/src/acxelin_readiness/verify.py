@@ -3,6 +3,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .catalog import CATALOG, variant
+from .detectors import MAX_BYTES
 from .model import Asset
 
 BASE = {"string": 0.35, "import": 0.45, "identifier": 0.65, "binary": 0.8, "constant": 0.85, "call": 0.9, "config": 0.9, "artifact": 0.95, "live": 1.0}
@@ -39,8 +40,9 @@ class Lines:
     def __call__(self, f):
         if f not in self.cache:
             p = self.root / f if self.root.is_dir() else self.root
-            try:
-                self.cache[f] = p.read_text(encoding="utf-8", errors="replace").splitlines() if "://" not in f and "!" not in f else []
+            try:  # a file larger than any source the detectors read (a binary or disk image) holds no ignore comment to honour
+                small = "://" not in f and "!" not in f and p.stat().st_size <= MAX_BYTES
+                self.cache[f] = p.read_text(encoding="utf-8", errors="replace").splitlines() if small else []
             except OSError:
                 self.cache[f] = []
         return self.cache[f]

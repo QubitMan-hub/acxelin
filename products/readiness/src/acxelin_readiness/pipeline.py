@@ -8,9 +8,9 @@ from pathlib import Path
 
 from . import verify, rank, remedy
 from .crawler import CodeCrawler
-from .detectors import MAX_BYTES, source, config, artifacts, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns
+from .detectors import MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns
 
-DETECTORS = ("source", "implementations", "config", "artifacts", "binary")
+DETECTORS = ("source", "implementations", "config", "artifacts", "volumes", "binary")
 
 
 
@@ -63,6 +63,8 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
     s, h.files["config"] = config.scan(root, scope)
     h.detections += s
     h.artifacts, s, h.files["artifacts"] = artifacts.scan(root, scope)
+    h.detections += s
+    s, h.files["volumes"] = volumes.scan(root, scope)
     h.detections += s
     s, h.libraries, h.files["binary"] = binary.scan(root, scope)
     h.detections += s

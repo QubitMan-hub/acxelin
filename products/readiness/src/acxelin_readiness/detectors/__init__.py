@@ -15,6 +15,7 @@ TEST_PARTS = {"test", "tests", "unit", "spec", "specs", "__tests__", "testdata",
 TEST_DIR = re.compile(r"(?:^|[._-])(?:unit|integration|functional|i)?tests?(?:net\d+|core)?$")
 BUILD_DIRS = {"dist", "build", "target", "bin", "obj"}
 MAX_BYTES = 2_000_000
+READ_LIMIT = 256_000_000  # no detector reads more of a file; a larger one (a disk image) is read only for its header
 DENY = re.compile(r"disabl|disallow|deny|denied|block|forbid|reject|insecure|weak|deprecat|legacy_only|exclude|blacklist", re.I)
 
 
@@ -82,7 +83,7 @@ def snapshot(root, scope=False):
     for p in iter_files(root, scope, max_bytes=float("inf"), skip=SKIP_DIRS - BUILD_DIRS):
         try:
             size = p.stat().st_size
-            total_bytes += size
+            total_bytes += size if size <= READ_LIMIT else 0
             if scope.max_files and len(entries) >= scope.max_files:
                 raise ScanLimitError('Repository exceeds the scan file limit; narrow the project folder')
             if scope.max_total_bytes and total_bytes > scope.max_total_bytes:

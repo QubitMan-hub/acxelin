@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Encrypted volumes: LUKS 1 and 2 (also inside qcow2), qcow2's built-in AES, BitLocker, encrypted macOS disk images and
+  `/etc/crypttab` plain-mode entries report their cipher, key size and key derivation, read from the header without a
+  passphrase. AES-128 volumes and qcow2's own AES show up for migration.
+- Files over 256 MB, which no detector reads in full, no longer count towards the scan's size limit, so a folder with a
+  disk image still scans. A finding in a large file no longer makes the scan read the whole file to look for an ignore
+  comment: a 3 GB image took 50 s.
 - Packet captures: QUIC and IKEv2 handshakes are read alongside TLS and SSH. For QUIC, the TLS handshake inside the
   Initial packets (protected only by keys anyone can derive, RFC 9001) gives the negotiated group, suite and SNI. For
   IKEv2, the IKE_SA_INIT exchange gives the chosen cipher, PRF, integrity and key exchange, including ML-KEM as an RFC 9370

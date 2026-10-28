@@ -4,7 +4,7 @@ import zipfile
 
 from ..catalog import pq_from_text
 from ..model import Detection, Library
-from . import iter_files, rel, is_test, SKIP_DIRS, BUILD_DIRS
+from . import iter_files, rel, is_test, SKIP_DIRS, BUILD_DIRS, READ_LIMIT
 from .source import classify_literal
 from .implementations import SHA1_K4, byte_tables, not_sha1, packed
 
@@ -25,7 +25,7 @@ NATIVE_EXT = {".so", ".dll", ".exe", ".dylib", ".a", ".lib", ".o", ".node", ".py
 MAGIC = (b"\x7fELF", b"MZ", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf")
 ARCHIVES = {".jar", ".war", ".ear", ".aar"}
 CRYPTO_REFS = (b"javax/crypto", b"java/security", b"org/bouncycastle", b"javax/net/ssl")
-MAX = 256_000_000
+MAX = READ_LIMIT
 
 
 def _version_tuple(v):
