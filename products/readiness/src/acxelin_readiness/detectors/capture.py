@@ -246,16 +246,19 @@ def scan(path):
     """Detections, endpoint summaries and notes from one capture file."""
     data = Path(path).read_bytes()
     name = Path(path).name
-    by_server = defaultdict(lambda: {"tls": [], "ssh": []})
+    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": []}), 0
     for (client, server), (cbuf, sbuf) in streams(data).items():
-        if cbuf[:4] == b"SSH-" or sbuf[:4] == b"SSH-":
-            s = ssh_session(cbuf, sbuf)
-            if s:
-                by_server[server]["ssh"].append(s)
-        elif cbuf[:1] == b"\x16":
-            s = tls_session(cbuf, sbuf)
-            if s:
-                by_server[server]["tls"].append(s)
+        try:  # a capture cut short by its snap length, or a damaged frame, ends that handshake only
+            if cbuf[:4] == b"SSH-" or sbuf[:4] == b"SSH-":
+                s = ssh_session(cbuf, sbuf)
+                if s:
+                    by_server[server]["ssh"].append(s)
+            elif cbuf[:1] == b"\x16":
+                s = tls_session(cbuf, sbuf)
+                if s:
+                    by_server[server]["tls"].append(s)
+        except (struct.error, IndexError, KeyError, ValueError):
+            skipped += 1
     sights, eps = [], []
     for (host, port), seen in sorted(by_server.items()):
         for kind, sessions in seen.items():
@@ -300,4 +303,6 @@ def scan(path):
                           clients_offering_pq=sum(bool(s["client_pq"]) for s in sessions))
             eps.append(ep)
     notes = [f"capture {name}: {sum(e['observed'] for e in eps)} handshake(s) with {len(eps)} server(s) read; payloads are encrypted and were not read"]
+    if skipped:
+        notes.append(f"capture {name}: {skipped} handshake(s) cut short or damaged and not read (a capture's snap length may be too small)")
     return sights, eps, notes

@@ -87,9 +87,12 @@ def _provides(lib, assets):
 
 
 def build(project, assets, arts, libs, endpoints=()):
-    comps = [algorithm_component(a) for a in assets]
+    comps, certs = [algorithm_component(a) for a in assets], {}
     for i, art in enumerate(arts):
         loc = {"occurrences": [{"location": art.file, **({"line": art.line} if art.line else {})}]}
+        if art.kind == "certificate" and art.details["sha256"] in certs:  # the same certificate in another file is one more occurrence
+            certs[art.details["sha256"]]["evidence"]["occurrences"] += loc["occurrences"]
+            continue
         if art.kind == "certificate":
             d = art.details
             fp = d["sha256"][:16]
@@ -104,6 +107,7 @@ def build(project, assets, arts, libs, endpoints=()):
             comps.append({"type": "cryptographic-asset", "bom-ref": f"crypto/certificate/{d['sha256'][:24]}", "name": d["subject"][:120] or "certificate",
                           "cryptoProperties": {"assetType": "certificate", "certificateProperties": cp}, "evidence": loc,
                           "properties": _props(sha256=d["sha256"], serial=d["serial"], self_signed=d["self_signed"], source=d.get("source"))})
+            certs[d["sha256"]] = comps[-1]
         else:
             algo_ref = next((a.ref for a in assets for s in a.detections if s.file == art.file and s.line == art.line and s.params.get("role") == art.kind), None)
             rp = {"type": art.kind}

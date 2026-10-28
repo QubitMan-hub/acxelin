@@ -156,7 +156,10 @@ def main(argv=None):
     if image.is_image(root):
         unpacked = Path(tempfile.mkdtemp(prefix="readiness-image-"))
         atexit.register(shutil.rmtree, unpacked, True)
-        notes = image.unpack(root, unpacked)
+        try:
+            notes = image.unpack(root, unpacked)
+        except (OSError, ValueError, KeyError, IndexError, TypeError, EOFError) as e:
+            sys.exit(f"acxelin-readiness: {root.name} could not be read as a container image ({e.__class__.__name__}); save it again with docker save")
         name = a.name or root.name.split(".")[0]
     try:
         r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap)

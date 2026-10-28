@@ -51,7 +51,7 @@ def evaluate(assets, endpoints, policy, today=None):
     min_bits = {k.upper(): v for k, v in policy.get("min_bits", {}).items()}
 
     def add(a, rule, message, deadline=None):
-        v = Violation(rule, a.variant if a else "", message, deadline, deadline is None or as_of >= deadline,
+        v = Violation(rule, a.variant if a else "", message, deadline, deadline is None or (as_of > deadline if rule == "NIST IR 8547" else as_of >= deadline),
                       sorted({s.file for s in a.detections})[:10] if a else [])
         out.append(v)
         if a:

@@ -2,6 +2,7 @@
 import json
 import shutil
 import tarfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 MAX_FILE = 64_000_000
@@ -13,7 +14,15 @@ def is_image(p):
         return False
     with tarfile.open(p) as t:
         names = set(t.getnames())
-    return "manifest.json" in names or "index.json" in names and "oci-layout" in names
+        if "index.json" in names and "oci-layout" in names:
+            return True
+        if "manifest.json" not in names:
+            return False
+        try:  # docker save writes a list of images, each with its layers; other archives also carry a manifest.json
+            man = _json(t, "manifest.json")
+        except (ValueError, KeyError, tarfile.TarError):
+            return False
+    return isinstance(man, list) and bool(man) and isinstance(man[0], dict) and isinstance(man[0].get("Layers"), list)
 
 
 def _json(outer, name):
@@ -33,8 +42,9 @@ def layers(outer):
 
 
 def _parts(name):
+    """The path's parts, or None for anything that could leave the folder: parent parts, and on Windows backslashes and drives."""
     parts = [p for p in PurePosixPath(name).parts if p not in ("/", ".")]
-    return None if not parts or ".." in parts else parts
+    return None if not parts or any(p == ".." or "\\" in p or ":" in p for p in parts) else parts
 
 
 def _remove(p):
@@ -46,17 +56,22 @@ def _remove(p):
 
 def apply(layer, dest):
     """Regular files and folders only: links, devices and oversized files are left out, so nothing can point outside `dest`."""
+    root = dest.resolve()
     for m in layer:
         parts = _parts(m.name)
         if not parts:
             continue
         where, base = dest.joinpath(*parts[:-1]), parts[-1]
+        if not where.resolve().is_relative_to(root):
+            continue
         try:
             if base == ".wh..wh..opq":
                 for c in where.iterdir() if where.is_dir() else ():
                     _remove(c)
             elif base.startswith(".wh."):
-                _remove(where / base[4:])
+                gone = base[4:]
+                if gone not in ("", ".", "..") and (where / gone).resolve().parent.is_relative_to(root):
+                    _remove(where / gone)
             elif m.isdir():
                 (where / base).mkdir(parents=True, exist_ok=True)
             elif m.isreg() and m.size <= MAX_FILE:
@@ -76,6 +91,6 @@ def unpack(archive, dest):
             try:
                 with tarfile.open(fileobj=outer.extractfile(name), mode="r:*") as layer:
                     apply(layer, dest)
-            except (tarfile.TarError, KeyError, OSError) as e:
+            except (tarfile.TarError, KeyError, OSError, EOFError, zlib.error) as e:
                 notes.append(f"layer {name} not read: {e}")
     return [f"container image {Path(archive).name}: {len(names)} layer(s) unpacked and scanned as one filesystem"] + notes

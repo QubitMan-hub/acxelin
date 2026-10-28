@@ -115,7 +115,7 @@ class Index:
             path = rel(root, p)
             try:
                 tree = parse(text)
-            except (SyntaxError, ValueError, RecursionError):
+            except (SyntaxError, ValueError, RecursionError, MemoryError):  # MemoryError: the parser's own stack limit
                 continue
             try:
                 self.modules[path] = Module(path, path.endswith("__init__.py"), tree)

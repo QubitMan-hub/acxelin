@@ -425,7 +425,7 @@ def _(m, x):
 simple("rust", r'\b(Md5|Sha1|Sha224|Sha256|Sha384|Sha512)::(?:new|digest)\b|\b(md5)::compute\(')
 
 
-@rule("java go js c csharp rust", r'\b[\w.]*(?:ml[-_]?kem|ml[-_]?dsa|slh[-_]?dsa|MLKem|MLDsa|MlKem|MlDsa|mlkem|mldsa)[-_]?(?:512|768|1024|44|65|87)?\w*')
+@rule("java go js c csharp rust", r'(?<![\w.])[\w.]*(?:ml[-_]?kem|ml[-_]?dsa|slh[-_]?dsa|MLKem|MLDsa|MlKem|MlDsa|mlkem|mldsa)[-_]?(?:512|768|1024|44|65|87)?\w*')
 def _(m, x):
     a = pq_from_text(m.group(0))
     return [(a, {}, "identifier")] if a else []

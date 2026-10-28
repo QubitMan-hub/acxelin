@@ -18,6 +18,19 @@
   - `grade` and `report` say when they cannot write their output.
   - The Windows installer writes its wrapper in the console code page, so a user name such as José keeps its path.
   - Temporary copies, including downloaded private repositories, are removed when a scan stops early.
+  - Container images: a layer can no longer delete or write outside the unpack folder. Whiteouts such as `.wh..`, and on
+    Windows names with backslashes or drive letters, did. A truncated layer becomes a note, and a tar whose
+    `manifest.json` is not from `docker save` is scanned as a plain archive.
+  - One file never ends a scan: a Python file nested too deeply to parse, a malformed `package.json`, `pyproject.toml`
+    or `Cargo.toml`, and a capture cut short by its snap length are each skipped, the capture with a note.
+  - A `cache_size` or similar next to an algorithm is no longer read as an RSA key size, which had raised a false
+    critical. `size: 2048` (as cert-manager writes it) is still read.
+  - NIST IR 8547 deadlines apply after their year, as the draft says. RSA-2048 is deprecated from 2031, not 2030.
+  - A certificate signed with its own key type keeps its signature algorithm in the CBOM. The same certificate in two
+    files is one component with two occurrences, so bom-refs stay unique.
+  - Certificates signed with SHA-224 (RSA or ECDSA), MD2 with RSA, or SLH-DSA name their signature.
+  - Large repositories scan in linear time: 400 Java files took 44 s and now take 6 s, and one file with 8,000 hash
+    calls went from 10 s to under 2 s. A 40 KB line of dotted names no longer takes 20 s.
 - Exports: `report` also writes `assessment.csv`, and the console has **Download CSV** for findings and endpoint grades.
   Formula-like cells are neutralised. Every HTML report and the console print cleanly to PDF through the browser.
 - Evidence rows name the NIST CSF 2.0, DORA (Delegated Regulation (EU) 2024/1774) and NIS2 Art. 21(2)(h) controls they

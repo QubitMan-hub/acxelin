@@ -19,7 +19,7 @@ def _kin(a):
 def dedupe(detections):
     best = {}
     for s in detections:
-        k = (s.file, s.line, s.algo, "comment" in s.context)
+        k = (s.file, s.line, s.algo, "comment" in s.context, s.params.get("role") if s.evidence == "artifact" else None)  # a certificate's key and signature stay apart
         cur = best.setdefault(k, s)
         if cur is not s:
             win, lose = (s, cur) if RANK[s.evidence] > RANK[cur.evidence] else (cur, s)
@@ -69,11 +69,14 @@ def verify(detections, threshold=0.6, lines=None):
         s.confidence = BASE[s.evidence] + (0.05 if any(s.params.get(k) for k in KEY_PARAMS) else 0)
         by_file[s.file].append(s)
     for f, group in by_file.items():
+        firsts = defaultdict(dict)  # per algorithm family, the first detection of each kind of evidence, in file order
+        for n, o in enumerate(group):
+            firsts[_kin(o.algo)].setdefault(o.evidence, (n, o))
         for s in group:
-            others = [o for o in group if o is not s and _kin(o.algo) == _kin(s.algo) and o.evidence != s.evidence]
-            if others:
+            other = min((x for e, x in firsts[_kin(s.algo)].items() if e != s.evidence), default=None, key=lambda x: x[0])
+            if other:
                 s.confidence += 0.25
-                s.reason = f"corroborated by {others[0].evidence} evidence on line {others[0].line}"
+                s.reason = f"corroborated by {other[1].evidence} evidence on line {other[1].line}"
             s.confidence = round(min(s.confidence, 1.0), 2)
             if s.confidence >= threshold:
                 s.verdict = "accepted"

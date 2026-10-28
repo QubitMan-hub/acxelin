@@ -295,7 +295,7 @@ class PythonDetector(ast.NodeVisitor):
 def scan_python(path, src, on_tree=None, parse=ast.parse, flow=None):
     try:
         tree = parse(src)
-    except (SyntaxError, ValueError, RecursionError):
+    except (SyntaxError, ValueError, RecursionError, MemoryError):  # MemoryError: the parser's own stack limit
         return None
     if on_tree:
         on_tree(path, tree)

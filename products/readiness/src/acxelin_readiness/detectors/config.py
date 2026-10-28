@@ -24,7 +24,7 @@ PAIRS = [
     (re.compile(r"""^\s*["']?(?:ssl_policy|policy_name|SslPolicy|sslPolicy)["']?\s*[=:]\s*["']?((?:ELBSecurityPolicy|AppGwSslPolicy)[\w-]*)""", re.I), "lbpolicy"),
     (re.compile(r"""^\s*["']?(?:customer_master_key_spec|key_spec|KeySpec|CustomerMasterKeySpec|key_type|kty|KeyType)["']?\s*[=:]\s*["']?([\w\-]+)""", re.I), "kms"),
     (re.compile(r"^\s*[\w.\-\"']*(?:algorithm|alg|signing[_-]?alg\w*|key[_-]?algorithm|keyAlgorithm|hash[_-]?algorithm|digest[_-]?algorithm|kex)[\w\"']*\s*[=:]\s*[\"']?([\w\-/]+)", re.I), "algo"),
-    (re.compile(r"^\s*[\w.\-\"']*(?:key[_-]?size|keysize|key[_-]?length|rsa[_-]?bits|modulus[_-]?length|size)[\w\"']*\s*[=:]\s*[\"']?(\d{3,5})\b", re.I), "size"),
+    (re.compile(r"^\s*(?:[\w.\-\"']*(?:key[_-]?size|keysize|key[_-]?length|rsa[_-]?bits|modulus[_-]?length)[\w\"']*|[\"']?size[\"']?)\s*[=:]\s*[\"']?(\d{3,5})\b", re.I), "size"),
 ]
 
 
@@ -151,8 +151,10 @@ def scan(root, scope=False):
                     if not m:
                         continue
                     if kind == "size":
-                        for s in reversed(sink):
-                            if s.file == path and s.algo in ("RSA", "DSA", "DH", "ECDSA", "ECC") and 0 <= i - s.line <= 6 and not s.params.get("key_size"):
+                        for s in reversed(sink):  # this file's detections are the newest: stop at the first from another file or out of reach
+                            if s.file != path or i - s.line > 6:
+                                break
+                            if s.algo in ("RSA", "DSA", "DH", "ECDSA", "ECC") and 0 <= i - s.line and not s.params.get("key_size"):
                                 if s.algo in ("ECDSA", "ECC"):
                                     cv = {"256": "P-256", "384": "P-384", "521": "P-521"}.get(m.group(1))
                                     if cv:

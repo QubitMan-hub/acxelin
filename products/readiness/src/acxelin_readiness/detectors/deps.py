@@ -86,7 +86,10 @@ def parse_manifest(p, path, text, out):
             d = tomllib.loads(text)
         except Exception:
             return
-        deps = list(d.get("project", {}).get("dependencies", [])) + list(d.get("tool", {}).get("poetry", {}).get("dependencies", {}).keys())
+        table = lambda v, k: v.get(k) if isinstance(v, dict) else None
+        listed, poetry = table(table(d, "project"), "dependencies"), table(table(table(d, "tool"), "poetry"), "dependencies")
+        deps = [x for x in listed if isinstance(x, str)] if isinstance(listed, list) else []
+        deps += list(poetry) if isinstance(poetry, dict) else []
         for dep in deps:
             m = re.match(r"^\s*([A-Za-z0-9_.\-]+)(.*)$", dep)
             if m:
@@ -97,7 +100,8 @@ def parse_manifest(p, path, text, out):
         except Exception:
             return
         for sect in ("dependencies", "devDependencies", "peerDependencies"):
-            for k, v in (d.get(sect) or {}).items():
+            listed = d.get(sect) if isinstance(d, dict) else None
+            for k, v in listed.items() if isinstance(listed, dict) else ():
                 _add(out, "npm", k, str(v), path, _lineno(text, f'"{k}"'))
     elif name == "pom.xml":
         for m in re.finditer(r"<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>(?:\s*<version>([^<]+)</version>)?", text):
@@ -115,8 +119,10 @@ def parse_manifest(p, path, text, out):
             d = tomllib.loads(text)
         except Exception:
             return
-        for k, v in (d.get("dependencies") or {}).items():
-            _add(out, "cargo", k, v if isinstance(v, str) else str(v.get("version", "")), path, _lineno(text, k))
+        listed = d.get("dependencies")
+        for k, v in listed.items() if isinstance(listed, dict) else ():
+            if isinstance(v, (str, dict)):
+                _add(out, "cargo", k, v if isinstance(v, str) else str(v.get("version", "")), path, _lineno(text, k))
     elif p.suffix.lower() == ".csproj" or name == "packages.config":
         for m in re.finditer(r'<(?:PackageReference|package)\s+(?:Include|id)="([^"]+)"(?:\s+[Vv]ersion="([^"]*)")?', text):
             _add(out, "nuget", m.group(1), m.group(2) or "", path, text.count("\n", 0, m.start()) + 1)

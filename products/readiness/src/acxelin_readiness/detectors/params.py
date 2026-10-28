@@ -65,6 +65,9 @@ def enclosing(code, pos, lang, name):
     return best if best and best[1] >= 0 else None
 
 
+NAME = re.compile(r"[A-Za-z_$][\w$]*")
+
+
 def call_args(code, fn):
     """Argument lists of every call to `fn` in `code` (not its definition)."""
     for m in re.finditer(rf"(?<![\w$])(?<!def ){re.escape(fn)}\s*\(", code):
@@ -88,19 +91,25 @@ def scan(root, scope=False):
                 files[lang].append((rel(root, p), text, split(text, lang)[0]))
     sink = []
     for lang, group in files.items():
-        rx = re.compile(SINKS[lang])
+        rx, seen, mentions = re.compile(SINKS[lang]), {}, defaultdict(list)
+        for _, _, code in group:  # which files mention each name, so a function's callers are looked for only where it appears
+            for name in set(NAME.findall(code)):
+                mentions[name].append(code)
         for path, text, code in group:
             for m in rx.finditer(code):
                 where = enclosing(code, m.start(), lang, m.group(2))
                 if not where:
                     continue
                 fn, idx = where
-                values = set()
-                for _, _, other in group:
-                    for args in call_args(other, fn):
-                        lit = LITERAL.match(args[idx]) if idx < len(args) else None
-                        if lit:
-                            values.add(lit.group(2))
+                if (fn, idx) not in seen:  # each function's callers are read once, however many sinks it holds
+                    values = set()
+                    for other in mentions.get(fn, ()):
+                        for args in call_args(other, fn):
+                            lit = LITERAL.match(args[idx]) if idx < len(args) else None
+                            if lit:
+                                values.add(lit.group(2))
+                    seen[fn, idx] = values
+                values = seen[fn, idx]
                 line = line_of(code, m.start())
                 snippet = text.splitlines()[line - 1].strip()[:160]
                 for v in sorted(values):

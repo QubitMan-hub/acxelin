@@ -70,7 +70,7 @@ class CodeCrawler:
             return parser(source)
         try:
             tree, hit = self.cache.parse(language, source, parser)
-        except (SyntaxError, ValueError):
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
             self.cache_misses += 1
             raise
         self.cache_hits += int(hit)
