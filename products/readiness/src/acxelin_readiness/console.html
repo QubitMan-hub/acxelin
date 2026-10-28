@@ -26,6 +26,7 @@ details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--m
 details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
 @media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
 .scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
+ul.history{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
@@ -140,20 +141,32 @@ function scoreView(score, rows, definition) {
 // ---- projects
 
 const tier = (t) => h("span", {class: "tag " + t}, t);
+const STATUS = {open: "To do", planned: "Planned", in_progress: "In progress", fixed: "Fixed", exception: "Accepted risk"};
+function progress(assets) {
+  const n = {}, still = assets.filter((a) => a.tracking && a.tracking.still_found).length;
+  for (const a of assets) if (a.tier !== "ok" || (a.tracking && a.tracking.status !== "open")) { const k = (a.tracking && a.tracking.status) || "open"; n[k] = (n[k] || 0) + 1; }
+  const parts = Object.keys(STATUS).filter((k) => n[k]).map((k) => n[k] + " " + STATUS[k].toLowerCase());
+  return parts.length ? h("p", {class: "state", id: "pj-progress"}, parts.join(" · ") + (still ? " (" + still + " still found)" : "") + ".") : "";
+}
 function trackForm(asset) {
   const t = asset.tracking || {}, id = asset.id.slice(0, 8);
   if (asset.tier === "ok" && !t.owner && (t.status || "open") === "open") return "";
   const owner = h("input", {type: "text", value: t.owner || "", id: "o" + id});
   const due = h("input", {type: "date", value: t.due || "", id: "d" + id});
-  const status = h("select", {id: "s" + id}, [["open", "Open"], ["in_progress", "In progress"], ["exception", "Accepted risk"]].map(([v, l]) => h("option", {value: v, selected: (t.status || "open") === v}, l)));
+  const status = h("select", {id: "s" + id}, Object.entries(STATUS).map(([v, l]) => h("option", {value: v, selected: (t.status || "open") === v}, l)));
   const reason = h("textarea", {id: "r" + id, rows: "2"}, t.reason || "");
   const until = h("input", {type: "date", value: t.until || "", id: "u" + id});
   const accept = h("div", {hidden: status.value !== "exception"}, h("label", {for: reason.id}, "Why it is accepted"), reason, h("label", {for: until.id}, "Accepted until"), until);
   status.addEventListener("change", () => { accept.hidden = status.value !== "exception"; });
   const save = async (ev) => { ev.preventDefault(); try { await call("projects/track", {project: state.selected, finding: asset.id, owner: owner.value, due: due.value, status: status.value, reason: reason.value, until: until.value}); await refreshProject(); } catch (e) {} };
-  const label = t.status === "exception" ? "Accepted risk until " + t.until : t.owner ? "Owner: " + t.owner : "Assign an owner";
-  return h("details", {class: "track"}, h("summary", {}, label),
-    h("form", {onsubmit: save}, h("label", {for: owner.id}, "Owner"), owner, h("label", {for: due.id}, "Due date"), due, h("label", {for: status.id}, "Status"), status, accept, h("button", {class: "btn quiet", type: "submit"}, "Save")));
+  const label = t.still_found ? "Fixed, still found" : t.status === "exception" ? "Accepted risk until " + t.until
+    : t.status && t.status !== "open" ? STATUS[t.status] + (t.owner ? ": " + t.owner : "") : t.owner ? "Owner: " + t.owner : "Assign an owner";
+  const log = (t.log || []).slice().reverse().map((e) => h("li", {}, when(e.at) + " · " + STATUS[e.status] + (e.owner ? " · " + e.owner : "") + (e.due ? " · due " + e.due : "")));
+  return h("details", {class: "track"}, h("summary", {style: t.still_found ? "color:var(--bad)" : ""}, label),
+    h("form", {onsubmit: save}, h("label", {for: owner.id}, "Owner"), owner, h("label", {for: due.id}, "Due date"), due, h("label", {for: status.id}, "Status"), status, accept,
+      h("button", {class: "btn quiet", type: "submit"}, "Save")),
+    t.still_found ? h("p", {class: "legend", style: "color:var(--bad)"}, "Marked fixed, but the scan after that still found it.") : "",
+    log.length ? h("details", {class: "more"}, h("summary", {}, "History"), h("ul", {class: "history"}, log)) : "");
 }
 function where(a) {
   const shown = a.locations.slice(0, 50);
@@ -180,6 +193,7 @@ function results(p) {
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || ""), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   out.replaceChildren(...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score})),
       "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average."),
+    progress(shownAssets),
     h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
     assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
     last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "",

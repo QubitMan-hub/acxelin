@@ -13,6 +13,9 @@ class ScanStopped(ValueError):
     pass
 
 
+STATUSES = ('open', 'planned', 'in_progress', 'fixed', 'exception')
+
+
 POINTS = {"ok": 100, "low": 75, "medium": 50, "high": 25, "critical": 0}
 
 
@@ -226,6 +229,11 @@ class ProjectStore:
             today = time.strftime('%Y-%m-%d', time.gmtime())
             tracking['expired'] = tracking['status'] == 'exception' and tracking.get('until', '') < today
             tracking['overdue'] = bool(tracking.get('due') and tracking['due'] < today)
+            tracking['log'] = tracking.get('log', [])
+            tracking['still_found'] = False
+        for asset in result['assets']:  # marked fixed, yet a scan after that still found it
+            t = asset['tracking']
+            t['still_found'] = t['status'] == 'fixed' and t.get('updated', 0) < result['finished']
         return result
 
     def assessment(self, root):
@@ -250,8 +258,8 @@ class ProjectStore:
         fields = {k: body.get(k, '') for k in ('owner', 'due', 'status', 'reason', 'until')}
         if any(not isinstance(v, str) for v in fields.values()) or len(fields['owner']) > 120 or len(fields['reason']) > 1000:
             raise ValueError('Owner must be at most 120 characters and rationale at most 1000')
-        if fields['status'] not in {'open', 'in_progress', 'exception'}:
-            raise ValueError('Choose open, in_progress or exception')
+        if fields['status'] not in STATUSES:
+            raise ValueError('Choose open, planned, in_progress, fixed or exception')
         for field in ('due', 'until'):
             if fields[field] and (len(fields[field]) != 10 or dt.date.fromisoformat(fields[field]).isoformat() != fields[field]):
                 raise ValueError('Dates must use YYYY-MM-DD')
@@ -261,7 +269,11 @@ class ProjectStore:
             project = data['projects'].get(self.key(root))
             if not project or body.get('finding') not in {a['id'] for a in project['assessment']['assets'] + project.get('missing', [])}:
                 raise ValueError('Choose a finding from a completed assessment')
-            project['tracking'][body['finding']] = fields | {'updated': time.time()}
+            log = project['tracking'].get(body['finding'], {}).get('log', [])
+            step = {k: fields[k] for k in ('status', 'owner', 'due')}
+            if not log or {k: log[-1].get(k) for k in step} != step:  # each change of status, owner or due date, the last 50
+                log = (log + [step | {'at': time.time()}])[-50:]
+            project['tracking'][body['finding']] = fields | {'updated': time.time(), 'log': log}
             return self.view(project)
         return self.update(change)
 

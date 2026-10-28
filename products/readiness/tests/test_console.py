@@ -371,3 +371,50 @@ def test_branches_that_differ_only_in_case_get_separate_folders(app):
         b = call(app, "POST", "/api/projects/github", {"url": "https://github.com/acme/shop/tree/main"})[1]["project"]
     console = app.routes[("GET", "/api/status")].__self__
     assert a != b and len({p.name.lower() for p in console.projects}) == 2, "Windows folders are case-insensitive"
+
+
+def scanned(app, repos):
+    setup(app, repos)
+    call(app, "POST", "/api/projects/register", {"name": "shop"})
+    call(app, "POST", "/api/projects/scan", {"project": 0})
+    return wait(app)["last"]["assets"][0]
+
+
+def track(app, finding, **fields):
+    return call(app, "POST", "/api/projects/track", {"project": 0, "finding": finding, "owner": "", "due": "", **fields})
+
+
+def test_a_finding_moves_through_planned_in_progress_and_fixed_with_each_step_logged(app, repos):
+    asset = scanned(app, repos)
+    for status in ("planned", "in_progress", "fixed"):
+        assert track(app, asset["id"], status=status, owner="payments team")[0] == 200
+    track(app, asset["id"], status="fixed", owner="payments team")  # saving without a change adds no entry
+    t = call(app, "GET", "/api/projects/status")[1]["last"]["assets"][0]["tracking"]
+    assert t["status"] == "fixed" and [e["status"] for e in t["log"]] == ["planned", "in_progress", "fixed"] and all("at" in e for e in t["log"])
+    with pytest.raises(ValueError, match="planned"):
+        app.routes[("POST", "/api/projects/track")]({"project": 0, "finding": asset["id"], "status": "done"})
+
+
+def test_a_finding_marked_fixed_that_the_next_scan_still_finds_is_flagged(app, repos):
+    asset = scanned(app, repos)
+    track(app, asset["id"], status="fixed")
+    assert call(app, "GET", "/api/projects/status")[1]["last"]["assets"][0]["tracking"]["still_found"] is False, "not yet rescanned"
+    call(app, "POST", "/api/projects/scan", {"project": 0})
+    assert wait(app)["last"]["assets"][0]["tracking"]["still_found"] is True
+
+
+def test_a_fixed_finding_that_is_gone_after_a_rescan_is_confirmed(app, repos):
+    asset = scanned(app, repos)
+    track(app, asset["id"], status="fixed")
+    (repos / "shop/keys.py").write_text("def issue_key():\n    return None\n")
+    call(app, "POST", "/api/projects/scan", {"project": 0})
+    gone = wait(app)["last"]["not_observed"]
+    assert [(g["id"], g["tracking"]["status"], g["tracking"]["still_found"]) for g in gone] == [(asset["id"], "fixed", False)]
+
+
+def test_the_change_log_keeps_the_last_fifty_changes(app, repos):
+    asset = scanned(app, repos)
+    for n in range(60):
+        track(app, asset["id"], status="in_progress", owner=f"owner {n}")
+    log = call(app, "GET", "/api/projects/status")[1]["last"]["assets"][0]["tracking"]["log"]
+    assert len(log) == 50 and log[-1]["owner"] == "owner 59"

@@ -249,6 +249,14 @@ docker run -d --name readiness -v readiness:/data -p 127.0.0.1:8900:8900 acxelin
 docker exec -it readiness acxelin-readiness console link
 ```
 
+### Tracking a finding
+
+Choose **Assign an owner** on a finding to give it an owner, a due date and a status: **To do**, **Planned**, **In
+progress**, **Fixed** or **Accepted risk** (with a reason and an end date). Every change of status, owner or due date is
+kept under **History**, the last 50 per finding. A finding marked Fixed that a later scan still finds reads **Fixed, still
+found**; once a scan no longer sees it, it moves to the findings no longer observed, still marked Fixed. The line above
+the table counts the findings at each status.
+
 ### The readiness score
 
 Each scan gets a score from 0 to 100, shown with its trend over the last 30 scans. Hover a point for its date, or open the

@@ -419,3 +419,21 @@ def test_the_tabs_follow_the_arrow_key_pattern_and_grades_are_read_out_in_words(
     page.get_by_role("tab", name="Endpoints").click()
     page.locator("#ep-result td .pill").first.wait_for()
     assert page.get_by_label("Hosts to check").input_value() == "127.0.0.1:1", "the hosts of the last check come back after a reload"
+
+
+def test_a_finding_marked_fixed_shows_its_history_and_is_flagged_when_the_rescan_still_finds_it(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    for status in ("planned", "fixed"):
+        page.locator("details.track summary").first.click()
+        page.get_by_label("Status").first.select_option(status)
+        page.get_by_role("button", name="Save").first.click()
+        page.locator("#pj-progress", has_text="1 " + {"planned": "planned", "fixed": "fixed"}[status]).wait_for()
+    page.get_by_role("button", name="Scan repository").click()
+    page.get_by_text("Fixed, still found").first.wait_for(timeout=30000)
+    assert "still found" in page.locator("#pj-progress").inner_text()
+    page.get_by_text("Fixed, still found").first.click()
+    page.locator("details.track details.more summary", has_text="History").first.click()
+    assert page.locator("ul.history li").count() == 2
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []

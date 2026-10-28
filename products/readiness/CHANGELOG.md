@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Console: findings move through To do, Planned, In progress, Fixed and Accepted risk. Each change of status, owner or due date
+  is kept in the finding's history (the last 50). A finding marked Fixed that a later scan still finds is flagged, and the
+  page counts findings by status. Workspaces from earlier versions keep their statuses.
 - Encrypted volumes: LUKS 1 and 2 (also inside qcow2), qcow2's built-in AES, BitLocker, encrypted macOS disk images and
   `/etc/crypttab` plain-mode entries report their cipher, key size and key derivation, read from the header without a
   passphrase. AES-128 volumes and qcow2's own AES show up for migration.

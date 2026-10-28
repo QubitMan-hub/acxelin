@@ -127,7 +127,7 @@ def test_workspace_invalid_updates_limits_and_competing_writers(tmp_path):
     assessment = store.save(tmp_path, scan(tmp_path))
     finding = assessment['assets'][0]['id']
     valid = {'finding':finding, 'owner':'team', 'status':'exception', 'until':'2099-01-01', 'reason':'review'}
-    for bad in ({'status':'fixed'}, {'until':'2000-01-01'}, {'reason':''}, {'finding':[]}, {'finding':'unknown'}, {'due':'not-a-date'}, {'owner':'x'*121}):
+    for bad in ({'status':'done'}, {'until':'2000-01-01'}, {'reason':''}, {'finding':[]}, {'finding':'unknown'}, {'due':'not-a-date'}, {'owner':'x'*121}):
         with pytest.raises(ValueError):
             store.track(tmp_path, valid | bad)
     with ThreadPoolExecutor(max_workers=8) as workers:
