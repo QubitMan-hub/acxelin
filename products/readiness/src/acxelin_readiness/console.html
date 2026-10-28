@@ -24,12 +24,33 @@ figure.trend figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
 #targets{max-width:62ch}.results{margin-top:28px;padding-top:22px;border-top:1px solid var(--rule)}
 details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--muted)}details.more summary::-webkit-details-marker{display:none}
 details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
-@media print{.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
+@media print{.analyses,.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
 .scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
 input[type=file]{font:inherit;font-size:13.5px;color:var(--body);max-width:100%}
 small.basis{display:block;margin-top:3px;font-size:12.5px;color:var(--muted)}
 ul.history{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.outlook{margin:24px 0 0}.outlook ul,.outlook ol{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
+.outlook{margin:8px 0 0;padding-left:20px;max-width:80ch}.outlook li{margin:0 0 10px}
+.glance{margin:18px 0 8px;padding:16px 18px;border:1px solid var(--rule);border-radius:8px;background:var(--pane)}
+.glance ul{margin:0;padding:0;list-style:none;display:grid;gap:6px;max-width:80ch}.glance li{color:var(--body)}.glance strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.analyses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px}
+.analyses button{all:unset;cursor:pointer;display:grid;gap:2px;padding:8px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--bg)}
+.analyses button:hover{border-color:var(--rule-strong)}.analyses button:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+.analyses b{font-weight:600;color:var(--ink);font-size:13.5px}.analyses span{font-size:12.5px;color:var(--muted)}
+@media (max-width:620px){.analyses{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.analysis{margin-top:30px;padding-top:20px;border-top:1px solid var(--rule)}.analysis h2{scroll-margin-top:12px}.analysis h2:focus{outline:none}
+.analysis h2 .kind{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:6px;white-space:nowrap}
+.analysis h3{font-size:14px;font-weight:600;color:var(--ink);margin:22px 0 8px}
+.dist{display:flex;height:24px;gap:2px;margin:12px 0 10px;max-width:720px}
+.dist .seg{display:flex;align-items:center;justify-content:center;min-width:4px;border-radius:3px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink);border:1px solid transparent}
+.seg.critical,.seg.bad{background:var(--bad-ground);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
+.seg.high,.seg.exposed{background:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 6px),var(--exposed-ground);color:var(--exposed);border-color:color-mix(in srgb,var(--exposed) 45%,transparent)}
+.seg.medium{background:var(--pane);color:var(--exposed);border-color:color-mix(in srgb,var(--exposed) 45%,transparent)}
+.seg.low,.seg.mute{background:var(--sunken);color:var(--body);border-color:var(--rule)}.seg.ok{background:var(--ok-ground);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+dl.key{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 14px;margin:10px 0 0;max-width:80ch}dl.key dd{margin:0;color:var(--body)}
+.bars{display:grid;gap:6px;max-width:620px}.bar-row{display:grid;grid-template-columns:minmax(0,15em) minmax(0,1fr) 3em;gap:10px;align-items:center;font-size:13.5px}
+.bar-track{height:10px}.bar{display:block;height:100%;border-radius:2px;background:var(--ink)}
+.bar.bad{background:var(--bad)}.bar.exposed{background:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 6px),var(--exposed)}.bar.low{background:var(--muted)}.bar.ok{background:var(--ok)}
+@media (max-width:520px){.bar-row{grid-template-columns:minmax(0,1fr) 3em}.bar-track{display:none}}
 .outlook li small{display:block;color:var(--muted);font:12.5px/1.6 var(--mono);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
 </style>
@@ -163,6 +184,36 @@ function scoreView(score, rows, definition, cover) {
 // ---- projects
 
 const tier = (t) => h("span", {class: "tag " + t}, t);
+const TIERS = ["critical", "high", "medium", "low", "ok"];
+const TIER_MEANING = {
+  critical: "Broken or disallowed today, and exposed: deployed, configured or reachable.",
+  high: "Broken today in a less exposed place, or breakable by a quantum computer before a migration could finish (harvest now, decrypt later).",
+  medium: "Breakable by a future quantum computer, with time left to migrate; or a classical fallback beside a hybrid group.",
+  low: "Weakened by quantum search: fine for most data, short for long-lived secrets.",
+  ok: "Quantum-safe, or no known quantum break at this strength."};
+const ANALYSES = [["descriptive", "Descriptive", "What was found"], ["diagnostic", "Diagnostic", "Why"], ["predictive", "Predictive", "What can happen"], ["prescriptive", "Prescriptive", "What to do"]];
+function atGlance(items, prefix) {
+  const go = (id) => { const t = $("#" + prefix + "-" + id); t.scrollIntoView({block: "start", behavior: calm.matches ? "auto" : "smooth"}); t.focus({preventScroll: true}); };
+  return h("section", {class: "glance", "aria-label": "At a glance"}, h("ul", {}, items.filter(Boolean).map((x) => h("li", {}, x))),
+    h("nav", {class: "analyses", "aria-label": "Analyses on this page"}, ANALYSES.map(([id, kind, q]) => h("button", {type: "button", onclick: () => go(id)}, h("b", {}, kind), h("span", {}, q)))));
+}
+function section(prefix, id, title, ...kids) {
+  const kind = ANALYSES.find((a) => a[0] === id)[1];
+  return h("section", {class: "analysis", "aria-labelledby": prefix + "-" + id}, h("h2", {id: prefix + "-" + id, tabindex: "-1"}, title, " ", h("span", {class: "kind"}, kind + " analysis")), ...kids);
+}
+function distribution(items, label) {
+  const shown = items.filter((i) => i.n), total = shown.reduce((s, i) => s + i.n, 0);
+  if (!total) return "";
+  return h("div", {class: "dist", role: "img", "aria-label": label + ": " + shown.map((i) => i.n + " " + i.name).join(", ")},
+    shown.map((i) => h("span", {class: "seg " + i.cls, style: "flex-grow:" + i.n, title: i.n + " " + i.name}, i.n / total >= 0.05 ? String(i.n) : "")));
+}
+function bars(rows) {
+  rows = rows.filter((r) => r[1]);
+  if (!rows.length) return "";
+  const max = Math.max(...rows.map((r) => r[1]));
+  return h("div", {class: "bars"}, rows.map(([label, n, cls]) => h("div", {class: "bar-row"}, h("span", {}, label),
+    h("span", {class: "bar-track", "aria-hidden": "true"}, h("span", {class: "bar " + cls, style: "width:" + Math.max(2, 100 * n / max) + "%"})), h("span", {class: "num"}, String(n)))));
+}
 const SEEN = {negotiated: "Negotiated", offered: "Offered", "in code": "In code", configured: "Configured", supported: "Supported only", imported: "Imported"};
 const basis = (a) => {
   const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : "",
@@ -217,18 +268,42 @@ function results(p) {
   const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
   for (const a of shownAssets) pri[a.tier] = (pri[a.tier] || 0) + 1;
   const pick = (k) => { state.filter = state.filter === k ? null : k; results(state.projects); };
-  const counts = h("div", {class: "counts"}, ["critical", "high", "medium", "low", "ok"].filter((k) => pri[k]).map((k) =>
+  const counts = h("div", {class: "counts"}, TIERS.filter((k) => pri[k]).map((k) =>
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
   const assets = shownAssets.filter((a) => !state.filter || a.tier === state.filter);
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   const cd = last.summary.coverage_detail || {}, gaps = Object.entries(cd.not_read || {}).map(([k, n]) => n + " " + k).join(", ");
-  out.replaceChildren(...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score, coverage: r.summary.coverage})),
-      "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average.",
-      {percent: last.summary.coverage ?? null, text: cd.read + " of " + cd.files + " source and configuration files analysed" + (gaps ? " (" + gaps + ")" : "")}),
-    progress(shownAssets),
-    h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")), counts,
-    assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
-    last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : "",
+  const cause = (a) => a.tier === "critical" || a.threat === "legacy" ? "broken" : a.threat === "shor" && a.tier !== "ok" ? "shor" : a.threat === "grover" && a.tier === "low" ? "grover" : "safe";
+  const causes = {broken: 0, shor: 0, grover: 0, safe: 0}, seen = {};
+  for (const a of shownAssets) { causes[cause(a)]++; for (const x of a.seen || []) seen[x] = (seen[x] || 0) + 1; }
+  const act = (pri.critical || 0) + (pri.high || 0), unowned = shownAssets.filter((a) => a.tier !== "ok" && !(a.tracking || {}).owner && !a.owner_hint).length;
+  const prog = progress(shownAssets);
+  const glance = [
+    act ? [h("strong", {}, act + " of " + shownAssets.length), " findings need action now: " + (pri.critical || 0) + " critical, " + (pri.high || 0) + " high."]
+      : shownAssets.length ? ["None of the " + shownAssets.length + " findings needs action now."] : ["No cryptography was found."],
+    last.summary.score != null ? ["Readiness ", h("strong", {}, last.summary.score + " of 100"), last.summary.coverage != null ? ", from " + last.summary.coverage + "% of the source and configuration files." : "."] : "",
+    shownAssets.length ? [h("strong", {}, String(causes.broken)), " broken today, ", h("strong", {}, String(causes.shor)), " breakable by a quantum computer, " + causes.grover + " weakened by quantum search."] : "",
+    unowned ? [h("strong", {}, String(unowned)), unowned === 1 ? " finding needing work has no owner." : " findings needing work have no owner."] : "",
+  ];
+  out.replaceChildren(
+    atGlance(glance, "pj"),
+    section("pj", "descriptive", "What was found",
+      h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")),
+      distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, prog,
+      assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Findings, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
+      last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : ""),
+    section("pj", "diagnostic", "Why these priorities",
+      h("dl", {class: "key"}, TIERS.filter((k) => pri[k]).flatMap((k) => [h("dt", {}, tier(k)), h("dd", {}, TIER_MEANING[k])])),
+      shownAssets.length ? h("h3", {}, "What puts them at risk") : "",
+      bars([["Broken today", causes.broken, "bad"], ["Breakable by a quantum computer", causes.shor, "exposed"], ["Weakened by quantum search", causes.grover, "low"], ["No known quantum break", causes.safe, "ok"]]),
+      Object.keys(seen).length ? h("h3", {}, "How they were seen") : "",
+      bars(Object.keys(SEEN).filter((k) => seen[k]).map((k) => [SEEN[k], seen[k], "ink"])),
+      h("h3", {}, "Score and coverage"),
+      ...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score, coverage: r.summary.coverage})),
+        "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average.",
+        {percent: last.summary.coverage ?? null, text: cd.read + " of " + cd.files + " source and configuration files analysed" + (gaps ? " (" + gaps + ")" : "")})),
+    section("pj", "predictive", "What can happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this scan points to a risk.")),
+    section("pj", "prescriptive", "What we recommend", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
     exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")), ownersForm(last));
 }
 
@@ -286,27 +361,40 @@ function endpointResults(e) {
     h("td", {}, r.certificate ? [h("span", {class: "mono"}, r.certificate.key || ""), r.certificate.expires ? " · " : "", life(r.certificate)] : "",
       r.certificate && r.certificate.issuer ? h("div", {class: "legend", style: "margin:2px 0 0"}, "issued by " + ((r.certificate.issuer.match(/CN=([^,]+)/) || [])[1] || r.certificate.issuer)) : "")));
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));
+  const g = last.summary.grades, n = last.summary.endpoints, soon = last.endpoints.filter((r) => r.certificate && r.certificate.expires && r.certificate.days_left < 30).length;
+  const glance = [
+    [h("strong", {}, last.summary.pq_key_exchange + " of " + n), " offer post-quantum key exchange; " + g.A + (g.A === 1 ? " uses" : " use") + " it only."],
+    last.summary.score != null ? ["Readiness ", h("strong", {}, last.summary.score + " of 100"), ", from the " + (n - g.F) + " of " + n + " endpoints that could be graded."] : ["No endpoint could be graded."],
+    g.C ? [h("strong", {}, String(g.C)), g.C === 1 ? " endpoint is classical only: its traffic can be recorded now and read later." : " endpoints are classical only: their traffic can be recorded now and read later."] : "",
+    soon ? [h("strong", {}, String(soon)), soon === 1 ? " certificate has expired or expires within 30 days." : " certificates have expired or expire within 30 days."] : "",
+    last.changes.length ? [last.changes.length + (last.changes.length === 1 ? " grade changed" : " grades changed") + " since the check before."] : "",
+  ];
   out.replaceChildren(h("h2", {}, "Last check, " + when(last.finished)),
-    ...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50 and C 0; endpoints that could not be graded (F) are left out.",
-      {percent: last.summary.coverage ?? null, text: (last.summary.endpoints - last.summary.grades.F) + " of " + last.summary.endpoints + " endpoints could be graded"}),
-    h("p", {class: "state"}, last.summary.pq_key_exchange + " of " + last.summary.endpoints + " offer post-quantum key exchange."),
-    pasted ? h("p", {class: "legend", style: "color:var(--ink)"}, "Only the host and port are checked: a server is graded as a whole, so anything after the host in an address is ignored.") : "",
-    h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
-    h("p", {class: "legend"}, Object.entries(GRADES).map(([g, t]) => g + ": " + t).join(" · ")),
-    proxyNote(last.endpoints),
-    ...outlook(last.outlook),
-    last.changes.length ? h("div", {class: "changed"}, h("h2", {}, "Changed since the scan before"), h("ul", {class: "list"}, last.changes.map((c) => h("li", {}, c.target + ": " + c.before + " → " + c.after)))) : "",
-    h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM"),
+    atGlance(glance, "ep"),
+    section("ep", "descriptive", "What was found",
+      distribution(["A", "B", "C", "F"].map((k) => ({n: g[k], cls: GRADE_TONE[k], name: "grade " + k})), "Endpoints by grade"),
+      pasted ? h("p", {class: "legend", style: "color:var(--ink)"}, "Only the host and port are checked: a server is graded as a whole, so anything after the host in an address is ignored.") : "",
+      h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Endpoints, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
+      h("p", {class: "legend"}, Object.entries(GRADES).map(([k, t]) => k + ": " + t).join(" · "))),
+    section("ep", "diagnostic", "Why these grades",
+      h("dl", {class: "key"}, Object.entries(GRADES).filter(([k]) => g[k]).flatMap(([k, t]) => [h("dt", {}, h("span", {class: "pill " + GRADE_TONE[k]}, k)), h("dd", {}, g[k] + (g[k] === 1 ? " endpoint: " : " endpoints: ") + t)])),
+      proxyNote(last.endpoints),
+      last.changes.length ? h("div", {class: "changed"}, h("h3", {}, "Changed since the scan before"), h("ul", {class: "list"}, last.changes.map((c) => h("li", {}, c.target + ": " + c.before + " → " + c.after)))) : "",
+      h("h3", {}, "Score and coverage"),
+      ...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50 and C 0; endpoints that could not be graded (F) are left out.",
+        {percent: last.summary.coverage ?? null, text: (n - g.F) + " of " + n + " endpoints could be graded"})),
+    section("ep", "predictive", "What can happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this check points to a risk.")),
+    section("ep", "prescriptive", "What we recommend", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
+    h("div", {class: "row", style: "margin-top:28px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM"),
       h("button", {class: "btn quiet", onclick: () => exportCsv("endpoints/csv", {}, "endpoints.csv")}, "Download CSV"),
       h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")),
     h("p", {class: "legend", id: "ep-export"}, "The CBOM (CycloneDX 1.6) is built from a fresh check of these endpoints."));
 }
-function outlook(o) {
-  if (!o) return [];
-  const item = (i) => h("li", {}, i.text, i.targets.length ? h("small", {}, i.targets.join(", ")) : "");
-  return [o.risks.length ? h("section", {class: "outlook"}, h("h2", {}, "What can happen if nothing changes"), h("ul", {}, o.risks.map(item))) : "",
-    o.actions.length ? h("section", {class: "outlook"}, h("h2", {}, "What we recommend"), h("ol", {}, o.actions.map(item))) : ""];
+function outlookList(items, tag, empty) {
+  if (!items || !items.length) return h("p", {class: "empty"}, empty);
+  return h(tag, {class: "outlook"}, items.map((i) => h("li", {}, i.text, i.targets.length ? h("small", {}, i.targets.join(", ")) : "")));
 }
+
 function proxyNote(rows) {
   const issuers = rows.map((r) => r.certificate && r.certificate.issuer).filter(Boolean);
   if (issuers.length < 2 || new Set(issuers).size !== 1 || new Set(rows.map((r) => r.target.split(":")[0])).size < 2) return "";

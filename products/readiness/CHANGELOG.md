@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Console: results now read as four analyses, each named on the page and reachable from an "At a glance" summary:
+  Descriptive (what was found: a priority or grade bar and the table), Diagnostic (why: what each priority or grade means,
+  what puts findings at risk, how they were seen, score, coverage and trend), Predictive (what can happen if nothing
+  changes) and Prescriptive (what we recommend). Projects gain the predictive and prescriptive lists that endpoints had:
+  broken today, recordable now and readable later, forgeable later, the NIST IR 8547 dates, Grover-weakened, fixes that did
+  not land, overdue or expired items and unread files; recommendations are grouped by the change to make, worst first.
 - Owners: a finding suggests its owner from the repository's CODEOWNERS file, read as GitHub reads it, or from a CMDB
   export (a CSV of path patterns and owners) loaded per project. The CMDB export comes first, and an owner set by hand
   always wins. A finding with no owner reads "No owner · review needed". The CSV export names the owner's source.

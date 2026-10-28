@@ -118,6 +118,61 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
     return assessment
 
 
+VERBS = ("Switch", "Rotate", "Remove", "Re-sign", "Use", "Replace", "Enable", "Keep", "Move", "Reissue", "Shorten", "Plan", "TLS")
+
+
+def outlook(result):
+    """What can happen to this repository if nothing changes, and what to do first: rules over its findings, not forecasts."""
+    from .catalog import CATALOG, GROVER, LEGACY, SHOR
+    from .rank import TIERS
+    listed = [a for a in result["assets"] if not a["test_only"]]
+    names = lambda rows: sorted({a["name"] for a in rows})
+    threat = lambda a: CATALOG[a["algorithm"]].threat if a["algorithm"] in CATALOG else None
+    primitive = lambda a: CATALOG[a["algorithm"]].primitive if a["algorithm"] in CATALOG else None
+    broken = [a for a in listed if a["tier"] == "critical" or threat(a) == LEGACY and a["tier"] != "ok"]
+    later = [a for a in listed if a not in broken and threat(a) == SHOR and a["tier"] != "ok"]
+    recordable = [a for a in later if primitive(a) != "signature"]
+    forgeable = [a for a in later if primitive(a) == "signature"]
+    weakened = [a for a in listed if threat(a) == GROVER and a["tier"] == "low"]
+    t = lambda a: a.get("tracking") or {}
+    still = [a for a in listed if t(a).get("still_found")]
+    overdue = [a for a in listed if t(a).get("overdue") and t(a).get("status") not in ("fixed", "exception")]
+    expired = [a for a in listed if t(a).get("expired")]
+    unowned = [a for a in listed if a["tier"] != "ok" and not t(a).get("owner") and not a.get("owner_hint")
+               and not (t(a).get("status") == "fixed" and not t(a).get("still_found"))]
+    s, cd = result.get("summary", {}), result.get("summary", {}).get("coverage_detail") or {}
+    unread = (cd.get("files", 0) - cd.get("read", 0)) if s.get("coverage") is not None and s["coverage"] < 100 else 0
+    risks = [
+        (broken, "Broken today: these can be attacked now, with no quantum computer (collisions, brute force or a disallowed protocol)."),
+        (recordable, "Recordable now, readable later: what they protect can be recorded today and decrypted once a large enough quantum computer exists."),
+        (forgeable, "Forgeable later: a large enough quantum computer could forge these signatures, so whatever trusts them (code, tokens, certificates) could be impersonated."),
+        (later, "Deadline: NIST IR 8547 (draft) deprecates quantum-vulnerable public-key algorithms at 112-bit strength after 2030 and disallows them after 2035."),
+        (weakened, "Weakened by quantum search: Grover's algorithm halves their effective strength; fine for most data, short for long-lived secrets."),
+        (still, "Marked fixed, still found: the fix has not reached the code that was scanned."),
+        (overdue, "Overdue: each of these is past its due date."),
+        (expired, "Accepted risk expired: the reason given no longer covers these."),
+    ]
+    out = {"risks": [{"targets": names(rows), "text": text} for rows, text in risks if rows], "actions": []}
+    if unread:
+        out["risks"].append({"targets": [], "text": f"Not analysed: {unread} files were not analysed, so anything in them is unknown."})
+    groups = {}
+    for a in sorted(listed, key=lambda a: (TIERS.index(a["tier"]) if a["tier"] in TIERS else 9, a["name"])):
+        if a["tier"] != "ok" and a.get("action"):
+            groups.setdefault(a["action"], []).append(a)
+    for action, rows in list(groups.items())[:8]:
+        out["actions"].append({"targets": names(rows), "text": action if action.startswith(VERBS) else f"Replace with {action}"})
+    for rows, text in ((still, "Find out why the fix did not land: scan the branch it was made on, then mark it fixed again."),
+                       (overdue + expired, "Set a new due date, or renew the accepted risk with a current reason and end date."),
+                       (unowned, "Assign an owner to each: on the finding itself, or from CODEOWNERS or a CMDB export.")):
+        if rows:
+            out["actions"].append({"targets": names(rows), "text": text})
+    if unread:
+        out["actions"].append({"targets": [], "text": "Bring the unread files into scope: exclude generated files over 2 MB, and scan with a newer Python for syntax this one cannot parse."})
+    if not out["actions"]:
+        out["actions"].append({"targets": [], "text": "Nothing to change now. Scan again after the code changes."})
+    return out
+
+
 def imported(path, name):
     """An assessment from another tool's CycloneDX CBOM. Priorities come from its own acxelin:* properties when present, else
     from the algorithm alone; components whose names this catalogue does not recognise are counted, not rated."""
@@ -287,6 +342,11 @@ class ProjectStore:
         for asset in result['assets']:  # marked fixed, yet a scan after that still found it
             t = asset['tracking']
             t['still_found'] = t['status'] == 'fixed' and t.get('updated', 0) < result['finished']
+        from .catalog import CATALOG
+        for asset in result['assets'] + result['not_observed']:  # broken today, breakable by Shor, weakened by Grover, or safe
+            c = CATALOG.get(asset.get('algorithm'))
+            asset['threat'] = c.threat if c else None
+        result['outlook'] = outlook(result)
         return result
 
     def assessment(self, root):

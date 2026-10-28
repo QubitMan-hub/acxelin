@@ -257,13 +257,14 @@ def test_a_finding_shows_where_it_is_and_the_priority_chips_filter_the_list(page
     open_console(page, console)
     fill_setup(page, root)
     scan_shop(page)
-    page.get_by_text("MD5", exact=True).wait_for()
+    table = page.locator("#pj-result table")
+    table.get_by_text("MD5", exact=True).wait_for()
     page.get_by_role("button", name="Show only critical").click()
-    page.wait_for_function("!document.body.innerText.includes('RSA-2048')")
-    assert page.get_by_text("MD5", exact=True).is_visible()
+    page.wait_for_function("!document.querySelector('#pj-result table').innerText.includes('RSA-2048')")
+    assert table.get_by_text("MD5", exact=True).is_visible()
     page.get_by_role("button", name="Show every priority").click()
-    page.get_by_text("RSA-2048").wait_for()
-    page.get_by_text("RSA-2048").click()
+    table.get_by_text("RSA-2048").wait_for()
+    table.get_by_text("RSA-2048").click()
     page.get_by_text("keys.py:4").wait_for()
 
 
@@ -290,7 +291,7 @@ def test_endpoints_say_what_can_happen_and_what_to_do_next(page, console):
         page.get_by_label("Hosts to check").fill("a.example\nssh://ssh.example")
         page.get_by_role("button", name="Check endpoints").click()
         page.get_by_role("heading", name="What can happen").wait_for()
-    recommend = page.locator("section.outlook", has=page.get_by_role("heading", name="What we recommend"))
+    recommend = page.locator("section.analysis", has=page.get_by_role("heading", name="What we recommend"))
     assert recommend.locator("ol > li").first.inner_text().startswith("Renew the certificate")
     assert "X25519MLKEM768" in recommend.inner_text() and "mlkem768x25519-sha256" in recommend.inner_text()
     table = page.locator("#ep-result table").inner_text()
@@ -343,7 +344,7 @@ def test_a_github_repository_is_scanned_from_the_first_screen_without_a_folder(p
     with patch("acxelin_readiness.console.remote.fetch", side_effect=fake_fetch):
         page.get_by_label("Repository link").fill("https://github.com/acme/payments")
         page.get_by_role("button", name="Download and scan").click()
-        page.get_by_text("RSA-2048").wait_for(timeout=30000)
+        page.locator("#pj-result table").get_by_text("RSA-2048").wait_for(timeout=30000)
     assert page.get_by_role("heading", name="github.com/acme/payments").is_visible()
 
 
@@ -391,7 +392,7 @@ def test_findings_and_grades_download_as_csv_and_print_without_the_controls(page
         page.get_by_role("button", name="Download CSV").click()
     assert d.value.suggested_filename == "shop-findings.csv" and Path(d.value.path()).read_text().startswith("Asset,Algorithm,Priority")
     page.emulate_media(media="print")
-    assert not page.get_by_role("button", name="Scan repository").is_visible() and page.get_by_text("RSA-2048").is_visible()
+    assert not page.get_by_role("button", name="Scan repository").is_visible() and page.locator("#pj-result table").get_by_text("RSA-2048").is_visible()
     page.emulate_media(media="screen")
     page.get_by_role("tab", name="Endpoints").click()
     with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: [grade("127.0.0.1:1", "C")]):
@@ -451,7 +452,7 @@ def test_another_tools_cbom_is_imported_and_rated_from_the_first_screen(page, co
     page.get_by_text("That file is not JSON").wait_for()
     page.get_by_label("Import a CBOM").set_input_files(str(tmp_path / "billing.cbom.json"))
     page.get_by_role("button", name="Import and rate").click()
-    page.get_by_text("RSA-2048").wait_for(timeout=30000)
+    page.locator("#pj-result table").get_by_text("RSA-2048").wait_for(timeout=30000)
     assert page.get_by_role("heading", name="Imported: billing.cbom.json").is_visible()
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
 
@@ -493,3 +494,36 @@ def test_owners_come_from_codeowners_and_a_cmdb_export_and_unowned_findings_ask_
     page.get_by_role("button", name="Use these owners").click()
     page.get_by_text("Owner: Platform Security (from CMDB export)").first.wait_for()
     assert page.get_by_text("No owner · review needed").count() == 0
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_both_pages_show_the_four_analyses_with_their_charts_and_the_nav_reaches_each(browser, console, repos, scheme):
+    page = browser.new_page(color_scheme=scheme)
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    kinds = ["Descriptive analysis", "Diagnostic analysis", "Predictive analysis", "Prescriptive analysis"]
+
+    def check(prefix):
+        result = page.locator(f"#{prefix}-result")
+        assert [result.locator(f"#{prefix}-{k.split()[0].lower()}").inner_text().split("\n")[0].endswith(k) for k in kinds] == [True] * 4
+        assert "[object" not in result.inner_text()
+        assert result.locator(".glance li").count() >= 2 and result.locator(".dist[role=img]").get_attribute("aria-label")
+        page.get_by_role("navigation", name="Analyses on this page").get_by_role("button", name=re.compile("^Prescriptive")).click()
+        assert page.evaluate("document.activeElement.id") == f"{prefix}-prescriptive"
+        assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+    result = page.locator("#pj-result")
+    assert "1 of 1" in result.locator(".glance").inner_text() and "high" in result.locator("dl.key").inner_text()
+    assert result.locator(".bars .bar-row").filter(has_text="Breakable by a quantum computer").inner_text().endswith("1")
+    assert "Replace with" in result.locator("#pj-prescriptive + ol").inner_text()
+    check("pj")
+    page.get_by_role("tab", name="Endpoints").click()
+    with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: [grade("a.example:443", "C"), grade("b.example:443", "A")]):
+        page.get_by_label("Hosts to check").fill("a.example\nb.example")
+        page.get_by_role("button", name="Check endpoints").click()
+        page.locator("#ep-prescriptive").wait_for()
+    assert "1 of 2" in page.locator("#ep-result .glance").inner_text()
+    assert page.locator("#ep-result .dist").get_attribute("aria-label") == "Endpoints by grade: 1 grade A, 1 grade C"
+    check("ep")
+    page.close()
