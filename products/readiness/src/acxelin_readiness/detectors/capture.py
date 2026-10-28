@@ -1,7 +1,8 @@
 """Traffic captures: what clients and servers actually negotiated, read offline from a .pcap or .pcapng file.
 
-Only the unencrypted start of each connection is read: the TLS ClientHello and ServerHello (and a TLS 1.2 ServerKeyExchange),
-and the SSH banners and KEXINIT lists. Nothing is decrypted and no packet is sent.
+Only the start of each connection is read: the TLS ClientHello and ServerHello (and a TLS 1.2 ServerKeyExchange), the SSH
+banners and KEXINIT lists, the IKEv2 IKE_SA_INIT exchange, and the TLS handshake inside QUIC Initial packets, whose keys
+anyone can derive from the connection ID. Nothing else is decrypted and no packet is sent.
 """
 import struct
 from collections import defaultdict
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from ..catalog import HYBRIDS, lookup, pq_from_text
 from ..model import Detection
+from . import ike, quic
 from .probe import GROUPS, HRR
 from .suites import ssh_token, suite
 from .tls import group_algo
@@ -74,27 +76,50 @@ def ip_payload(link, frame):
     return {0x0800: 4, 0x86DD: 6}.get(etype), frame[off:]
 
 
-def tcp_segments(data):
-    """((src, sport), (dst, dport), seq, payload) for every TCP segment with data."""
+def _transport(data, proto):
+    """(src address, dst address, segment) for every IPv4 or IPv6 packet of `proto` (6 TCP, 17 UDP)."""
     for link, frame in packets(data):
         try:
             ver, ip = ip_payload(link, frame)
-            if ver == 4 and ip[9] == 6:
-                ihl = (ip[0] & 15) * 4
+            if ver == 4 and ip[9] == proto:
                 total = struct.unpack(">H", ip[2:4])[0] or len(ip)
-                src, dst, tcp = ip[12:16], ip[16:20], ip[ihl:total]
-                a, b = ".".join(map(str, src)), ".".join(map(str, dst))
-            elif ver == 6 and ip[6] == 6:
-                tcp = ip[40:40 + struct.unpack(">H", ip[4:6])[0]]
-                a, b = _v6(ip[8:24]), _v6(ip[24:40])
-            else:
-                continue
+                yield ".".join(map(str, ip[12:16])), ".".join(map(str, ip[16:20])), ip[(ip[0] & 15) * 4:total]
+            elif ver == 6 and ip[6] == proto:
+                yield _v6(ip[8:24]), _v6(ip[24:40]), ip[40:40 + struct.unpack(">H", ip[4:6])[0]]
+        except (TypeError, IndexError, struct.error):
+            continue
+
+
+def tcp_segments(data):
+    """((src, sport), (dst, dport), seq, payload) for every TCP segment with data."""
+    for a, b, tcp in _transport(data, 6):
+        try:
             sport, dport, seq = struct.unpack(">HHI", tcp[:8])
             payload = tcp[(tcp[12] >> 4) * 4:]
-        except (TypeError, IndexError, struct.error):
+        except (IndexError, struct.error):
             continue
         if payload:
             yield (a, sport), (b, dport), seq, payload
+
+
+def udp_datagrams(data):
+    """((src, sport), (dst, dport), payload) for every UDP datagram."""
+    for a, b, udp in _transport(data, 17):
+        try:
+            sport, dport, length = struct.unpack(">HHH", udp[:6])
+        except struct.error:
+            continue
+        yield (a, sport), (b, dport), udp[8:length if length >= 8 else None]
+
+
+def flows(data):
+    """{(client, server): [(sender, payload), ...]} for UDP, in capture order. The client is whoever spoke first."""
+    out, first = defaultdict(list), {}
+    for src, dst, payload in udp_datagrams(data):
+        key = tuple(sorted((src, dst)))
+        first.setdefault(key, src)
+        out[key].append((src, payload))
+    return {(c, k[1] if k[0] == c else k[0]): out[k] for k, c in first.items()}
 
 
 def _v6(b):
@@ -134,6 +159,11 @@ def handshakes(buf):
         elif buf[i] == 0x17:
             break
         i += 5 + ln
+    yield from messages(data)
+
+
+def messages(data):
+    """Handshake messages (type, body) in a run of handshake bytes: a TLS record's content, or a QUIC CRYPTO stream."""
     j = 0
     while j + 4 <= len(data):
         ln = int.from_bytes(data[j + 1:j + 4], "big")
@@ -218,6 +248,39 @@ def tls_session(cbuf, sbuf):
     return {"client": ch, "server": sh, "group": sh["group"] or curve}
 
 
+def quic_session(client, datagrams):
+    """The TLS handshake carried in the Initial packets of one QUIC connection, as tls_session gives it."""
+    dcid, sides, ks = None, {"client": [], "server": []}, {}
+    for sender, d in datagrams:
+        side = "client" if sender == client else "server"
+        for pdcid, start, pn_off, end in quic.initials(d):
+            if side == "client" and dcid is None:
+                dcid = pdcid  # both directions' keys come from the client's first destination connection ID
+            if dcid is None:
+                continue
+            key = ks.setdefault(side, quic.keys(dcid, side))
+            plain = quic.unprotect(d, start, pn_off, end, *key)
+            if plain:
+                sides[side] += list(quic.crypto_frames(plain))
+    ch = next((client_hello(b) for t, b in messages(quic.stream(sides["client"])) if t == 1), None)
+    sh = next((server_hello(b) for t, b in messages(quic.stream(sides["server"])) if t == 2), None)
+    return {"client": ch, "server": sh, "group": sh["group"]} if sh else None
+
+
+def ike_session(client, datagrams):
+    """The initiator's IKE_SA_INIT offer and the responder's choice."""
+    offer = chosen = None
+    for sender, d in datagrams:
+        m = ike.sa_init(d[4:] if d[:4] == b"\x00" * 4 else d)  # on port 4500 a four-byte zero marker comes first
+        if not m:
+            continue
+        if sender == client and not m["response"] and offer is None:
+            offer = m
+        elif sender != client and m["response"] and m["proposals"] and chosen is None:
+            chosen = m
+    return {"offer": offer, "chosen": chosen} if chosen else None
+
+
 def ssh_session(cbuf, sbuf):
     def kexinit(buf):
         line, _, rest = buf.partition(b"\n")
@@ -246,7 +309,7 @@ def scan(path):
     """Detections, endpoint summaries and notes from one capture file."""
     data = Path(path).read_bytes()
     name = Path(path).name
-    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": []}), 0
+    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": []}), 0
     for (client, server), (cbuf, sbuf) in streams(data).items():
         try:  # a capture cut short by its snap length, or a damaged frame, ends that handshake only
             if cbuf[:4] == b"SSH-" or sbuf[:4] == b"SSH-":
@@ -259,19 +322,27 @@ def scan(path):
                     by_server[server]["tls"].append(s)
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
+    for (client, server), datagrams in flows(data).items():
+        kind = "ike" if {client[1], server[1]} & {500, 4500} else "quic"
+        try:
+            s = (ike_session if kind == "ike" else quic_session)(client, datagrams)
+            if s:
+                by_server[server][kind].append(s)
+        except (struct.error, IndexError, KeyError, ValueError):
+            skipped += 1
     sights, eps = [], []
     for (host, port), seen in sorted(by_server.items()):
         for kind, sessions in seen.items():
             if not sessions:
                 continue
-            loc = f"pcap://{name}/{host}:{port}"
+            loc = f"pcap://{name}/{host}:{port}" if kind in ("tls", "ssh") else f"pcap://{name}/{kind}/{host}:{port}"
 
             def add(algo, snip, **p):
                 if algo:
                     sights.append(Detection(algo=algo, file=loc, line=0, evidence="live", detector="capture", snippet=snip, lang=kind,
                                            params={k: v for k, v in dict(p, observed=True).items() if v is not None}))
             ep = {"target": loc, "kind": kind, "observed": len(sessions)}
-            if kind == "tls":
+            if kind in ("tls", "quic"):
                 versions, suites_, groups = set(), set(), set()
                 offered_pq = sum(any(pq_from_text(GROUPS.get(g, "")) for g in s["client"]["groups"]) for s in sessions if s["client"])
                 for s in sessions:
@@ -292,6 +363,23 @@ def scan(path):
                 ep.update(version=", ".join(sorted(versions)), cipher=", ".join(sorted(suites_)), groups=sorted(groups),
                           preferred_group=", ".join(sorted(groups)) or None, pq_groups=sorted(g for g in groups if pq_from_text(g)),
                           sni=sni, clients_offering_pq=offered_pq)
+            elif kind == "ike":
+                groups, offered_pq = set(), 0
+                for s in sessions:
+                    for ttype, tid, keylen in (s["chosen"]["proposals"] or [[]])[0]:
+                        a, p = ike.name(ttype, tid)
+                        if not a:
+                            continue
+                        p = dict(p, key_size=keylen) if keylen else p
+                        label = a + "".join(f"-{v}" for v in p.values() if v)
+                        add(a, f"negotiated IKEv2 {ike.ROLES.get(ttype, 'transform')}: {label}", role=ike.ROLES.get(ttype), **p)
+                        if ike.ROLES.get(ttype, "").endswith("key-exchange"):
+                            groups.add(label)
+                    offer = (s["offer"] or {}).get("proposals") or []
+                    offered_pq += any(ike.name(t, i)[0] in HYBRIDS or ike.name(t, i)[0].startswith("ML-KEM") for prop in offer for t, i, _ in prop
+                                      if ike.name(t, i)[0])
+                ep.update(version="IKEv2", groups=sorted(groups), preferred_group=", ".join(sorted(groups)) or None,
+                          pq_groups=sorted(g for g in groups if g.startswith("ML-KEM")), clients_offering_pq=offered_pq)
             else:
                 for s in sessions:
                     for field, role in (("kex", "key-exchange"), ("hostkey", "host-key"), ("cipher", "cipher"), ("mac", "mac")):

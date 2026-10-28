@@ -52,3 +52,68 @@ def ssh_capture(client_kex, server_kex):
     c, s = [10, 0, 0, 5], [10, 0, 0, 22]
     return [_eth_ip_tcp(c, s, 50001, 22, 1, b"SSH-2.0-OpenSSH_9.9\r\n" + kexinit(client_kex, "ssh-ed25519,rsa-sha2-512", "aes256-gcm@openssh.com", "hmac-sha2-256")),
             _eth_ip_tcp(s, c, 22, 50001, 1, b"SSH-2.0-OpenSSH_8.4\r\n" + kexinit(server_kex, "rsa-sha2-512", "aes256-gcm@openssh.com,chacha20-poly1305@openssh.com", "hmac-sha2-256"))]
+
+
+def _eth_ip_udp(src, dst, sport, dport, payload):
+    udp = struct.pack(">HHHH", sport, dport, 8 + len(payload), 0) + payload
+    ip = struct.pack(">BBHHHBBH4s4s", 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0, bytes(src), bytes(dst)) + udp
+    return b"\x00" * 12 + b"\x08\x00" + ip
+
+
+def _varint(n):
+    return bytes([n]) if n < 64 else struct.pack(">H", 0x4000 | n) if n < 16384 else struct.pack(">I", 0x80000000 | n)
+
+
+def quic_initial(dcid, scid, crypto, side, pn=0, offset=0, pad_to=1200):
+    """One protected QUIC v1 Initial packet (RFC 9001 section 5) carrying `crypto` at `offset` of the CRYPTO stream."""
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from acxelin_readiness.detectors.quic import keys
+    key, iv, hp = keys(dcid if side == "client" else side, "client" if side == "client" else "server")
+    frames = b"\x06" + _varint(offset) + _varint(len(crypto)) + crypto
+    pn_bytes = struct.pack(">I", pn)  # a 4-byte packet number
+    head = bytes([0xC3]) + struct.pack(">I", 1) + bytes([len(dcid)]) + dcid + bytes([len(scid)]) + scid + b"\x00"
+    frames += b"\x00" * max(0, pad_to - len(head) - 2 - 4 - len(frames) - 16)
+    head += struct.pack(">H", 0x4000 | (4 + len(frames) + 16)) + pn_bytes
+    nonce = (int.from_bytes(iv, "big") ^ pn).to_bytes(12, "big")
+    body = AESGCM(key).encrypt(nonce, frames, head)
+    pn_off = len(head) - 4
+    mask = Cipher(algorithms.AES(hp), modes.ECB()).encryptor().update(body[:16])
+    first = bytes([head[0] ^ (mask[0] & 0x0F)])
+    return first + head[1:pn_off] + bytes(a ^ b for a, b in zip(pn_bytes, mask[1:5])) + body
+
+
+def quic_capture(groups, server_group, split=True):
+    """A client's ClientHello over two Initial packets (as a post-quantum key share makes it), and the server's ServerHello."""
+    from acxelin_readiness.detectors.probe import client_hello
+    c, s, dcid, scid, sscid = [10, 0, 0, 5], [10, 0, 0, 9], bytes.fromhex("8394c8f03e515708"), b"\x01\x02\x03\x04", b"\x0a\x0b\x0c\x0d"
+    ch = client_hello("quic.example", groups)[5:]  # a handshake message: QUIC carries no TLS record layer
+    half = len(ch) // 2 if split else len(ch)
+    frames = [_eth_ip_udp(c, s, 51000, 443, quic_initial(dcid, scid, ch[:half], "client", 0)),
+              *([_eth_ip_udp(c, s, 51000, 443, quic_initial(dcid, scid, ch[half:], "client", 1, offset=half))] if split else [])]
+    sh = server_hello(0x1301, group=server_group)[5:]
+    frames.append(_eth_ip_udp(s, c, 443, 51000, quic_initial(scid, sscid, sh, dcid, 0, pad_to=0)))
+    return frames
+
+
+def ike_transform(ttype, tid, keylen=None, last=False):
+    attr = struct.pack(">HH", 0x800E, keylen) if keylen else b""
+    return struct.pack(">BBHBBH", 0 if last else 3, 0, 8 + len(attr), ttype, 0, tid) + attr
+
+
+def ike_sa_init(transforms, ke, response):
+    """An IKE_SA_INIT message: one proposal of (type, id, key length) transforms and a KE payload for group `ke`."""
+    ts = b"".join(ike_transform(t, i, k, last=n == len(transforms) - 1) for n, (t, i, k) in enumerate(transforms))
+    proposal = struct.pack(">BBHBBBB", 0, 0, 8 + len(ts), 1, 1, 0, len(transforms)) + ts
+    sa = struct.pack(">BBH", 34, 0, 4 + len(proposal)) + proposal
+    kep = struct.pack(">BBHHH", 0, 0, 8 + 32, ke, 0) + b"\x00" * 32
+    body = sa + kep
+    header = b"\x11" * 8 + (b"\x22" * 8 if response else b"\x00" * 8) + struct.pack(">BBBBII", 33, 0x20, 34, 0x20 if response else 0x08, 0, 28 + len(body))
+    return header + body
+
+
+def ike_capture(offer, ke_offer, chosen, ke_chosen, port=500):
+    c, s = [10, 0, 0, 5], [10, 0, 0, 1]
+    marker = b"\x00" * 4 if port == 4500 else b""
+    return [_eth_ip_udp(c, s, port, port, marker + ike_sa_init(offer, ke_offer, False)),
+            _eth_ip_udp(s, c, port, port, marker + ike_sa_init(chosen, ke_chosen, True))]

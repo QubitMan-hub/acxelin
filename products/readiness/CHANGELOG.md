@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Packet captures: QUIC and IKEv2 handshakes are read alongside TLS and SSH. For QUIC, the TLS handshake inside the
+  Initial packets (protected only by keys anyone can derive, RFC 9001) gives the negotiated group, suite and SNI. For
+  IKEv2, the IKE_SA_INIT exchange gives the chosen cipher, PRF, integrity and key exchange, including ML-KEM as an RFC 9370
+  additional key exchange, and whether the initiator offered it. These endpoints are named `pcap://FILE/quic/HOST:PORT`
+  and `pcap://FILE/ike/HOST:PORT`.
 - Fixes from a review:
   - `--changed-since` refuses a ref that starts with `-`. Such a ref could pass options to git and write a file.
   - `--changed-since` no longer misses changed files with non-ASCII names. Missing them let `--fail-on` pass.

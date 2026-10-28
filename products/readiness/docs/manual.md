@@ -297,7 +297,7 @@ Grades, accepted groups and SSH algorithms need nothing extra. To read the certi
 | Binaries and images | Library versions and algorithm strings in compiled files; container images saved with `docker save` or as OCI archives |
 | Dependencies | Package manifests and lockfiles of the common ecosystems |
 | Live | TLS endpoints (accepted groups, certificate, grade) and SSH servers (algorithm lists, host keys) |
-| Captures | Handshakes in `.pcap` and `.pcapng` files: what clients and servers actually negotiated |
+| Captures | Handshakes in `.pcap` and `.pcapng` files: what clients and servers actually negotiated over TLS, SSH, QUIC and IKEv2 (including ML-KEM as an RFC 9370 additional key exchange). QUIC's Initial packets are protected only by keys derived from the connection ID, which is how they are read; nothing after the handshake is |
 
 ### Tiers and the timeline
 
