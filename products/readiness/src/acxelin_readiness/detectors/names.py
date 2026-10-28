@@ -22,6 +22,48 @@ ELLIPTIC_DH = re.compile(r"(?i)x25519|x448|curve25519|ecdh")
 CIPHER_VERB = re.compile(r"(?i)crypt|cipher|key|setup|ede|cbc|ecb|block|round")
 KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "typeof", "nameof", "catch", "elif", "and", "or", "not", "in", "assert", "print", "defined"}
 QUOTED = re.compile(r"""(?s:(\"\"\"|\'\'\').*?\1)|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`""")
+
+
+def _close(code, i, dead):
+    """End of the string literal starting at `i`, as QUOTED would match it there, or None. `dead` remembers failures:
+    a quote kind that found no end from one start cannot find one from any later start inside the span it scanned."""
+    c, n = code[i], len(code)
+    if c in "\"'" and code.startswith(c * 3, i) and not dead.get(c * 3):
+        j = code.find(c * 3, i + 3)
+        if j >= 0:
+            return j + 3
+        dead[c * 3] = True  # no closing triple anywhere after: none of the later ones closes either
+    if c == "`":
+        j = -1 if dead.get(c) else code.find(c, i + 1)
+        dead[c] = j < 0
+        return j + 1 if j >= 0 else None
+    if i < dead.get(c, -1):
+        return None
+    j = i + 1
+    while j < n and code[j] != "\n":
+        if code[j] == "\\":
+            if j + 1 >= n or code[j + 1] == "\n":
+                break
+            j += 2
+        elif code[j] == c:
+            return j + 1
+        else:
+            j += 1
+    dead[c] = j  # every quote of this kind before j was escaped in this scan, so a start there ends the same way
+    return None
+
+
+def blank_strings(code, fn):
+    """`QUOTED.sub(lambda m: fn(m.group(0)), code)` in one pass: the regex backtracks quadratically on unterminated quotes."""
+    out, last, i, dead = [], 0, 0, {}
+    while i < len(code):
+        end = _close(code, i, dead) if code[i] in "\"'`" else None
+        if end:
+            out += [code[last:i], fn(code[i:end])]
+            last = i = end
+        else:
+            i += 1
+    return "".join(out) + code[last:]
 TYPE_PREFIX = re.compile(r"(?:^|[;{}])\s*(?:(?:static|inline|const|unsigned|signed|struct|enum|virtual|explicit|__\w+)\s+)*[A-Za-z_][\w:<>]*[\s*&]+$")
 
 
@@ -73,7 +115,7 @@ def scan(code, lang, path="", aliases=()):
     """Yields (line, algo) for calls, constructors and type definitions whose names spell an algorithm."""
     if path.endswith(".d.ts"):
         return
-    code = QUOTED.sub(lambda m: "\n".join(" " * len(p) for p in m.group(0).split("\n")), code) if lang != "rust" \
+    code = blank_strings(code, lambda t: "\n".join(" " * len(p) for p in t.split("\n"))) if lang != "rust" \
         else re.sub(r"(?m)^[ \t]*#!?\[.*$", "", code)
     ends = [m.start() for m in re.finditer("\n", code)]
     header = path.endswith((".h", ".hpp", ".hh"))
@@ -125,7 +167,7 @@ def symbols(code, lang, path=""):
     `case KEY_ED25519:`, `kex[KEX_DH_GRP1_SHA1]`, `crypto.SHA1`, `x509.ECDSA`. Their own definitions, #define and #if lines are left out."""
     if path.endswith((".d.ts", ".h", ".hpp", ".hh")):
         return
-    code = QUOTED.sub(lambda m: "\n".join(" " * len(p) for p in m.group(0).split("\n")), code) if lang != "rust" else code
+    code = blank_strings(code, lambda t: "\n".join(" " * len(p) for p in t.split("\n"))) if lang != "rust" else code
     lines = code.split("\n")
 
     def rejected(i):

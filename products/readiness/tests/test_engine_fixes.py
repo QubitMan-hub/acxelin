@@ -73,3 +73,68 @@ def test_a_certificate_signed_with_sha_224_names_its_signature_and_hash(tmp_path
     assert {("RSA", "certificate-signature"), ("SHA-224", "certificate-signature-hash")} <= roles
     for oid in ("1.2.840.113549.1.1.2", "1.2.840.10045.4.3.1", "2.16.840.1.101.3.4.3.20", "2.16.840.1.101.3.4.3.31"):
         assert oid in artifacts.SIG_OID
+
+
+def test_the_string_scanner_matches_the_regex_it_replaces_exactly():
+    import random
+    from acxelin_readiness.detectors import names
+    rng = random.Random(7)
+    for _ in range(20000):
+        text = "".join(rng.choice("\"'`\\\nab ") for _ in range(rng.randint(0, 40)))
+        mark = lambda t: "<" + t + ">"
+        assert names.blank_strings(text, mark) == names.QUOTED.sub(lambda m: mark(m.group(0)), text), repr(text)
+
+
+@pytest.mark.parametrize("line", ['"' + '\\"' * 20000, "'" + "\\'" * 20000, '"""' * 3000 + "x", "'''a" * 5000])
+def test_unterminated_strings_are_scanned_in_linear_time(tmp_path, line):
+    import time
+    (tmp_path / "a.py").write_text("x = 1\n" + line + "\n")
+    (tmp_path / "a.c").write_text("const char *s = " + line + ";\n")  # C-family code goes through the string scanner; no third-party parser
+    start = time.monotonic()
+    workspace.scan(tmp_path)
+    assert time.monotonic() - start < 3, "an opening quote then escaped quotes took the old regex 5 s per line"
+
+
+def pem_key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+
+
+def test_only_the_key_a_config_names_is_marked_deployed(tmp_path):
+    from acxelin_readiness import pipeline
+    for d in ("a", "b"):
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "server.key").write_bytes(pem_key())
+    (tmp_path / "nginx.conf").write_text("server {\n  ssl_certificate_key a/server.key;\n}\n")
+    deployed = {s.file for s in pipeline.run(tmp_path, "p").detections if "deployed" in s.context}
+    assert "a/server.key" in deployed and "b/server.key" not in deployed
+
+
+def test_neighbouring_javascript_key_calls_keep_their_own_parameters(tmp_path):
+    from acxelin_readiness import pipeline
+    (tmp_path / "keys.js").write_text("const c = require('crypto');\n"
+                                      "c.generateKeyPairSync('ec', { namedCurve: 'secp256k1' });\n"
+                                      "c.generateKeyPairSync('rsa', { modulusLength: 1024 });\n")
+    assets = pipeline.run(tmp_path, "p").assets
+    assert "RSA-1024" in {a.variant for a in assets}
+    assert all("curve" not in a.params for a in assets if a.algo == "RSA")
+    assert all("key_size" not in a.params for a in assets if a.algo in ("ECC", "ECDSA", "ECDH"))
+
+
+@pytest.mark.parametrize("name,want,ok", [("sha512_224", "SHA-512/224", False), ("sha512_256", "SHA-512/256", True), ("sha512", "SHA-512", True)])
+def test_truncated_sha_512_is_named_and_rated_by_its_output(tmp_path, name, want, ok):
+    from acxelin_readiness.catalog import CATALOG, SAFE
+    (tmp_path / "h.py").write_text(f"import hashlib\nhashlib.new('{name}', b'x')\n")
+    assets = workspace.scan(tmp_path)["assets"]
+    assert [a["algorithm"] for a in assets] == [want] and (CATALOG[want].threat == SAFE) == ok
+
+
+def test_a_fully_qualified_java_class_is_read_like_an_imported_one(tmp_path):
+    body = 'KeyPairGenerator g = KeyPairGenerator.getInstance("EC");\ng.initialize(new {}ECGenParameterSpec("secp384r1"));\n'
+    result = []
+    for prefix in ("", "java.security.spec."):
+        root = tmp_path / (prefix or "plain")
+        root.mkdir()
+        (root / "K.java").write_text("import java.security.*;\nclass K { void k() throws Exception {\n" + body.format(prefix) + "} }\n")
+        result.append(sorted(a["name"] for a in workspace.scan(root)["assets"]))
+    assert result[0] == result[1] and any("384" in n for n in result[1])

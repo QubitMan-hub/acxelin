@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from . import iter_files, rel, is_test, read
 from .lexer import LANGS, split
-from .names import QUOTED
+from .names import blank_strings
 
 RULES = {
     "WPC001": ("Certificate verification switched off", "CWE-295", "high",
@@ -94,7 +94,7 @@ class Pattern:
 
 def blank(code):
     """String contents become spaces (quotes and line breaks kept), so a pattern never matches text inside a string."""
-    return QUOTED.sub(lambda m: m.group(0)[0] + "".join("\n" if c == "\n" else " " for c in m.group(0)[1:-1]) + m.group(0)[-1], code)
+    return blank_strings(code, lambda t: t[0] + "".join("\n" if c == "\n" else " " for c in t[1:-1]) + t[-1])
 
 
 def secret(value):

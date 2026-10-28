@@ -29,6 +29,15 @@
   - A certificate signed with its own key type keeps its signature algorithm in the CBOM. The same certificate in two
     files is one component with two occurrences, so bom-refs stay unique.
   - Certificates signed with SHA-224 (RSA or ECDSA), MD2 with RSA, or SLH-DSA name their signature.
+  - SHA-512/224 and SHA-512/256 are their own algorithms, rated by their output. SHA-512/224 is quantum-weakened, like
+    SHA-224; it was reported as quantum-safe SHA-512. CBOMs name them `SHA-512/224` and `SHA-512/256` instead of `SHA-512`.
+  - A reference such as `a/server.key` marks only that key as deployed. Before, another `server.key` elsewhere in the
+    repository could be marked instead.
+  - JavaScript key generation reads only its own call's options: a neighbouring call's `modulusLength` or `namedCurve`
+    no longer attaches to the wrong key. RSA gets a size and EC a curve, never the other way round.
+  - Java classes written with their package (`new java.security.spec.ECGenParameterSpec(...)`) are read like imported
+    ones.
+  - String literals are found in one pass. An opening quote followed by many escaped quotes took 5 s per line.
   - Large repositories scan in linear time: 400 Java files took 44 s and now take 6 s, and one file with 8,000 hash
     calls went from 10 s to under 2 s. A 40 KB line of dotted names no longer takes 20 s.
 - Exports: `report` also writes `assessment.csv`, and the console has **Download CSV** for findings and endpoint grades.

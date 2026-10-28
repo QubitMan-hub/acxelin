@@ -1,3 +1,4 @@
+import posixpath
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -164,7 +165,9 @@ def follow_references(root, arts, detections, scope=False):
     local = [a for a in arts if "://" not in a.file]
     if not local or not Path(root).is_dir():
         return 0
-    names = {Path(a.file).name: a for a in local}
+    names = defaultdict(list)
+    for a in local:
+        names[Path(a.file).name].append(a)
     rx = re.compile(r"(?<![\w.-])(" + "|".join(re.escape(n) for n in names) + r")(?![\w-])")
     found = 0
     for p in iter_files(root, scope):
@@ -175,17 +178,33 @@ def follow_references(root, arts, detections, scope=False):
             continue
         r = rel(root, p)
         for m in rx.finditer(text):
-            a = names[m.group(1)]
-            if r == a.file:
-                continue
-            line = text.count("\n", 0, m.start()) + 1
-            a.details.setdefault("referenced_by", []).append(f"{r}:{line}")
-            found += 1
-            if config.is_config(p):
-                for s in detections:
-                    if s.file == a.file:
-                        s.context.add("deployed")
+            start = m.start()
+            while start and (text[start - 1].isalnum() or text[start - 1] in "._-/\\"):
+                start -= 1
+            for a in referenced(names[m.group(1)], r, text[start:m.end()]):
+                line = text.count("\n", 0, m.start()) + 1
+                a.details.setdefault("referenced_by", []).append(f"{r}:{line}")
+                found += 1
+                if config.is_config(p):
+                    for s in detections:
+                        if s.file == a.file:
+                            s.context.add("deployed")
     return found
+
+
+def referenced(candidates, by, written):
+    """Which of the files sharing a name a reference means: the path as written from the referring file's folder, else the
+    files whose path ends with the most of what was written (a bare name shared by several files names them all)."""
+    ref = written.replace("\\", "/")
+    own = posixpath.normpath(posixpath.join(posixpath.dirname(by), ref)) if not ref.startswith("/") else None
+    exact = [a for a in candidates if a.file == own and a.file != by]
+    if exact:
+        return exact
+    want = [x for x in ref.split("/") if x not in ("", ".", "..")]
+    tail = lambda f: next((n for n in range(len(want), 0, -1) if f.split("/")[-n:] == want[-n:]), 0)
+    scored = [(tail(a.file), a) for a in candidates if a.file != by]
+    best = max((n for n, _ in scored), default=0)
+    return [a for n, a in scored if n == best and n]
 
 
 @dataclass

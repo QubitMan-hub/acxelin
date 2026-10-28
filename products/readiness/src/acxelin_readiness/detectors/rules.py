@@ -63,12 +63,12 @@ def _(m, x):
     x.attach({"key_size": int(m.group(1))}, ("AES",))
 
 
-@rule("java", r'new\s+ECGenParameterSpec\(\s*"([^"]+)"')
+@rule("java", r'new\s+(?:[\w$]+\.)*ECGenParameterSpec\(\s*"([^"]+)"')
 def _(m, x):
     x.attach({"curve": curve(m.group(1))}, ("ECC", "ECDSA", "ECDH"))
 
 
-@rule("java", r'new\s+SecretKeySpec\([^;]*?,\s*"([^"]+)"\s*\)')
+@rule("java", r'new\s+(?:[\w$]+\.)*SecretKeySpec\([^;]*?,\s*"([^"]+)"\s*\)')
 def _(m, x):
     return [parse_transformation(m.group(1))]
 
@@ -87,7 +87,7 @@ BC = {"RSAKeyPairGenerator": "RSA", "RSAEngine": "RSA", "RSADigestSigner": "RSA"
       "Ed25519Signer": "Ed25519", "X25519Agreement": "X25519", "DSASigner": "DSA", "DHBasicAgreement": "DH"}
 
 
-@rule("java", r'new\s+(\w+(?:Engine|Digest|Signer|Agreement|KeyPairGenerator|KEMGenerator|KEMExtractor))\s*\(')
+@rule("java", r'new\s+(?:[\w$]+\.)*(\w+(?:Engine|Digest|Signer|Agreement|KeyPairGenerator|KEMGenerator|KEMExtractor))\s*\(')
 def _(m, x):
     return [(BC.get(m.group(1)) or pq_from_text(m.group(1)), {"lib": "org.bouncycastle"})]
 
@@ -222,15 +222,26 @@ def _(m, x):
     return [parse_symmetric_name(m.group(1))]
 
 
-def key_params(near):
-    ml = re.search(r"modulusLength\s*:\s*(\d+)", near)
-    nc = re.search(r"namedCurve\s*:\s*" + Q + r"([\w-]+)", near)
+def call_text(text, start, limit=4000):
+    """The rest of the call whose arguments begin at `start`: up to its closing parenthesis, so a neighbouring call's options never count."""
+    depth, j = 1, start
+    while j < len(text) and depth and j - start < limit:
+        depth += {"(": 1, ")": -1}.get(text[j], 0)
+        j += 1
+    return text[start:j]
+
+
+def key_params(near, algo=None):
+    ec = algo in ("ECC", "ECDSA", "ECDH")
+    ml = None if ec else re.search(r"modulusLength\s*:\s*(\d+)", near)
+    nc = re.search(r"namedCurve\s*:\s*" + Q + r"([\w-]+)", near) if ec or algo is None else None
     return {"key_size": int(ml.group(1)) if ml else None, "curve": curve(nc.group(1)) if nc else None}
 
 
 @rule("js", r'\bgenerateKeyPair(?:Sync)?\(\s*' + Q + r'([\w-]+)' + Q + r'(?=\s*[,)])')
 def _(m, x):
-    return [(lookup(m.group(1)) or pq_from_text(m.group(1)), key_params(x.window_text(6)))]
+    algo = lookup(m.group(1)) or pq_from_text(m.group(1))
+    return [(algo, key_params(call_text(x.text, m.end()), algo))]
 
 
 @rule("js", r'\bcreate(?:Sign|Verify)\(\s*' + Q + r'([\w-]+)' + Q + r'(?=\s*[,)])')
@@ -250,12 +261,12 @@ def _(m, x):
 
 @rule("js", r'\bsubtle\.(generateKey|importKey|sign|verify|encrypt|decrypt|deriveKey|deriveBits|digest)\(')
 def _(m, x):
-    near = x.window_text(4)
+    near = call_text(x.text, m.end())
     nm = re.search(r"name\s*:\s*" + Q + r"([\w-]+)" + Q, near) or (re.search(r"digest\(\s*" + Q + r"([\w-]+)" + Q, near) if m.group(1) == "digest" else None)
     if not nm:
         return []
     a = lookup(nm.group(1)) or parse_symmetric_name(nm.group(1))[0]
-    p = key_params(near)
+    p = key_params(near, a)
     if a == "AES":
         p.update(parse_symmetric_name(nm.group(1))[1])
         ln = re.search(r"length\s*:\s*(128|192|256)\b", near)

@@ -146,7 +146,7 @@ def code(path):
         detail = f"{project}: {props.get('acxelin:usage', 'used')} in {where or 'unknown location'}; {props.get('acxelin:exposure', 'code')}"
         detail += f"; reached from {', '.join(map(str, callers[:3]))}" if callers else ""
         detail += f"; next: {props['acxelin:recommendation']}" if props.get("acxelin:recommendation") else ""
-        cnsa = any(name.startswith(a) for a in CNSA2_ALGORITHMS)
+        cnsa = any(name.startswith(a) and not name[len(a):].startswith("/") for a in CNSA2_ALGORITHMS)  # SHA-512/224 is not SHA-512
         out.append(_row("code", name, detail, status, nist, "compliant" if cnsa else "not a CNSA 2.0 algorithm",
                         {"project": project, "tier": tier, "locations": seen[:20], "callers": callers[:20]}))
     report = _load(findings) if findings.is_file() else {}

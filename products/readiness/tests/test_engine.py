@@ -16,7 +16,7 @@ class Catalog(unittest.TestCase):
         self.assertEqual(lookup("mlkem768x25519-sha256"), "X25519MLKEM768")
         self.assertEqual(parse_transformation("AES/ECB/PKCS5Padding"), ("AES", {"mode": "ECB", "padding": "pkcs5"}))
         self.assertEqual(curve("NID_X9_62_prime256v1"), "P-256")
-        self.assertEqual(lookup("SHA-512/256"), "SHA-512")
+        self.assertEqual(lookup("SHA-512/256"), "SHA-512/256")  # its own entry: a 256-bit output is not SHA-512's strength
         self.assertEqual(lookup("HMACSHA1"), "HMAC")
 
     def test_generated_report_has_an_embedded_favicon(self):
