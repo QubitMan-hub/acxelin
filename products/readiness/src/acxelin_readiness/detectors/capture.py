@@ -310,7 +310,8 @@ def ike_session(client, datagrams):
     """The initiator's IKE_SA_INIT offer and the responder's choice."""
     offer = chosen = None
     for sender, d in datagrams:
-        m = ike.sa_init(d[4:] if d[:4] == b"\x00" * 4 else d)  # on port 4500 a four-byte zero marker comes first
+        d = d[4:] if d[:4] == b"\x00" * 4 else d  # on port 4500 a four-byte zero marker comes first
+        m = ike.sa_init(d) or ike.v1_sa(d)
         if not m:
             continue
         if sender == client and not m["response"] and offer is None:
@@ -412,7 +413,7 @@ def scan(path):
                             continue
                         p = dict(p, key_size=keylen) if keylen else p
                         label = a + "".join(f"-{v}" for v in p.values() if v)
-                        add(a, f"negotiated IKEv2 {ike.ROLES.get(ttype, 'transform')}: {label}", role=ike.ROLES.get(ttype), **p)
+                        add(a, f"negotiated IKEv{s['chosen'].get('version', 2)} {ike.ROLES.get(ttype, 'transform')}: {label}", role=ike.ROLES.get(ttype), **p)
                         if ike.ROLES.get(ttype, "").endswith("key-exchange"):
                             groups.add(label)
                     offer = (s["offer"] or {}).get("proposals") or []

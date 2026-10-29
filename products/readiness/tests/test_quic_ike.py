@@ -72,3 +72,17 @@ def test_a_dtls_handshake_split_over_datagrams_is_read_like_tls(tmp_path):
     algos = {s.algo for s in sights}
     assert {"TLS 1.2", "ECDH", "ECDSA", "AES"} <= algos and eps[0]["target"].startswith("pcap://d.pcap/dtls/10.0.0.9:4433")
     assert eps[0]["version"] == "DTLS 1.2" and "1 handshake(s)" in notes[0]
+
+
+@pytest.mark.parametrize("exchange", [2, 4])
+def test_an_ikev1_main_or_aggressive_mode_exchange_shows_what_the_responder_chose(tmp_path, exchange):
+    aes_sha256_modp2048_rsa = [(1, 7), (14, 256), (2, 4), (3, 3), (4, 14)]
+    des3_md5_modp1024_psk = [(1, 5), (2, 1), (3, 1), (4, 2)]
+    (tmp_path / "v1.pcap").write_bytes(pcapgen.pcap(pcapgen.ikev1_capture([des3_md5_modp1024_psk, aes_sha256_modp2048_rsa], [des3_md5_modp1024_psk], exchange)))
+    sights, eps, notes = capture.scan(tmp_path / "v1.pcap")
+    found = {(s.algo, s.params.get("key_size") or s.params.get("hash")) for s in sights}
+    assert {("3DES", None), ("HMAC", "MD5"), ("DH", 1024)} <= found and ("AES", 256) not in found, "what was chosen, not what was offered"
+    assert eps[0]["kind"] == "ike" and "IKEv1" in sights[0].snippet and "1 handshake(s)" in notes[0]
+    (tmp_path / "v1.pcap").write_bytes(pcapgen.pcap(pcapgen.ikev1_capture([aes_sha256_modp2048_rsa], [aes_sha256_modp2048_rsa], exchange)))
+    found = {(s.algo, s.params.get("key_size") or s.params.get("hash")) for s in capture.scan(tmp_path / "v1.pcap")[0]}
+    assert {("AES", 256), ("HMAC", "SHA-256"), ("DH", 2048), ("RSA", None)} <= found

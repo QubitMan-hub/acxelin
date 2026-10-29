@@ -138,3 +138,20 @@ def dtls_capture(groups, suite, version=0xFEFD, group=None):
     sh = struct.pack(">H", version) + sh[2:]
     first, second = _dtls(2, sh, 0, version, frags=2)
     return [_eth_ip_udp(c, s, 51000, 4433, _dtls(1, ch, 0, version)[0]), _eth_ip_udp(s, c, 4433, 51000, first), _eth_ip_udp(s, c, 4433, 51000, second)]
+
+
+def ikev1_sa(transforms, response, exchange=2):
+    """An IKEv1 Main Mode (2) or Aggressive Mode (4) message with one proposal; each transform is a list of (attribute, value)."""
+    ts = b""
+    for n, attrs in enumerate(transforms):
+        a = b"".join(struct.pack(">HH", 0x8000 | k, v) for k, v in attrs)
+        ts += struct.pack(">BBHBBH", 0 if n == len(transforms) - 1 else 3, 0, 8 + len(a), n + 1, 1, 0) + a
+    proposal = struct.pack(">BBHBBBB", 0, 0, 8 + len(ts), 1, 1, 0, len(transforms)) + ts
+    sa = struct.pack(">BBHII", 0, 0, 12 + len(proposal), 1, 1) + proposal
+    header = b"\x11" * 8 + (b"\x22" * 8 if response else b"\x00" * 8) + struct.pack(">BBBBII", 1, 0x10, exchange, 0, 0, 28 + len(sa))
+    return header + sa
+
+
+def ikev1_capture(offer, chosen, exchange=2):
+    c, s = [10, 0, 0, 5], [10, 0, 0, 1]
+    return [_eth_ip_udp(c, s, 500, 500, ikev1_sa(offer, False, exchange)), _eth_ip_udp(s, c, 500, 500, ikev1_sa(chosen, True, exchange))]

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Captures: IKEv1 Main and Aggressive Mode exchanges are read: the responder's chosen cipher, hash (as the HMAC-based PRF),
+  Diffie-Hellman group and authentication method (RSA or ECDSA signatures; pre-shared keys name no algorithm).
+- A TLS cipher suite's trailing hash is reported as HMAC with that hash (the record MAC or the PRF), with the hash beside it.
 - Console, calmer results: findings with nothing to change fold behind one button; progress shows as a bar that fills as
   fixes and accepted risks land ("3 of 27 findings that need work are done"); long lists of findings under a risk or a
   recommendation show the first eight and the rest on request; what a finding could not see moves into its details.
