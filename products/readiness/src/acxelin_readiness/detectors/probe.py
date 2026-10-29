@@ -61,15 +61,22 @@ def _recv(sock, n):
 
 
 def server_hello(host, port, groups, timeout=5.0, version=None, name=None):
-    """Returns (kind, info). kind is 'hrr', 'hello', 'alert' or 'error'."""
+    """Returns (kind, info). kind is 'hrr', 'hello', 'alert', 'closed' (the server hung up on the hello, as some do to refuse it)
+    or 'error' (no connection, or no answer in time)."""
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError as e:
+        return "error", str(e)
+    try:
+        with sock:
             sock.sendall(client_hello(name or host, groups, version))
             hdr = _recv(sock, 5)
             if len(hdr) < 5:
-                return "error", "connection closed"
+                return "closed", "connection closed"
             ctype, _, ln = hdr[0], hdr[1:3], struct.unpack(">H", hdr[3:5])[0]
             rec = _recv(sock, ln)
+    except (ConnectionResetError, BrokenPipeError):
+        return "closed", "connection reset"
     except OSError as e:
         return "error", str(e)
     if ctype == 0x15:
@@ -98,20 +105,23 @@ def server_hello(host, port, groups, timeout=5.0, version=None, name=None):
 
 
 def legacy_versions(host, port, timeout=5.0, name=None):
-    """[(name, suite)] of TLS 1.0 and 1.1 the server accepts. Offered as bytes, so the answer does not depend on whether this
+    """[(name, suite)] of TLS 1.0 and 1.1 the server accepts, or None when it could not be asked (no connection or no answer). Offered as bytes, so the answer does not depend on whether this
     machine's OpenSSL still speaks them (many builds and system policies no longer do)."""
-    found = []
+    found, answered = [], False
     for version, label in LEGACY.items():
         kind, info = server_hello(host, port, [0x001D, 0x0017, 0x0018], timeout, version, name)
+        if kind == "closed":  # a refusal, or a flaky network: ask once more before counting it as a refusal
+            kind, info = server_hello(host, port, [0x001D, 0x0017, 0x0018], timeout, version, name)
+        answered |= kind != "error"
         if kind == "hello" and info["version"] == version:
             found.append((label, info["suite"]))
-    return found
+    return found if answered else None
 
 
 def tls_groups(host, port, timeout=5.0):
     """Which key-exchange groups the server accepts, and which it prefers when offered all."""
     kind, info = server_hello(host, port, list(GROUPS), timeout)
-    if kind == "error":
+    if kind in ("error", "closed"):
         return {"error": info}
     out = {"tls13": kind == "hrr" or (isinstance(info, dict) and info.get("version") == 0x0304), "preferred": None, "supported": []}
     if kind == "hrr":

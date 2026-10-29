@@ -86,8 +86,10 @@ def probe(target, timeout=6.0):
         arts.append(a)
         sights += s
         ep["cert"] = f"{a.algo}" + (f"-{a.params.get('key_size') or a.params.get('curve')}" if a.params else "") + f", expires {a.details['not_after'][:10]}"
-    ep["legacy"] = []
-    for name, code in legacy_versions(host, port, timeout):
+    ep["legacy"], old = [], legacy_versions(host, port, timeout)
+    if old is None:
+        notes.append(f"{loc}: TLS 1.0 and 1.1 could not be checked (no answer); scan again to know")
+    for name, code in old or []:
         ep["legacy"].append(name)
         add(name, f"server accepted {name} (cipher suite 0x{code:04X})", negotiated=False)
     return sights, arts, notes, ep

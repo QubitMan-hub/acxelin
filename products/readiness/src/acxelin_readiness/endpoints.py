@@ -23,6 +23,16 @@ CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_
 PQ = ["X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024", "MLKEM768", "MLKEM1024"]
 CNSA2_GROUPS = {"SecP384r1MLKEM1024", "MLKEM1024"}
 CLASSICAL = ["X25519", "secp256r1", "secp384r1", "secp521r1", "X448", "ffdhe2048", "ffdhe3072"]
+CANON = {g.lower(): g for g in PQ + CLASSICAL}
+
+
+def canonical(group):
+    """A group as named in PQ and CLASSICAL, whatever case OpenSSL reports it in (x25519 for X25519)."""
+    return CANON.get(group.lower(), group) if group else group
+
+
+def _note(out, text):
+    out["note"] = " ".join(filter(None, [out.get("note"), text]))
 GRADES = {
     "A": "post-quantum key exchange only",
     "B": "post-quantum key exchange, classical still accepted",
@@ -85,9 +95,9 @@ def _raw(out, e, host, port, cert, server_name, timeout):
     out["negotiated"] = g.get("preferred") or (out["accepts"] or [None])[0]
     pq, classical = (any(n in out["accepts"] for n in s) for s in (PQ, CLASSICAL))
     out["grade"] = "A" if pq and not classical else "B" if pq else "C" if classical else "F"
-    out["certificate"], out["legacy"] = _cert_info(cert), _old_versions(host, port, server_name or host, timeout)
+    out["certificate"], out["legacy"] = _cert_info(cert), _old_versions(out, host, port, server_name or host, timeout)
     out["trusted"] = _trusted(host, port, server_name or host, timeout)
-    out["note"] = "Groups read with raw ClientHello messages: this machine's OpenSSL is older than 3.5."
+    _note(out, "Groups read with raw ClientHello messages: this machine's OpenSSL is older than 3.5.")
     return out
 
 
@@ -106,9 +116,25 @@ def _trusted(host, port, server_name, timeout):
         return None
 
 
-def _old_versions(host, port, server_name, timeout):
-    """TLS 1.0 and 1.1, which should be off everywhere."""
-    return [name.replace(" ", "v") for name, _ in legacy_versions(host, port, timeout, server_name)]
+def _old_versions(out, host, port, server_name, timeout):
+    """TLS 1.0 and 1.1, which should be off everywhere; None, with a note, when the server could not be asked."""
+    found = legacy_versions(host, port, timeout, server_name)
+    if found is None:
+        _note(out, "TLS 1.0 and 1.1 could not be checked: the server did not answer. Check again.")
+        return None
+    return [name.replace(" ", "v") for name, _ in found]
+
+
+def _only_old(out, e, host, port, server_name, timeout):
+    """A server that speaks only TLS 1.0 or 1.1, read with raw ClientHello messages: this machine's TLS library will not go so low."""
+    found = legacy_versions(host, port, timeout, server_name) or []
+    if not found:
+        out["error"], out["grade"] = explain(e), "F"
+        return out
+    out["legacy"] = [name.replace(" ", "v") for name, _ in found]
+    out["negotiated"], out["grade"] = out["legacy"][-1], "C"
+    _note(out, f"Accepts only {' and '.join(n for n, _ in found)}, read with raw ClientHello messages; the certificate was not read.")
+    return out
 
 
 def _hello(host, port, groups, server_name, timeout):
@@ -165,7 +191,7 @@ def probe_ssh(host, port, timeout):
     kex = [k for k in kex if not k.startswith(SSH_META)]
     pq = [k for k in kex if k in SSH_PQ]
     out |= {"accepts": kex, "negotiated": pq[0] if pq else (kex[0] if kex else None), "banner": banner, "host_keys": hostkeys,
-            "certificate": {"key": ", ".join(hostkeys[:3]), "expires": "", "days_left": 9999, "quantum_safe": False}}
+            "certificate": {"key": ", ".join(hostkeys[:3]), "expires": "", "days_left": None, "quantum_safe": False}}  # host keys do not expire
     out["grade"] = "A" if pq and len(pq) == len(kex) else "B" if pq else "C" if kex else "F"
     return out
 
@@ -200,6 +226,7 @@ def probe(target, server_name=None, timeout=8.0):
     out = _result(_join(host, port), "tls")
     try:
         out["negotiated"], cert = _hello(host, port, ":".join(PQ + CLASSICAL), server_name or host, timeout)
+        out["negotiated"] = canonical(out["negotiated"])
     except (TLSError, OSError) as e:
         try:
             if isinstance(e, OpenSSLUnavailable):
@@ -208,11 +235,10 @@ def probe(target, server_name=None, timeout=8.0):
                     return _raw(out, e, host, port, cert, server_name, timeout)
             version, cert = _legacy(host, port, server_name or host, timeout)
         except (OSError, ValueError):
-            out["error"], out["grade"] = explain(e), "F"
-            return out
-        out["negotiated"], out["accepts"], out["grade"] = version, [version], "C"
+            return _only_old(out, e, host, port, server_name or host, timeout)
+        out["negotiated"], out["grade"] = version, "C"  # no TLS 1.3, so no post-quantum group; which groups it takes was not read
         out["certificate"] = _cert_info(cert)
-        out["legacy"] = _old_versions(host, port, server_name or host, timeout)
+        out["legacy"] = _old_versions(out, host, port, server_name or host, timeout)
         out["trusted"] = _trusted(host, port, server_name or host, timeout)
         return out
     out["certificate"] = _cert_info(cert)
@@ -227,7 +253,7 @@ def probe(target, server_name=None, timeout=8.0):
     out["grade"] = "A" if pq and not classical else "B" if pq else "C" if classical else "F"
     cert_key = (out["certificate"] or {}).get("key")
     out["cnsa2"] = bool(out["accepts"]) and set(out["accepts"]) <= CNSA2_GROUPS and cert_key == "ML-DSA-87"
-    out["legacy"] = _old_versions(host, port, server_name or host, timeout)
+    out["legacy"] = _old_versions(out, host, port, server_name or host, timeout)
     if not cert_key or not cert_key.startswith("ML-DSA"):
         out["trusted"] = _trusted(host, port, server_name or host, timeout)
     return out
@@ -257,7 +283,7 @@ def summary(results):
     return {"endpoints": len(results), "grades": counts, "pq_key_exchange": counts["A"] + counts["B"],
             "score": round((100 * counts["A"] + 50 * counts["B"]) / graded) if graded else None,
             "coverage": round(100 * graded / len(results)) if results else None, "cnsa2": sum(r.get("cnsa2", False) for r in results),
-            "pq_certificates": sum(c["quantum_safe"] for c in certs), "expiring_30d": sum(c["days_left"] < 30 for c in certs)}
+            "pq_certificates": sum(c["quantum_safe"] for c in certs), "expiring_30d": sum(c["days_left"] is not None and c["days_left"] < 30 for c in certs)}
 
 
 def outlook(results):

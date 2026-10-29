@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Endpoints, from a run against real servers: a server that speaks only TLS 1.0 or 1.1 is graded C with those versions named
+  (it was graded F, "handshake failed"); when the TLS 1.0 and 1.1 check gets no answer the result says it could not be
+  checked instead of reporting none (a hang-up is asked once more before it counts as a refusal); negotiated group names
+  match the accepted list (`X25519`, not OpenSSL's `x25519`); a TLS 1.2-only server no longer lists its protocol version
+  as an accepted group; SSH host keys carry no made-up expiry (`days_left` is empty, not 9999).
 - Ruby: the OpenSSL and Digest libraries are read (RSA, EC and Ed25519 keys, HMAC, ciphers, TLS versions, PBKDF2), and
   quoted strings in Ruby, shell and PowerShell files are now checked like those in other languages.
 - PHP: the openssl extension (key types, curves, signature hashes, ciphers) and `hash`, `hash_hmac` and `hash_pbkdf2`.
