@@ -179,7 +179,7 @@ def jose_alg(s):
 
 
 def kms_spec(v):
-    """Key specs of cloud KMS and HSM services: AWS KMS (RSA_2048, ECC_NIST_P256, SYMMETRIC_DEFAULT, HMAC_256, ML_DSA_65),
+    """Key specs of cloud KMS and HSM services: AWS KMS (RSA_2048, ECC_NIST_P256, SYMMETRIC_DEFAULT, HMAC_256, ML_DSA_65), ACM (EC_prime256v1),
     Google Cloud KMS (RSA_SIGN_PSS_2048_SHA256, EC_SIGN_P256_SHA256, GOOGLE_SYMMETRIC_ENCRYPTION) and Azure Key Vault (RSA-HSM, EC)."""
     v = v.strip().strip("\"'").upper()
     sha = lambda b: {"1": "SHA-1"}.get(b, f"SHA-{b}")
@@ -191,6 +191,9 @@ def kms_spec(v):
     if m:
         algo = "ECDSA" if "SIGN" in v else "ECC"
         return [(algo, {"curve": f"P-{m.group(1)}"})] + ([(sha(m.group(2)), {})] if m.group(2) else [])
+    m = re.fullmatch(r"EC_(PRIME256V1|SECP384R1|SECP521R1)", v)  # AWS Certificate Manager's key algorithms
+    if m:
+        return [("ECC", {"curve": curve(m.group(1).lower())})]
     if re.fullmatch(r"ECC_SECG_P256K1|EC_SIGN_SECP256K1_SHA256", v):
         return [("ECDSA" if "SIGN" in v else "ECC", {"curve": "secp256k1"})] + ([("SHA-256", {})] if "SHA256" in v else [])
     if v == "EC_SIGN_ED25519":

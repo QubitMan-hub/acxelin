@@ -23,6 +23,7 @@ PAIRS = [
     (re.compile(r"""^\s*["']?[\w./-]*ssl-protocols["']?\s*:\s*(.+)""", re.I), "protocols"),
     (re.compile(r"""^\s*["']?(?:ssl_policy|policy_name|SslPolicy|sslPolicy)["']?\s*[=:]\s*["']?((?:ELBSecurityPolicy|AppGwSslPolicy)[\w-]*)""", re.I), "lbpolicy"),
     (re.compile(r"""^\s*["']?(?:customer_master_key_spec|key_spec|KeySpec|CustomerMasterKeySpec|key_type|kty|KeyType)["']?\s*[=:]\s*["']?([\w\-]+)""", re.I), "kms"),
+    (re.compile(r"""^\s*["']?(?:ecdsa_curve|ec_curve|curve|named_curve|crv)["']?\s*[=:]\s*["']?([\w-]+)""", re.I), "curve"),
     (re.compile(r"^\s*[\w.\-\"']*(?:algorithm|alg|signing[_-]?alg\w*|key[_-]?algorithm|keyAlgorithm|hash[_-]?algorithm|digest[_-]?algorithm|kex)[\w\"']*\s*[=:]\s*[\"']?([\w\-/]+)", re.I), "algo"),
     (re.compile(r"^\s*(?:[\w.\-\"']*(?:key[_-]?size|keysize|key[_-]?length|rsa[_-]?bits|modulus[_-]?length)[\w\"']*|[\"']?size[\"']?)\s*[=:]\s*[\"']?(\d{3,5})\b", re.I), "size"),
 ]
@@ -150,6 +151,12 @@ def scan(root, scope=False):
                     m = rx.search(probe)
                     if not m:
                         continue
+                    if kind == "curve":  # names the curve of the ECDSA or EC key just above it
+                        cv = curve(m.group(1)) or {"P256": "P-256", "P384": "P-384", "P521": "P-521"}.get(m.group(1).upper())
+                        near = next((s for s in reversed(sink) if s.file == path and 0 <= i - s.line <= 6 and s.algo in ("ECDSA", "ECC")), None)
+                        if cv and near:
+                            near.params.setdefault("curve", cv)
+                        break
                     if kind == "size":
                         for s in reversed(sink):  # this file's detections are the newest: stop at the first from another file or out of reach
                             if s.file != path or i - s.line > 6:

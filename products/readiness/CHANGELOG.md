@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Ruby: the OpenSSL and Digest libraries are read (RSA, EC and Ed25519 keys, HMAC, ciphers, TLS versions, PBKDF2), and
+  quoted strings in Ruby, shell and PowerShell files are now checked like those in other languages.
+- PHP: the openssl extension (key types, curves, signature hashes, ciphers) and `hash`, `hash_hmac` and `hash_pbkdf2`.
+- Shell scripts: `openssl genrsa`, `genpkey`, `req -newkey`, `ecparam`, digest flags and `enc` ciphers, and `ssh-keygen`.
+- Terraform: a curve on the line after a key (`ecdsa_curve = "P384"`) belongs to that key; ACM's `EC_prime256v1` is read.
 - Captures: IKEv1 Main and Aggressive Mode exchanges are read: the responder's chosen cipher, hash (as the HMAC-based PRF),
   Diffie-Hellman group and authentication method (RSA or ECDSA signatures; pre-shared keys name no algorithm).
 - A TLS cipher suite's trailing hash is reported as HMAC with that hash (the record MAC or the PRF), with the hash beside it.

@@ -57,14 +57,16 @@ def split_c(text, lang):
 
 
 def split_hash(text):
-    code, com = [], []
-    for raw in text.splitlines(keepends=True):
-        q, cut = None, None
+    code, com, strings = [], [], []
+    for n, raw in enumerate(text.splitlines(keepends=True), 1):
+        q, cut, start = None, None, 0
         for k, ch in enumerate(raw):
             if q:
-                q = None if ch == q else q
+                if ch == q:
+                    q = None
+                    strings.append((n, raw[start:k]))
             elif ch in "\"'":
-                q = ch
+                q, start = ch, k + 1
             elif ch == "#" or (ch == ";" and raw.lstrip().startswith(";")):
                 cut = k
                 break
@@ -72,7 +74,7 @@ def split_hash(text):
             code.append(raw); com.append(_blank(raw))
         else:
             code.append(raw[:cut] + _blank(raw[cut:])); com.append(_blank(raw[:cut]) + raw[cut:])
-    return "".join(code), "".join(com), []
+    return "".join(code), "".join(com), strings
 
 
 def split_python(text):

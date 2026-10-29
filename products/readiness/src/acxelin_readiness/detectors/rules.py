@@ -467,3 +467,121 @@ def _(m, x):
     n = re.search(r"kSecAttrKeySizeInBits\D{0,40}(\d{3,4})", x.window_text(6))
     algo = "RSA" if m.group(1) == "RSA" else "ECC"
     return [(algo, {"key_size": int(n.group(1)) if n and algo == "RSA" else None, "lib": "Security"})]
+
+
+# Ruby: the OpenSSL and Digest standard libraries (Ruby files are read with the #-comment rules)
+@rule("hash", r'\bOpenSSL::PKey::RSA\.(?:new|generate)\(\s*(\d{3,5})')
+def _(m, x):
+    return [("RSA", {"key_size": int(m.group(1)), "lib": "openssl-ruby"})]
+
+
+simple("hash", r'\bOpenSSL::PKey::(RSA|DSA|DH)\b(?!\.(?:new|generate)\(\s*\d)', lib="openssl-ruby")
+
+
+@rule("hash", r'\bOpenSSL::PKey::EC(?:\.generate|\.new)?\(\s*[\'"]([\w-]+)')
+def _(m, x):
+    return [("ECC", {"curve": curve(m.group(1)), "lib": "openssl-ruby"})]
+
+
+simple("hash", r'\bOpenSSL::PKey::EC\b(?!(?:\.generate|\.new)?\(\s*[\'"])', "ECC", lib="openssl-ruby")
+simple("hash", r'\bOpenSSL::PKey\.generate_(?:key|parameters)\(\s*[\'"](\w+)', lib="openssl-ruby")
+
+
+@rule("hash", r'\bOpenSSL::HMAC\.(?:hexdigest|digest|base64digest|new)\(\s*(?:OpenSSL::Digest(?:::|\.new\(\s*)[\'"]?|[\'"])(\w+)')
+def _(m, x):
+    return [("HMAC", {"hash": lookup(m.group(1)), "lib": "openssl-ruby"})]
+
+
+simple("hash", r'\b(?:OpenSSL::)?Digest::(MD5|SHA1|SHA256|SHA384|SHA512|RMD160)\b', lib="ruby")
+simple("hash", r'\bOpenSSL::Digest\.new\(\s*[\'"](\w+)', lib="openssl-ruby")
+simple("hash", r'\bOpenSSL::(?:PKCS5|KDF)\.pbkdf2_hmac', "PBKDF2", lib="openssl-ruby")
+
+
+@rule("hash", r'\bOpenSSL::Cipher(?:::Cipher)?\.new\(\s*[\'"]([\w-]+)')
+def _(m, x):
+    a, p = parse_symmetric_name(m.group(1))
+    return [(a, dict(p, lib="openssl-ruby"))] if a else []
+
+
+@rule("hash", r'\b(?:min_version|max_version|ssl_version)\s*=\s*(?:OpenSSL::SSL::)?:?(TLS1_3|TLS1_2|TLS1_1|TLS1|SSL3|SSLv3|TLSv1_2|TLSv1_1|TLSv1)(?:_VERSION)?\b')
+def _(m, x):
+    v = {"TLS1_3": "TLSv1.3", "TLS1_2": "TLSv1.2", "TLS1_1": "TLSv1.1", "TLS1": "TLSv1", "SSL3": "SSLv3"}.get(m.group(1), m.group(1).replace("_", "."))
+    return [(lookup(v), {"lib": "openssl-ruby"})]
+
+
+# PHP: the openssl extension and the hash functions (PHP files are read with the C-family rules)
+simple("c", r'\bOPENSSL_KEYTYPE_(RSA|EC|DSA|DH)\b', {"RSA": "RSA", "EC": "ECC", "DSA": "DSA", "DH": "DH"}, lib="php-openssl")
+
+
+@rule("c", r'[\'"]curve_name[\'"]\s*=>\s*[\'"]([\w-]+)')
+def _(m, x):
+    return [("ECC", {"curve": curve(m.group(1)), "lib": "php-openssl"})]
+
+
+simple("c", r'\bOPENSSL_ALGO_(SHA1|SHA224|SHA256|SHA384|SHA512|MD5|MD4|RMD160)\b', lib="php-openssl")
+
+
+@rule("c", r'\bopenssl_(?:encrypt|decrypt)\(\s*[^,]+,\s*[\'"]([\w-]+)')
+def _(m, x):
+    a, p = parse_symmetric_name(m.group(1))
+    return [(a, dict(p, lib="php-openssl"))] if a else []
+
+
+@rule("c", r'\bhash_hmac(?:_file)?\(\s*[\'"](\w+)')
+def _(m, x):
+    return [("HMAC", {"hash": lookup(m.group(1)), "lib": "php"})]
+
+
+@rule("c", r'\bhash_pbkdf2\(\s*[\'"](\w+)')
+def _(m, x):
+    return [("PBKDF2", {"hash": lookup(m.group(1)), "lib": "php"})]
+
+
+simple("c", r'\bhash(?:_file|_init)?\(\s*[\'"](\w+)[\'"]', lib="php")
+
+
+# Shell: openssl and ssh-keygen command lines that make keys, sign or encrypt
+@rule("hash", r'\bopenssl\s+genrsa\b[^\n|;&]*?(?:\s(\d{3,5}))?\s*(?=$|[|;&\n])')
+def _(m, x):
+    return [("RSA", {"key_size": int(m.group(1)) if m.group(1) else None, "lib": "openssl-cli"})]
+
+
+@rule("hash", r'\bopenssl\s+(?:genpkey|req)\b[^\n|;&]*?(?:-algorithm\s+|-newkey\s+)([\w-]+)(?::(\d+))?([^\n|;&]*)')
+def _(m, x):
+    kind, bits, rest = m.group(1).lower(), m.group(2), m.group(3)
+    if kind in ("rsa", "rsa-pss"):
+        bits = bits or (re.search(r"rsa_keygen_bits:(\d+)", rest) or [None, None])[1]
+        return [("RSA", {"key_size": int(bits) if bits else None, "lib": "openssl-cli"})]
+    if kind == "ec":
+        cv = re.search(r"ec_paramgen_curve:([\w-]+)", rest)
+        return [("ECC", {"curve": curve(cv.group(1)) if cv else None, "lib": "openssl-cli"})]
+    a = lookup(kind) or pq_from_text(kind)
+    return [(a, {"lib": "openssl-cli"})] if a else []
+
+
+@rule("hash", r'\bopenssl\s+ecparam\b[^\n|;&]*?-name\s+([\w-]+)')
+def _(m, x):
+    return [("ECC", {"curve": curve(m.group(1)), "lib": "openssl-cli"})]
+
+
+simple("hash", r'\bopenssl\s+(?:req|x509|ca|dgst|ts|cms|smime)\b[^\n|;&]*?\s-(md5|sha1|sha224|sha256|sha384|sha512|sha3-256|sha3-512)\b', lib="openssl-cli")
+
+
+@rule("hash", r'\bopenssl\s+(?:enc\s+[^\n|;&]*?-|(?=aes|des|bf|rc4))(aes-\d+-\w+|aes\d+|des-ede3-cbc|des3|des-cbc|des|bf-cbc|bf|rc4|chacha20)\b')
+def _(m, x):
+    t = m.group(1).lower()
+    fixed = {"des3": ("3DES", {}), "des": ("DES", {}), "bf": ("Blowfish", {}), "bf-cbc": ("Blowfish", {}), "rc4": ("RC4", {}), "chacha20": ("ChaCha20", {})}
+    a, p = fixed.get(t) or parse_symmetric_name(t.replace("aes128", "aes-128").replace("aes192", "aes-192").replace("aes256", "aes-256"))
+    return [(a, dict(p, lib="openssl-cli"))] if a else []
+
+
+@rule("hash", r'\bssh-keygen\b[^\n|;&]*?-t\s+([\w-]+)([^\n|;&]*)')
+def _(m, x):
+    t, bits = m.group(1).lower(), re.search(r"-b\s+(\d+)", m.group(0))
+    bits = int(bits.group(1)) if bits else None
+    if t.startswith("ecdsa"):
+        return [("ECDSA", {"curve": {256: "P-256", 384: "P-384", 521: "P-521"}.get(bits, "P-256"), "lib": "ssh-keygen"})]
+    if t in ("rsa", "dsa"):
+        return [(t.upper(), {"key_size": bits, "lib": "ssh-keygen"})]
+    a = lookup(t.replace("-sk", ""))
+    return [(a, {"lib": "ssh-keygen"})] if a else []
