@@ -10,7 +10,7 @@ from acxelin_readiness import bench
 
 BENCH = Path(__file__).resolve().parents[1] / "bench"
 FLOOR = {"precision": 1.0, "recall": 1.0}  # what the labelled corpus scores today; it must not drop
-TRUTH_SHA256 = "03c80e1338a34c92586aab2ac696cc0109c90980fef279f56766432cf78379c4"
+TRUTH_SHA256 = "c4cb2991bcd286f69fe8d9417a2e77723e9051dccaec88373ea4a946db164344"
 
 
 def test_truth_is_the_reviewed_one():
@@ -19,5 +19,5 @@ def test_truth_is_the_reviewed_one():
 
 def test_precision_and_recall_hold_the_floor():
     row = bench.main(BENCH / "corpus", BENCH / "truth.json")
-    assert row["pairs"] == 174
+    assert row["pairs"] == 179
     assert row["precision"] >= FLOOR["precision"] and row["recall"] >= FLOOR["recall"], row

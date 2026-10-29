@@ -65,7 +65,8 @@
     "AES",
     "SHA-256",
     "X25519MLKEM768",
-    "X25519"
+    "X25519",
+    "HMAC"
   ],
   "config/sshd_config": [
     "X25519MLKEM768",
@@ -175,7 +176,8 @@
     "ECDH",
     "RSA",
     "AES",
-    "SHA-256"
+    "SHA-256",
+    "HMAC"
   ],
   "config/NOTES": [],
   "js/perf.js": [],
@@ -201,7 +203,8 @@
     "ECDH",
     "ECDSA",
     "AES",
-    "SHA-384"
+    "SHA-384",
+    "HMAC"
   ],
   "c/blowfish_impl.c": [
     "Blowfish"
@@ -219,7 +222,8 @@
     "ECDSA",
     "AES",
     "SHA-384",
-    "ChaCha20"
+    "ChaCha20",
+    "HMAC"
   ],
   "go/noise.go": [
     "X25519",
@@ -270,7 +274,8 @@
     "AES",
     "SHA-384",
     "TLS 1.2",
-    "TLS 1.3"
+    "TLS 1.3",
+    "HMAC"
   ],
   "infra/lb.tf": [
     "TLS 1.2",

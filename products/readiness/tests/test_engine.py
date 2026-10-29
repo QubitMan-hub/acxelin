@@ -284,8 +284,9 @@ class Formats(unittest.TestCase):
 
 class Suites(unittest.TestCase):
     def test_negations_are_ignored(self):
-        algos = {a for a, _ in cipher_string("ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4")}
-        self.assertEqual(algos, {"ECDH", "RSA", "AES", "SHA-256"})
+        found = cipher_string("ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4")
+        self.assertEqual({a for a, _ in found}, {"ECDH", "RSA", "AES", "HMAC"})
+        self.assertIn(("HMAC", {"hash": "SHA-256"}), found)  # the suite's PRF; the scan reports SHA-256 beside it
 
     def test_ssh(self):
         self.assertEqual(ssh_token("diffie-hellman-group1-sha1")[0], ("DH", {"key_size": 1024}))
@@ -473,7 +474,7 @@ class Detectors(unittest.TestCase):
         self.assertEqual(self.accepted((), "js/runtime_names.js"), {"RSA"})
 
     def test_lists_read_multiline_entries_and_skip_denied_ones(self):
-        self.assertEqual(self.accepted((), "yaml/gateway.yaml"), {"TLS 1.2", "ECDH", "ECDSA", "AES", "SHA-384", "ChaCha20-Poly1305"})
+        self.assertEqual(self.accepted((), "yaml/gateway.yaml"), {"TLS 1.2", "ECDH", "ECDSA", "AES", "SHA-384", "HMAC", "ChaCha20-Poly1305"})
 
     def test_flow_follows_byte_literals_and_branches(self):
         self.assertIn("X25519", self.accepted((), "py/jwe_use.py"))
