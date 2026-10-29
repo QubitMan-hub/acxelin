@@ -131,6 +131,9 @@ Live endpoints show what your servers actually negotiate, which configuration fi
 | Scan a container image | `docker save IMAGE -o image.tar`, then `acxelin-readiness scan image.tar` |
 | Include live endpoints | `acxelin-readiness scan PATH --tls HOST:443 --ssh HOST` |
 | Read handshakes from a packet capture | `acxelin-readiness scan PATH --pcap traffic.pcapng` |
+| Read AWS KMS keys and ACM certificates | `acxelin-readiness scan PATH --aws eu-west-1` |
+| Scan again every day and report what changed | `acxelin-readiness watch PATH --every 24` |
+| Tickets for Jira or ServiceNow | `acxelin-readiness scan PATH --tickets jira --owners owners.csv` |
 | Grade endpoints A to F | `acxelin-readiness grade hosts.txt --html grades.html` |
 | Evidence for an audit | `acxelin-readiness report --certs certs/ --targets hosts.txt --cbom readiness-out` |
 | Check against standards | `acxelin-readiness scan PATH --policy nist-ir-8547 --policy cnsa-2.0` |
@@ -178,6 +181,22 @@ Every HTML report has a **Print or save as PDF** button, which uses your browser
 the controls. In the console, **Download CSV** exports a repository's findings (with owners and due dates) or the endpoint
 grades. CSV cells that a spreadsheet would run as a formula (starting with `=`, `+`, `-` or `@`) are prefixed with `'`.
 
+### Read AWS keys and certificates
+
+`--aws REGION` (repeatable, or `aws = [...]` in the settings) lists the region's KMS keys and ACM certificates with your
+usual AWS credentials and ranks each key type like any other finding, at `aws://kms/REGION/KEY` or `aws://acm/REGION/ID`.
+It needs the `aws` extra (`pip install "acxelin-readiness[aws]"`; the release folder and the Docker image include it) and
+only these read permissions: `kms:ListKeys`, `kms:DescribeKey`, `acm:ListCertificates` and `acm:DescribeCertificate`. It never
+asks for key material or certificate bodies. A region the credentials cannot read becomes a note, and certificates that have
+expired or expire within 30 days are named in the notes.
+
+### Tickets for Jira or ServiceNow
+
+`--tickets jira` or `--tickets servicenow` also writes `tickets.csv`: one row per finding that needs work, worst first, with
+what to do, where it was seen, a priority, and the owner and service from `--owners` (a CMDB export, see Owners) or the
+repository's `CODEOWNERS`. Import it with Jira's CSV importer or a ServiceNow import set. In the console, **Tickets for Jira**
+and **Tickets for ServiceNow** do the same, leaving out findings marked fixed or accepted.
+
 ## 6. Running it in CI
 
 Scan on every pull request, and fail only when someone adds new cryptography at a tier you care about:
@@ -222,6 +241,21 @@ require_hybrid = true
 
 `config/example.toml` lists every setting.
 
+### Scheduled scans
+
+`watch` scans, keeps the latest results in its folder (`-o`, default `readiness-watch`), and writes `changes.json`: the
+findings that appeared and the ones no longer found since its previous scan. It uses the scanned folder's settings, so live
+endpoints and AWS regions there are checked each time.
+
+```
+acxelin-readiness watch PATH --every 24 --on-change "notify-team"
+```
+
+`--on-change` runs a command when something changed, with `ACXELIN_READINESS_CHANGES` set to the path of `changes.json`.
+To let the system's scheduler start it instead, use `--once`: from cron, a systemd timer, or Windows Task Scheduler
+(`schtasks /create /sc daily /tn Readiness /tr "acxelin-readiness watch C:\code\shop --once"`). The first scan only sets the
+starting point.
+
 ## 7. The console
 
 ```
@@ -263,10 +297,12 @@ Each finding suggests an owner and says where it came from:
 
 1. An owner you set on the finding.
 2. A CMDB export: under **Owners from a CMDB export**, a CSV whose first row has a `path` (or `pattern`) column and an
-   `owner` (or `team`, `owned by`, `support group`) column. Paths are CODEOWNERS patterns, and the last matching row wins.
+   `owner` (or `team`, `owned by`, `support group`) column, and optionally a `service` (or `application`) column naming the
+   business service. Paths are CODEOWNERS patterns, and the last matching row wins.
 3. The repository's `CODEOWNERS` file (in `.github/`, the root or `docs/`, as GitHub looks for it).
 
-A finding none of these covers reads **No owner · review needed**.
+A finding none of these covers reads **Assign an owner**. When the export names services, each finding shows its service,
+buttons above the findings show only one service's, and the CSV and ticket downloads carry a service column.
 
 ### How a finding was seen
 

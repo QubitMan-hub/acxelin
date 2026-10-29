@@ -10,12 +10,12 @@ from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import __version__, pipeline, report, image, inventory, compliance, remote
+from . import __version__, pipeline, report, image, inventory, compliance, remote, owners, tickets
 from .rank import Horizon, TIERS
 from .report import write_results
 from .detectors import Scope
 
-SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "shelf_life": (int, float), "migration": (int, float),
+SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
             "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict}
 
 
@@ -40,6 +40,8 @@ def main(argv=None):
     s.add_argument("--ssh", action="append", default=[], metavar="HOST[:PORT]", help="read a live SSH server's algorithm lists (repeatable)")
     s.add_argument("--pcap", action="append", default=[], metavar="FILE",
                    help="read TLS and SSH handshakes from a packet capture (.pcap or .pcapng): what clients and servers actually negotiated (repeatable)")
+    s.add_argument("--aws", action="append", default=[], metavar="REGION",
+                   help="read the KMS keys and ACM certificates of this AWS region with your AWS credentials, list and describe only (repeatable; needs the aws extra)")
     s.add_argument("--changed-since", metavar="GIT_REF", help="scan only files changed since this git ref (and uncommitted ones): fast CI checks on a pull request")
     s.add_argument("--baseline", metavar="CBOM", help="previous cbom.json; report what is new and gate CI only on new findings")
     s.add_argument("-o", "--out", default="readiness-out")
@@ -57,7 +59,16 @@ def main(argv=None):
                    help=f"check against a published transition standard (repeatable): {', '.join(compliance.PROFILES)}; own rules go in [policy] in .acxelin-readiness.toml")
     s.add_argument("--as-of", type=int, metavar="YEAR", help="judge policy deadlines as of this year (default: this year)")
     s.add_argument("--fail-on-policy", action="store_true", help="exit 2 if any policy rule is already broken (deadline passed or none)")
+    s.add_argument("--tickets", choices=tickets.SYSTEMS, help="also write tickets.csv for Jira or ServiceNow to import: one row per finding that needs work")
+    s.add_argument("--owners", metavar="CSV", help="CMDB export with path, owner and (optional) service columns, for the tickets; CODEOWNERS is used too")
     s.add_argument("-q", "--quiet", action="store_true")
+    w = sub.add_parser("watch", help="scan again on a schedule and say what appeared or disappeared since the last scan")
+    w.add_argument("path", nargs="?", default=".", help="folder or GitHub link to scan; its .acxelin-readiness.toml adds endpoints and other settings")
+    w.add_argument("-o", "--out", default="readiness-watch", help="results of the latest scan, and changes.json")
+    w.add_argument("--every", type=float, default=24, metavar="HOURS", help="hours between scans (default 24)")
+    w.add_argument("--once", action="store_true", help="scan once and stop, for cron, a systemd timer or Windows Task Scheduler")
+    w.add_argument("--on-change", metavar="COMMAND", help="run this when something appeared or disappeared; ACXELIN_READINESS_CHANGES names changes.json")
+    w.add_argument("--config", metavar="FILE", help="settings file for the scans")
     m = sub.add_parser("merge", help="merge the CBOMs of many systems into one organisation inventory and dashboard")
     m.add_argument("cboms", nargs="+", metavar="CBOM", help="cbom.json files, or folders searched for them (other tools' CBOMs work too)")
     m.add_argument("--name", default="Organisation", help="organisation name for the inventory")
@@ -94,6 +105,8 @@ def main(argv=None):
 
     if a.cmd == "merge":
         return merge(a)
+    if a.cmd == "watch":
+        return watch(a)
     if a.cmd == "grade":
         return grade(a)
     if a.cmd == "report":
@@ -104,10 +117,11 @@ def main(argv=None):
         return console(a)
 
     link = a.path and (a.path.startswith(("https://github.com/", "http://github.com/")) or a.path.startswith("github.com/") and not Path(a.path).exists())
-    cfg = settings(a.config, None if link or a.path is None and (a.tls or a.ssh or a.pcap) else Path(a.path or "."))  # a downloaded repository's settings are not trusted
+    cfg = settings(a.config, None if link or a.path is None and (a.tls or a.ssh or a.pcap or a.aws) else Path(a.path or "."))  # a downloaded repository's settings are not trusted
     a.exclude = cfg.get("exclude", []) + a.exclude
     a.tls = cfg.get("tls", []) + a.tls
     a.ssh = cfg.get("ssh", []) + a.ssh
+    a.aws = cfg.get("aws", []) + a.aws
     a.include_vendor = a.include_vendor or cfg.get("include_vendor", False)
     for k, default in (("shelf_life", 10), ("migration", 5), ("crqc_year", 2035), ("threshold", 0.6), ("fail_on", None), ("name", None)):
         if getattr(a, k) is None:
@@ -122,7 +136,14 @@ def main(argv=None):
     a.fail_on_policy = a.fail_on_policy or policy.get("fail", False)
     if a.fail_on is not None and a.fail_on not in TIERS[:-1]:
         sys.exit(f"acxelin-readiness: fail_on must be one of {', '.join(TIERS[:-1])}")
-    targets_only = a.path is None and (a.tls or a.ssh or a.pcap)
+    targets_only = a.path is None and (a.tls or a.ssh or a.pcap or a.aws)
+    aws_session = None
+    if a.aws:
+        from .detectors import aws
+        try:
+            aws_session = aws.session()
+        except ValueError as e:
+            sys.exit(f"acxelin-readiness: {e}")
     if link:
         try:
             owner, repo, _ = remote.parse(a.path)
@@ -139,7 +160,7 @@ def main(argv=None):
             atexit.register(shutil.rmtree, root, True)
     if not root.exists():
         sys.exit(f"acxelin-readiness: {a.path} does not exist")
-    name = a.name or ((a.tls + a.ssh + [Path(p).name for p in a.pcap])[0] if targets_only else root.name)
+    name = a.name or ((a.tls + a.ssh + [Path(p).name for p in a.pcap] + [f"aws-{r}" for r in a.aws])[0] if targets_only else root.name)
     if a.baseline:
         try:
             pipeline.load_baseline(a.baseline)
@@ -161,8 +182,14 @@ def main(argv=None):
         except (OSError, ValueError, KeyError, IndexError, TypeError, EOFError) as e:
             sys.exit(f"acxelin-readiness: {root.name} could not be read as a container image ({e.__class__.__name__}); save it again with docker save")
         name = a.name or root.name.split(".")[0]
+    repo_owners = owners.codeowners(root) if root.is_dir() else []
     try:
-        r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap)
+        cmdb = owners.from_csv(Path(a.owners).read_text(encoding="utf-8")) if a.owners else []
+    except (OSError, ValueError) as e:
+        sys.exit(f"acxelin-readiness: cannot read --owners {a.owners}: {e}")
+    try:
+        r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap,
+                         aws=a.aws, aws_session=aws_session)
     finally:
         for folder in (unpacked, downloaded):
             if folder:
@@ -174,6 +201,14 @@ def main(argv=None):
         r.compliance = compliance.evaluate(r.assets, r.endpoints, policy)
     try:
         write_results(out, name, r)
+        if a.tickets:
+            found = []
+            for x in r.assets:
+                places = sorted({(s.file, s.line) for s in x.detections})
+                hint = owners.suggest(cmdb, repo_owners, [p for p, _ in places]) or {}
+                found.append({"name": x.variant, "algorithm": x.algo, "tier": x.tier, "action": x.action, "why": x.why, "locations": places,
+                              "test_only": x.test_only, "owner": hint.get("owner", ""), "service": hint.get("service", "")})
+            (out / "tickets.csv").write_text(tickets.csv_for(found, a.tickets, name), encoding="utf-8")
     except OSError as e:
         sys.exit(f"acxelin-readiness: cannot write to {out}: {e}")
     if not a.quiet:
@@ -191,6 +226,38 @@ def main(argv=None):
                 print(f"\nfailing: {len(hits)} asset(s) at {a.fail_on} or worse" + (" introduced since the baseline" if a.baseline else ""))
             sys.exit(2)
     return 0
+
+
+def watch(a):
+    import json
+    import shlex
+    import subprocess
+    import time
+    if not a.once and not 0 < a.every <= 24 * 366:
+        sys.exit("acxelin-readiness: --every takes hours between scans, more than 0")
+    out = Path(a.out)
+    bom, changes = out / "cbom.json", out / "changes.json"
+    try:
+        while True:
+            before = pipeline.load_baseline(bom) if bom.exists() else None
+            try:
+                main(["scan", a.path, "-o", str(out), "-q"] + (["--config", a.config] if a.config else []))
+            except SystemExit as e:
+                if e.code != 2:  # 2 is fail_on in the settings: the scan finished
+                    raise
+            after = pipeline.load_baseline(bom)
+            new, gone = (sorted(after - before), sorted(before - after)) if before is not None else ([], [])
+            changes.write_text(json.dumps({"finished": time.time(), "first": before is None, "new": new, "gone": gone}, indent=2), encoding="utf-8")
+            print(f"{time.strftime('%Y-%m-%d %H:%M')}: " + ("first scan; later scans report changes against it" if before is None else
+                  f"{len(new)} new and {len(gone)} gone since the last scan" + "".join(f"\n  new: {n} at {p}" for n, p in new[:20])
+                  + "".join(f"\n  gone: {n} at {p}" for n, p in gone[:20])))
+            if (new or gone) and a.on_change:
+                subprocess.run(a.on_change if os.name == "nt" else shlex.split(a.on_change), env=os.environ | {"ACXELIN_READINESS_CHANGES": str(changes)}, check=False)
+            if a.once:
+                return 0
+            time.sleep(a.every * 3600)
+    except KeyboardInterrupt:
+        return 0
 
 
 def changed_files(root, ref):

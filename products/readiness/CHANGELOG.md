@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Scheduled scans: `acxelin-readiness watch` scans again every few hours (or once, from cron, a systemd timer or Windows
+  Task Scheduler), writes `changes.json` with the findings that appeared and disappeared, and can run a command when anything
+  changed. The console says what is new since the last scan.
+- AWS: `scan --aws REGION` reads KMS keys and ACM certificates with the caller's credentials, list and describe calls only, and
+  ranks them like any other finding (the new `aws` extra, included in the release folder and the Docker image).
+- Tickets: `scan --tickets jira|servicenow` writes `tickets.csv`, one row per finding that needs work, with owner, service and
+  priority; the console downloads the same.
+- Services: a CMDB export may name each path's business service; findings show it, the console filters by it, and the CSV and
+  tickets carry it.
+- Console: a start page with three clear choices, summary cards for the numbers that matter, sections named by the question they
+  answer instead of "descriptive" and "prescriptive", a quieter owner prompt, the downloads grouped, and the endpoint grades
+  explained before the first check.
+
 ## 1.1.0
 
 - Endpoints: RC4, 3DES and Diffie-Hellman under 2048 bits are offered by raw ClientHello and named with their suite and size

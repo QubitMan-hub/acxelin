@@ -79,3 +79,23 @@ def test_an_owner_set_by_hand_wins_over_any_suggestion(scanned):
     r("POST", "/api/projects/track", {"project": 0, "finding": rsa["id"], "owner": "alice", "status": "open"})
     rows = r("POST", "/api/projects/csv", {"project": 0})["csv"]
     assert "alice" in rows and "@payments-team" not in rows.split("RSA-2048", 1)[1].split("\n", 1)[0]
+
+
+@pytest.mark.parametrize("head", ["path,owner,service", "Pattern;Team;Business service", "file,owner,application"])
+def test_a_cmdb_export_may_name_the_service_each_path_belongs_to(head):
+    sep = ";" if ";" in head else ","
+    assert owners.from_csv(f"{head}\nsrc/{sep}payments{sep}Card payments\nlib/{sep}core{sep}\n") == [("src/", "payments", "Card payments"), ("lib/", "core", "")]
+    assert owners.suggest(owners.from_csv(f"{head}\nsrc/{sep}payments{sep}Card payments\n"), [], ["src/a.py"]) == {"owner": "payments", "source": "CMDB export", "service": "Card payments"}
+
+
+def test_a_service_name_has_a_length_limit():
+    with pytest.raises(ValueError):
+        owners.from_csv("path,owner,service\nsrc/,payments," + "x" * 200 + "\n")
+
+
+def test_findings_carry_their_service_into_the_console_and_its_csv(scanned):
+    app, r = scanned
+    r("POST", "/api/projects/owners", {"project": 0, "csv": "path,owner,service\nsrc/,Payments team,Card payments\n"})
+    assert hints(r)["RSA-2048"] == {"owner": "Payments team", "source": "CMDB export", "service": "Card payments"}
+    head, *rows = r("POST", "/api/projects/csv", {"project": 0})["csv"].splitlines()
+    assert "Service" in head.split(",") and any(row.startswith("RSA-2048") and "Card payments" in row for row in rows)

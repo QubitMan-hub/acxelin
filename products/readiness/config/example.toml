@@ -3,6 +3,7 @@ exclude = ["generated", "*.min.js"]   # name globs, or path globs from the root
 include_vendor = false                # also scan vendor/, node_modules/ and similar
 tls = ["api.example.com:443"]         # live endpoints probed on every scan
 ssh = ["bastion.example.com"]
+aws = ["eu-west-1"]                   # AWS regions whose KMS keys and ACM certificates are read (the aws extra)
 shelf_life = 10                       # years the protected data must stay secret
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a cryptographically relevant quantum computer exists

@@ -24,7 +24,7 @@ figure.trend figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
 #targets{max-width:62ch}.results{margin-top:28px;padding-top:22px;border-top:1px solid var(--rule)}
 details.more summary{cursor:pointer;list-style:none;font-size:13px;color:var(--muted)}details.more summary::-webkit-details-marker{display:none}
 details.more p{font-size:13px;color:var(--muted);margin:6px 0 0}
-@media print{.analyses,.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
+@media print{.share,.analyses,.tabs,.brandbar small,#msg,.split>div:first-child,button,textarea,label[for=targets],details.more,details.track form{display:none!important}.split{display:block}
 .scroll{overflow:visible!important;border:0}details.where[open] ul{break-inside:avoid}body{background:#fff}*:focus-visible{outline:none!important}.results{border:0;margin:0}}
 input[type=file]{font:inherit;font-size:13.5px;color:var(--body);max-width:100%}
 small.basis{display:block;margin-top:3px;font-size:12.5px;color:var(--muted)}
@@ -58,6 +58,17 @@ dl.key{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 14px
 .seg.s-progress{background:var(--pane);border:1.5px solid var(--ink)}.seg.s-planned{background:var(--select);border-color:var(--rule-strong)}.seg.s-open{background:var(--pane);border-color:var(--rule)}
 .progress .seg{font-size:0}
 details.names summary{cursor:pointer;list-style:none}details.names summary::-webkit-details-marker{display:none}details.names summary small{text-decoration:underline dotted;text-underline-offset:3px}
+.glance ul.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 12px;max-width:none}
+.cards li{display:grid;gap:2px;align-content:start;padding:12px 14px;border:1px solid var(--rule);border-radius:8px;background:var(--bg)}
+.cards li strong{font:500 26px/1.15 var(--display);letter-spacing:-.01em}.cards li span{color:var(--ink);font-size:13.5px}.cards li small{color:var(--muted);font-size:12.5px}
+.cards li.bad strong{color:var(--bad)}.cards li.ok strong{color:var(--ok)}
+.cards li.exposed{background:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 6px),var(--exposed-ground);border-color:color-mix(in srgb,var(--exposed) 45%,transparent)}.cards li.exposed strong{color:var(--exposed)}
+.start{max-width:760px;padding-top:12px}.choice{display:grid;grid-template-columns:32px minmax(0,1fr);gap:14px;padding:20px;margin-top:14px;border:1px solid var(--rule);border-radius:8px;background:var(--pane)}
+.choice h2{margin:2px 0 4px;font-size:17px}.choice .state{margin:0 0 12px}.choice .import{margin-top:0}
+.step{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:1px solid var(--rule-strong);font:500 13px/1 var(--mono);color:var(--ink)}
+.import{margin-top:22px}input[type=file]::file-selector-button{font:500 13.5px var(--display);min-height:34px;padding:0 12px;margin-right:10px;border:1px solid var(--rule-strong);border-radius:6px;background:var(--pane);color:var(--ink);cursor:pointer}
+input[type=file]::file-selector-button:hover{border-color:var(--ink)}
+.share{margin-top:30px;padding-top:20px;border-top:1px solid var(--rule)}.share .state{margin:0 0 12px}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
 </style>
 </head>
@@ -80,7 +91,7 @@ const h = (tag, props = {}, ...kids) => {
 };
 const calm = matchMedia("(prefers-reduced-motion: reduce)");
 const say = (text) => { const m = $("#msg"); m.replaceChildren(...acxText(text || "")); if (text) m.scrollIntoView({block: "center", behavior: calm.matches ? "auto" : "smooth"}); };
-const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null, showOk: false};
+const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null, service: null, showOk: false};
 const when = (t) => t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never";
 const call = async (path, body) => { try { say(""); return await acx.api(path, body); } catch (e) { say(e.status === 401 ? "This session has ended. Run the console command again to open a new one." : e.message); throw e; } };
 
@@ -96,17 +107,20 @@ function setup() {
     try { await call("setup", {directory: input.value}); await load(); $("#tab-projects").focus(); }
     catch (e) { input.setAttribute("aria-invalid", "true"); input.setAttribute("aria-describedby", "msg"); input.focus(); }
   };
-  $("#panel").replaceChildren(h("div", {class: "narrow"}, h("h1", {}, "Where are your repositories?"),
-    h("p", {class: "lede"}, "Acxelin Readiness only scans folders inside the one you choose here. Enter the full path of the folder that holds your repositories. To grade servers instead, open Endpoints; it needs no folder."),
-    h("label", {for: "dir"}, "Folder path"), input,
-    h("div", {class: "row", style: "margin-top:18px"}, h("button", {class: "btn", onclick: go}, "Use this folder")),
-    h("h2", {style: "margin-top:32px"}, "Or scan a GitHub repository"), githubForm("Repository link"), importForm()));
+  const choice = (n, title, text, ...kids) => h("section", {class: "choice", "aria-labelledby": "choice-" + n}, h("span", {class: "step", "aria-hidden": "true"}, String(n)),
+    h("div", {}, h("h2", {id: "choice-" + n}, title), h("p", {class: "state"}, text), ...kids));
+  $("#panel").replaceChildren(h("div", {class: "start"}, h("h1", {}, "What would you like to check?"),
+    h("p", {class: "lede"}, "Readiness reads your code and files on this computer and never sends them anywhere. Pick one to start; you can add the others later. To grade live servers instead, open Endpoints."),
+    choice(1, "Repositories on this computer", "The folder that holds your repositories. Readiness only scans folders inside it.",
+      h("label", {for: "dir"}, "Folder path"), input, h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn", onclick: go}, "Use this folder"))),
+    choice(2, "A GitHub repository", "Public, or private with a read-only token. It is downloaded to this computer and scanned here.", githubForm("Repository link")),
+    choice(3, "A CBOM from another tool", "Its findings are rated on the same scale as a scan.", importForm())));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   input.focus();
 }
 
 async function addAndScan(project) {
-  state.selected = project; state.filter = null;
+  state.selected = project; state.filter = null; state.service = null;
   await call("projects/select", {project}); await load(); await call("projects/scan", {project}); pollProject();
 }
 function githubForm(label = "Add from GitHub") {
@@ -136,7 +150,7 @@ function importForm() {
     try { cbom = JSON.parse(await f.text()); } catch (e) { return say("That file is not JSON. Choose a CycloneDX CBOM (.json)."); }
     try { const r = await call("projects/import", {name: f.name, cbom}); await addAndScan(r.project); } catch (e) {}
   };
-  return h("div", {style: "margin-top:22px"}, h("label", {for: "cbomfile", style: "margin-top:0"}, "Import a CBOM"), file,
+  return h("div", {class: "import"}, h("label", {for: "cbomfile", style: "margin-top:0"}, "Import a CBOM"), file,
     h("p", {class: "legend", style: "margin-top:4px"}, "A CycloneDX file from another tool, such as CodeQL."),
     h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: go}, "Import and rate")));
 }
@@ -197,15 +211,17 @@ const TIER_MEANING = {
   medium: "Breakable by a future quantum computer, with time left to migrate; or a classical fallback beside a hybrid group.",
   low: "Weakened by quantum search: fine for most data, short for long-lived secrets.",
   ok: "Quantum-safe, or no known quantum break at this strength."};
-const ANALYSES = [["descriptive", "Descriptive", "What was found"], ["diagnostic", "Diagnostic", "Why"], ["predictive", "Predictive", "What can happen"], ["prescriptive", "Prescriptive", "What to do"]];
+const ANALYSES = [["descriptive", "What we found", "Every finding"], ["diagnostic", "Why it matters", "What puts it at risk"], ["predictive", "What could happen", "If nothing changes"], ["prescriptive", "What to do", "In order"]];
 function atGlance(items, prefix) {
   const go = (id) => { const t = $("#" + prefix + "-" + id); t.scrollIntoView({block: "start", behavior: calm.matches ? "auto" : "smooth"}); t.focus({preventScroll: true}); };
-  return h("section", {class: "glance", "aria-label": "At a glance"}, h("ul", {}, items.filter(Boolean).map((x) => h("li", {}, x))),
-    h("nav", {class: "analyses", "aria-label": "Analyses on this page"}, ANALYSES.map(([id, kind, q]) => h("button", {type: "button", onclick: () => go(id)}, h("b", {}, kind), h("span", {}, q)))));
+  const cards = items.filter((x) => x && x.card), lines = items.filter((x) => x && !x.card);
+  return h("section", {class: "glance", "aria-label": "At a glance"},
+    cards.length ? h("ul", {class: "cards"}, cards.map(({card: [big, label, sub, tone]}) => h("li", {class: tone || ""}, h("strong", {}, big), h("span", {}, label), sub ? h("small", {}, sub) : ""))) : "",
+    lines.length ? h("ul", {}, lines.map((x) => h("li", {}, x))) : "",
+    h("nav", {class: "analyses", "aria-label": "Sections on this page"}, ANALYSES.map(([id, name, hint]) => h("button", {type: "button", onclick: () => go(id)}, h("b", {}, name), h("span", {}, hint)))));
 }
 function section(prefix, id, title, ...kids) {
-  const kind = ANALYSES.find((a) => a[0] === id)[1];
-  return h("section", {class: "analysis", "aria-labelledby": prefix + "-" + id}, h("h2", {id: prefix + "-" + id, tabindex: "-1"}, title, " ", h("span", {class: "kind"}, kind + " analysis")), ...kids);
+  return h("section", {class: "analysis", "aria-labelledby": prefix + "-" + id}, h("h2", {id: prefix + "-" + id, tabindex: "-1"}, title), ...kids);
 }
 function distribution(items, label) {
   const shown = items.filter((i) => i.n), total = shown.reduce((s, i) => s + i.n, 0);
@@ -252,7 +268,7 @@ function trackForm(asset) {
   const save = async (ev) => { ev.preventDefault(); try { await call("projects/track", {project: state.selected, finding: asset.id, owner: owner.value, due: due.value, status: status.value, reason: reason.value, until: until.value}); await refreshProject(); } catch (e) {} };
   const label = t.still_found ? "Fixed, still found" : t.status === "exception" ? "Accepted risk until " + t.until
     : t.status && t.status !== "open" ? STATUS[t.status] + (t.owner ? ": " + t.owner : "") : t.owner ? "Owner: " + t.owner
-    : hint ? "Owner: " + hint.owner + " (from " + hint.source + ")" : "No owner · review needed";
+    : hint ? "Owner: " + hint.owner + (hint.service ? " · " + hint.service : "") + " (from " + hint.source + ")" : "Assign an owner";
   const log = (t.log || []).slice().reverse().map((e) => h("li", {}, when(e.at) + " · " + STATUS[e.status] + (e.owner ? " · " + e.owner : "") + (e.due ? " · due " + e.due : "")));
   return h("details", {class: "track"}, h("summary", {style: t.still_found ? "color:var(--bad)" : ""}, label),
     h("form", {onsubmit: save}, h("label", {for: owner.id}, "Owner"), owner, h("label", {for: due.id}, "Due date"), due, h("label", {for: status.id}, "Status"), status, accept,
@@ -273,7 +289,7 @@ function results(p) {
   if (!out) return;
   const last = p.last;
   if (!last) { out.replaceChildren(h("p", {class: "empty"}, p.running ? "The first scan of this repository is running. Results appear here when it finishes." : "Not scanned yet. Choose Scan repository to see which cryptography this project uses and what to migrate first.")); return; }
-  const shown = JSON.stringify([last.finished, state.filter, state.showOk, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
+  const shown = JSON.stringify([last.finished, state.filter, state.service, state.showOk, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
   if (out.dataset.shown === shown) return;  // polling during a scan must not close what the reader opened
   out.dataset.shown = shown;
   const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
@@ -281,8 +297,13 @@ function results(p) {
   const pick = (k) => { state.filter = state.filter === k ? null : k; results(state.projects); };
   const counts = h("div", {class: "counts"}, TIERS.filter((k) => pri[k]).map((k) =>
     h("button", {"aria-pressed": String(state.filter === k), "aria-label": state.filter === k ? "Show every priority" : "Show only " + k, onclick: () => pick(k)}, tier(k), " ", String(pri[k]))));
-  const assets = shownAssets.filter((a) => state.filter ? a.tier === state.filter : state.showOk || a.tier !== "ok");
-  const hiddenOk = state.filter ? 0 : shownAssets.length - assets.length;
+  const service = (a) => (a.owner_hint || {}).service || "", services = {};
+  for (const a of shownAssets) if (service(a)) services[service(a)] = (services[service(a)] || 0) + 1;
+  const pickService = (k) => { state.service = state.service === k ? null : k; results(state.projects); };
+  const byService = Object.keys(services).length ? h("div", {class: "counts", "aria-label": "Services"}, Object.keys(services).sort().map((k) =>
+    h("button", {"aria-pressed": String(state.service === k), "aria-label": state.service === k ? "Show every service" : "Show only " + k, onclick: () => pickService(k)}, k + " " + services[k]))) : "";
+  const assets = shownAssets.filter((a) => (!state.service || service(a) === state.service) && (state.filter ? a.tier === state.filter : state.showOk || a.tier !== "ok"));
+  const hiddenOk = state.filter ? 0 : shownAssets.filter((a) => !state.service || service(a) === state.service).length - assets.length;
   const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   const cd = last.summary.coverage_detail || {}, gaps = Object.entries(cd.not_read || {}).map(([k, n]) => n + " " + k).join(", ");
   const cause = (a) => a.tier === "critical" || a.threat === "legacy" ? "broken" : a.threat === "shor" && a.tier !== "ok" ? "shor" : a.threat === "grover" && a.tier === "low" ? "grover" : "safe";
@@ -290,23 +311,25 @@ function results(p) {
   for (const a of shownAssets) { causes[cause(a)]++; for (const x of a.seen || []) seen[x] = (seen[x] || 0) + 1; }
   const act = (pri.critical || 0) + (pri.high || 0), unowned = shownAssets.filter((a) => a.tier !== "ok" && !(a.tracking || {}).owner && !a.owner_hint).length;
   const prog = progress(shownAssets);
+  const cmp = last.comparison || {};
   const glance = [
-    act ? [h("strong", {}, act + " of " + shownAssets.length), " findings need action now: " + (pri.critical || 0) + " critical, " + (pri.high || 0) + " high."]
-      : shownAssets.length ? ["None of the " + shownAssets.length + " findings needs action now."] : ["No cryptography was found."],
-    last.summary.score != null ? ["Readiness ", h("strong", {}, last.summary.score + " of 100"), last.summary.coverage != null ? ", from " + last.summary.coverage + "% of the source and configuration files." : "."] : "",
-    shownAssets.length ? [h("strong", {}, String(causes.broken)), " broken today, ", h("strong", {}, String(causes.shor)), " breakable by a quantum computer, " + causes.grover + " weakened by quantum search."] : "",
-    unowned ? [h("strong", {}, String(unowned)), unowned === 1 ? " finding needing work has no owner." : " findings needing work have no owner."] : "",
+    {card: [act + " of " + shownAssets.length, act === 1 ? "finding needs action now" : "findings need action now", (pri.critical || 0) + " critical, " + (pri.high || 0) + " high", act ? "bad" : "ok"]},
+    last.summary.score != null ? {card: [last.summary.score + " of 100", "readiness score", last.summary.coverage != null ? "from " + last.summary.coverage + "% of the files" : ""]} : "",
+    {card: [String(causes.shor), "breakable by a quantum computer", causes.broken + " broken today, " + causes.grover + " weakened", causes.shor ? "exposed" : ""]},
+    {card: [String(unowned), unowned === 1 ? "finding without an owner" : "findings without an owner", unowned ? "assign them in the table" : "every finding has one"]},
+    cmp.baseline ? ["Since the last scan: ", h("strong", {}, String(cmp.new)), " new, ", h("strong", {}, String(cmp.not_observed)), " no longer found."] : "",
+    shownAssets.length ? "" : ["No cryptography was found."],
   ];
   out.replaceChildren(
     atGlance(glance, "pj"),
-    section("pj", "descriptive", "What was found",
+    section("pj", "descriptive", "What we found",
       h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")),
-      distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, prog,
+      distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, byService, prog,
       assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Findings, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
       hiddenOk || (state.showOk && !state.filter && pri.ok) ? h("button", {class: "btn quiet small more-rows", "aria-expanded": String(!!state.showOk),
         onclick: () => { state.showOk = !state.showOk; results(state.projects); }}, state.showOk ? "Hide the findings with nothing to change" : "Show the " + hiddenOk + (hiddenOk === 1 ? " finding" : " findings") + " with nothing to change") : "",
       last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : ""),
-    section("pj", "diagnostic", "Why these priorities",
+    section("pj", "diagnostic", "Why it matters",
       h("dl", {class: "key"}, TIERS.filter((k) => pri[k]).flatMap((k) => [h("dt", {}, tier(k)), h("dd", {}, TIER_MEANING[k])])),
       shownAssets.length ? h("h3", {}, "What puts them at risk") : "",
       bars([["Broken today", causes.broken, "bad"], ["Breakable by a quantum computer", causes.shor, "exposed"], ["Weakened by quantum search", causes.grover, "low"], ["No known quantum break", causes.safe, "ok"]]),
@@ -316,9 +339,11 @@ function results(p) {
       ...scoreView(last.summary.score ?? null, (last.history || []).map((r) => ({finished: r.finished, score: r.summary.score, coverage: r.summary.coverage})),
         "Each listed finding counts by its priority (ok 100, low 75, medium 50, high 25, critical 0); the score is their average.",
         {percent: last.summary.coverage ?? null, text: cd.read + " of " + cd.files + " source and configuration files analysed" + (gaps ? " (" + gaps + ")" : "")})),
-    section("pj", "predictive", "What can happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this scan points to a risk.")),
-    section("pj", "prescriptive", "What we recommend", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
-    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")), ownersForm(last));
+    section("pj", "predictive", "What could happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this scan points to a risk.")),
+    section("pj", "prescriptive", "What to do", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
+    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv"),
+      ...[["jira", "Jira"], ["servicenow", "ServiceNow"]].map(([k, n]) => h("button", {class: "btn quiet", onclick: () => exportCsv("projects/tickets", {project: state.selected, system: k}, last.project + "-" + k + "-tickets.csv")}, "Tickets for " + n))),
+    ownersForm(last));
 }
 
 function projectsView() {
@@ -366,7 +391,9 @@ function endpointResults(e) {
   const out = $("#ep-result");
   if (!out) return;
   const last = e.last;
-  if (!last) { out.replaceChildren(); return; }
+  if (!last) { out.replaceChildren(h("div", {class: "results"}, h("h2", {}, "What the grades mean"),
+    h("dl", {class: "key"}, Object.entries(GRADES).flatMap(([k, t]) => [h("dt", {}, h("span", {class: "pill " + GRADE_TONE[k]}, k)), h("dd", {}, t)])),
+    h("p", {class: "legend"}, "Each server is greeted the way a browser would, then asked about every key exchange and about old, broken settings. Nothing is changed on it."))); return; }
   const life = (c) => !c.expires ? "" : c.days_left < 0 ? h("span", {class: "pill bad"}, "expired " + c.expires)
     : c.days_left < 30 ? h("span", {class: "pill warn"}, c.days_left + " days left") : c.days_left + " days left";
   const rows = last.endpoints.map((r) => h("tr", {}, h("td", {class: "asset"}, r.target),
@@ -379,28 +406,29 @@ function endpointResults(e) {
   const pasted = (last.targets || []).some((t) => /^https?:\/\//i.test(t) || /^[^/]+\/./.test(t.replace(/^\w+:\/\//, "")));
   const g = last.summary.grades, n = last.summary.endpoints, soon = last.endpoints.filter((r) => r.certificate && r.certificate.expires && r.certificate.days_left < 30).length;
   const glance = [
-    [h("strong", {}, last.summary.pq_key_exchange + " of " + n), " offer post-quantum key exchange; " + g.A + (g.A === 1 ? " uses" : " use") + " it only."],
-    last.summary.score != null ? ["Readiness ", h("strong", {}, last.summary.score + " of 100"), ", from the " + (n - g.F) + " of " + n + " endpoints that could be graded."] : ["No endpoint could be graded."],
+    {card: [last.summary.pq_key_exchange + " of " + n, "offer post-quantum key exchange", g.A + (g.A === 1 ? " uses" : " use") + " it only", last.summary.pq_key_exchange === n ? "ok" : ""]},
+    last.summary.score != null ? {card: [last.summary.score + " of 100", "readiness score", (n - g.F) + " of " + n + " could be graded"]} : ["No endpoint could be graded."],
+    {card: [String(g.C), "classical only", g.C ? "recorded now, readable later" : "none", g.C ? "bad" : ""]},
     g.C ? [h("strong", {}, String(g.C)), g.C === 1 ? " endpoint is classical only: its traffic can be recorded now and read later." : " endpoints are classical only: their traffic can be recorded now and read later."] : "",
     soon ? [h("strong", {}, String(soon)), soon === 1 ? " certificate has expired or expires within 30 days." : " certificates have expired or expire within 30 days."] : "",
     last.changes.length ? [last.changes.length + (last.changes.length === 1 ? " grade changed" : " grades changed") + " since the check before."] : "",
   ];
   out.replaceChildren(h("h2", {}, "Last check, " + when(last.finished)),
     atGlance(glance, "ep"),
-    section("ep", "descriptive", "What was found",
+    section("ep", "descriptive", "What we found",
       distribution(["A", "B", "C", "F"].map((k) => ({n: g[k], cls: GRADE_TONE[k], name: "grade " + k})), "Endpoints by grade"),
       pasted ? h("p", {class: "legend", style: "color:var(--ink)"}, "Only the host and port are checked: a server is graded as a whole, so anything after the host in an address is ignored.") : "",
       h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Endpoints, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Endpoint", "Grade", "Negotiated", "Certificate"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))),
       h("p", {class: "legend"}, Object.entries(GRADES).map(([k, t]) => k + ": " + t).join(" · "))),
-    section("ep", "diagnostic", "Why these grades",
+    section("ep", "diagnostic", "Why it matters",
       h("dl", {class: "key"}, Object.entries(GRADES).filter(([k]) => g[k]).flatMap(([k, t]) => [h("dt", {}, h("span", {class: "pill " + GRADE_TONE[k]}, k)), h("dd", {}, g[k] + (g[k] === 1 ? " endpoint: " : " endpoints: ") + t)])),
       proxyNote(last.endpoints),
       last.changes.length ? h("div", {class: "changed"}, h("h3", {}, "Changed since the scan before"), h("ul", {class: "list"}, last.changes.map((c) => h("li", {}, c.target + ": " + c.before + " → " + c.after)))) : "",
       h("h3", {}, "Score and coverage"),
       ...scoreView(last.summary.score ?? null, e.history || [], "Grade A counts 100, B 50 and C 0; endpoints that could not be graded (F) are left out.",
         {percent: last.summary.coverage ?? null, text: (n - g.F) + " of " + n + " endpoints could be graded"})),
-    section("ep", "predictive", "What can happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this check points to a risk.")),
-    section("ep", "prescriptive", "What we recommend", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
+    section("ep", "predictive", "What could happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this check points to a risk.")),
+    section("ep", "prescriptive", "What to do", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
     h("div", {class: "row", style: "margin-top:28px"}, h("button", {class: "btn quiet", id: "export", onclick: exportCbom}, "Download CBOM"),
       h("button", {class: "btn quiet", onclick: () => exportCsv("endpoints/csv", {}, "endpoints.csv")}, "Download CSV"),
       h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")),
@@ -429,14 +457,15 @@ async function exportCbom() {
   } catch (e) {}
 }
 async function exportCsv(path, body, name) { try { save(name, (await call(path, body)).csv, "text/csv"); } catch (e) {} }
-const exports = (csv) => h("div", {class: "row", style: "margin-top:20px"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"),
-  h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF"));
+const exports = (csv, ...more) => h("section", {class: "share", "aria-labelledby": "share-h"}, h("h2", {id: "share-h"}, "Share the results"),
+  h("p", {class: "state"}, "A spreadsheet for your team" + (more.length ? ", tickets for Jira or ServiceNow" : "") + ", or a PDF for auditors."),
+  h("div", {class: "row"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"), ...more, h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")));
 function ownersForm(last) {
   const file = h("input", {type: "file", id: "ownersfile", accept: ".csv,text/csv"});
   const send = async (csv) => { try { await call("projects/owners", {project: state.selected, csv}); await refreshProject(); } catch (e) {} };
   const use = async () => { const f = file.files[0]; if (!f) return say("Choose a CSV file first."); await send(await f.text()); };
   return h("details", {class: "more", style: "margin-top:18px"}, h("summary", {}, last.owner_rules ? "Owners from a CMDB export: " + last.owner_rules + " rules" : "Owners from a CMDB export"),
-    h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns; the last matching row wins. It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),
+    h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns, and if you like a service column naming the business service; the last matching row wins. It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),
     h("label", {for: "ownersfile"}, "CSV file"), file,
     h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: use}, "Use these owners"),
       last.owner_rules ? h("button", {class: "btn quiet", onclick: () => send("")}, "Remove them") : ""));

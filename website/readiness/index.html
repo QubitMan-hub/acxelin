@@ -34,6 +34,7 @@
 <li><b>Keys and certificates</b>: PEM, DER, keystores, SSH keys, known hosts</li>
 <li><b>Containers and binaries</b>: <code>docker save</code> and OCI archives, compiled files</li>
 <li><b>Encrypted volumes</b>: LUKS, qcow2, BitLocker and encrypted macOS disk images</li>
+<li><b>Cloud keys</b>: AWS KMS keys and ACM certificates, read-only, with your own credentials</li>
 <li><b>Dependencies</b>: manifests and lockfiles</li>
 <li><b>Live endpoints</b>: TLS groups, weak suites (RC4, 3DES, small DH), TLS 1.0 and 1.1, certificates and grades; SSH algorithms and host keys</li>
 <li><b>Network captures</b>: TLS, DTLS, QUIC, SSH, IKEv1 and IKEv2 handshakes in <code>.pcap</code> and <code>.pcapng</code></li>
@@ -61,6 +62,12 @@
 <pre><code>acxelin-readiness scan . \
   --policy nist-ir-8547 --policy cnsa-2.0 \
   --fail-on-policy</code></pre></div>
+<div><h3>On a schedule</h3><p>Scan again every day and hear only when something appeared or disappeared since the last scan.</p>
+<pre><code>acxelin-readiness watch . --every 24 \
+  --on-change "notify-team"</code></pre></div>
+<div><h3>Into your ticket queue</h3><p>One ticket per finding that needs work, with its owner, service and priority, for Jira or ServiceNow.</p>
+<pre><code>acxelin-readiness scan . \
+  --tickets jira --owners owners.csv</code></pre></div>
 <div><h3>Across many systems</h3><p>Merge the CBOMs of every system, including ones made by other tools, into one ranked inventory.</p>
 <pre><code>acxelin-readiness merge out-a out-b \
   --name "Example Bank"</code></pre></div>
@@ -82,7 +89,7 @@
 <div class="close">
 <div>
 <h2 id="start">Start with one repository</h2>
-<p>Install it, scan a folder or a GitHub repository, and open the report. The console does the same without the command line, and tracks an owner, status and due date for each finding.</p>
+<p>Install it, scan a folder or a GitHub repository, and open the report. The console does the same without the command line, tracks an owner, service, status and due date for each finding, and hands the work to Jira or ServiceNow.</p>
 </div>
 <div class="actions"><a class="btn primary" href="set-up.html">Check and install</a><a class="btn" href="https://acxelinquantum.com/">Talk to Acxelin Quantum</a></div>
 </div>

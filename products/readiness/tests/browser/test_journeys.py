@@ -74,7 +74,7 @@ def test_first_run_signs_in_without_leaving_a_ticket_or_cookie(page, console, re
     app, base = console
     ticket = app.sessions.ticket()
     page.goto(f"{base}/#{ticket}")
-    page.get_by_role("heading", name="Where are your repositories?").wait_for()
+    page.get_by_role("heading", name="What would you like to check?").wait_for()
     assert page.get_by_role("tab", name="Endpoints").is_visible(), "grading servers needs no repository folder"
     assert "#" not in page.url and ticket not in page.url
     assert page.context.cookies() == []
@@ -180,7 +180,7 @@ def test_no_accessibility_violations_and_no_sideways_scroll(browser, console, re
     page = ctx.new_page()
     try:
         open_console(page, console)
-        page.get_by_role("heading", name="Where are your repositories?").wait_for()
+        page.get_by_role("heading", name="What would you like to check?").wait_for()
         views = []
         views.append(page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))"))
         fill_setup(page, repos)
@@ -290,8 +290,8 @@ def test_endpoints_say_what_can_happen_and_what_to_do_next(page, console):
     with patch("acxelin_readiness.console.endpoints.scan", side_effect=lambda t: rows):
         page.get_by_label("Hosts to check").fill("a.example\nssh://ssh.example")
         page.get_by_role("button", name="Check endpoints").click()
-        page.get_by_role("heading", name="What can happen").wait_for()
-    recommend = page.locator("section.analysis", has=page.get_by_role("heading", name="What we recommend"))
+        page.get_by_role("heading", name="What could happen").wait_for()
+    recommend = page.locator("section.analysis", has=page.get_by_role("heading", name="What to do"))
     assert recommend.locator("ol > li").first.inner_text().startswith("Renew the certificate")
     assert "X25519MLKEM768" in recommend.inner_text() and "mlkem768x25519-sha256" in recommend.inner_text()
     table = page.locator("#ep-result table").inner_text()
@@ -404,6 +404,25 @@ def test_findings_and_grades_download_as_csv_and_print_without_the_controls(page
     assert Path(d.value.path()).read_text().splitlines()[1].startswith("127.0.0.1:1,C,")
 
 
+def test_services_from_a_cmdb_export_filter_the_findings_and_tickets_download_for_jira(page, console, repos, tmp_path):
+    (repos / "shop/legacy.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    (tmp_path / "owners.csv").write_text("path,owner,service\nkeys.py,Payments team,Card payments\nlegacy.py,Core team,Ledger\n")
+    page.get_by_text("Owners from a CMDB export").click()
+    page.get_by_label("CSV file").set_input_files(str(tmp_path / "owners.csv"))
+    page.get_by_role("button", name="Use these owners").click()
+    page.get_by_text("Owner: Payments team · Card payments (from CMDB export)").first.wait_for()
+    page.get_by_role("button", name="Show only Ledger").click()
+    table = page.locator("#pj-result table")
+    assert "MD5" in table.inner_text() and "RSA-2048" not in table.inner_text()
+    with page.expect_download() as d:
+        page.get_by_role("button", name="Tickets for Jira").click()
+    assert d.value.suggested_filename == "shop-jira-tickets.csv" and Path(d.value.path()).read_text().startswith("Summary,Description,Priority")
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
 def test_the_tabs_follow_the_arrow_key_pattern_and_grades_are_read_out_in_words(page, console):
     open_console(page, console)
     page.get_by_role("tab", name="Projects").focus()
@@ -487,13 +506,13 @@ def test_owners_come_from_codeowners_and_a_cmdb_export_and_unowned_findings_ask_
     fill_setup(page, repos)
     scan_shop(page)
     page.get_by_text("Owner: @payments-team (from CODEOWNERS)").first.wait_for()
-    assert page.get_by_text("No owner · review needed").count() >= 1
+    assert page.get_by_text("Assign an owner").count() >= 1
     (tmp_path / "owners.csv").write_text("path,owner\n*.py,Platform Security\n")
     page.get_by_text("Owners from a CMDB export").click()
     page.get_by_label("CSV file").set_input_files(str(tmp_path / "owners.csv"))
     page.get_by_role("button", name="Use these owners").click()
     page.get_by_text("Owner: Platform Security (from CMDB export)").first.wait_for()
-    assert page.get_by_text("No owner · review needed").count() == 0
+    assert page.get_by_text("Assign an owner").count() == 0
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
@@ -502,14 +521,14 @@ def test_both_pages_show_the_four_analyses_with_their_charts_and_the_nav_reaches
     open_console(page, console)
     fill_setup(page, repos)
     scan_shop(page)
-    kinds = ["Descriptive analysis", "Diagnostic analysis", "Predictive analysis", "Prescriptive analysis"]
+    kinds = {"descriptive": "What we found", "diagnostic": "Why it matters", "predictive": "What could happen", "prescriptive": "What to do"}
 
     def check(prefix):
         result = page.locator(f"#{prefix}-result")
-        assert [result.locator(f"#{prefix}-{k.split()[0].lower()}").inner_text().split("\n")[0].endswith(k) for k in kinds] == [True] * 4
+        assert [result.locator(f"#{prefix}-{k}").inner_text().startswith(v) for k, v in kinds.items()] == [True] * 4
         assert "[object" not in result.inner_text()
         assert result.locator(".glance li").count() >= 2 and result.locator(".dist[role=img]").first.get_attribute("aria-label")
-        page.get_by_role("navigation", name="Analyses on this page").get_by_role("button", name=re.compile("^Prescriptive")).click()
+        page.get_by_role("navigation", name="Sections on this page").get_by_role("button", name=re.compile("^What to do")).click()
         assert page.evaluate("document.activeElement.id") == f"{prefix}-prescriptive"
         assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
 

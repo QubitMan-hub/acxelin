@@ -1,4 +1,5 @@
-"""Owners for findings, from the repository's CODEOWNERS and from a CMDB export: path patterns, the last matching one wins."""
+"""Owners for findings, from the repository's CODEOWNERS and from a CMDB export: path patterns, the last matching one wins.
+A CMDB export may also name the business service each path belongs to."""
 import csv
 import functools
 import io
@@ -8,6 +9,7 @@ from pathlib import Path
 PLACES = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")  # the order GitHub looks in
 PATHS = {"path", "pattern", "file", "folder", "directory"}
 OWNERS = {"owner", "owners", "team", "owned by", "support group", "assigned to", "managed by"}
+SERVICES = {"service", "business service", "application", "app", "system"}
 MAX_RULES = 5000
 
 
@@ -27,9 +29,14 @@ def _rx(pattern):
     return re.compile(("" if anchored else "(?:.*/)?") + out + ("/.*" if pattern.endswith("/") else "(?:/.*)?"))
 
 
+def match(rules, path):
+    """The last rule matching `path`, or None: (pattern, owner) or (pattern, owner, service)."""
+    return next((r for r in reversed(rules) if _rx(r[0]).fullmatch(path)), None)
+
+
 def owner_of(rules, path):
-    """The owner of the last rule matching `path`, or None."""
-    return next((owner for pattern, owner in reversed(rules) if _rx(pattern).fullmatch(path)), None)
+    r = match(rules, path)
+    return r[1] if r else None
 
 
 def codeowners(root):
@@ -47,7 +54,8 @@ def codeowners(root):
 
 
 def from_csv(text):
-    """[(pattern, owner)] from a CMDB export with a path (or pattern) column and an owner (or team) column."""
+    """[(pattern, owner)] from a CMDB export with a path (or pattern) column and an owner (or team) column; with a service (or
+    application) column too, [(pattern, owner, service)]."""
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Choose a CSV with a path column and an owner column")
     try:
@@ -58,21 +66,23 @@ def from_csv(text):
     head = [c.strip().lower() for c in rows[0]] if rows else []
     path = next((i for i, c in enumerate(head) if c in PATHS), None)
     owner = next((i for i, c in enumerate(head) if c in OWNERS), None)
+    service = next((i for i, c in enumerate(head) if c in SERVICES), None)
     if path is None or owner is None:
         raise ValueError("The CSV needs a path (or pattern) column and an owner (or team) column in its first row")
-    rules = [(r[path].strip(), r[owner].strip()) for r in rows[1:] if len(r) > max(path, owner) and r[path].strip() and r[owner].strip()]
+    cell = lambda r, i: r[i].strip() if i is not None and len(r) > i else ""
+    rules = [(cell(r, path), cell(r, owner)) + ((cell(r, service),) if service is not None else ()) for r in rows[1:] if cell(r, path) and cell(r, owner)]
     if len(rules) > MAX_RULES:
         raise ValueError(f"At most {MAX_RULES} rows")
-    if any(len(o) > 120 or len(p) > 400 for p, o in rules):
-        raise ValueError("An owner is at most 120 characters and a path at most 400")
+    if any(len(r[1]) > 120 or len(r[0]) > 400 or len(r) > 2 and len(r[2]) > 120 for r in rules):
+        raise ValueError("An owner or a service is at most 120 characters and a path at most 400")
     return rules
 
 
 def suggest(cmdb, repo, files):
-    """{"owner", "source"} for a finding seen in `files`: a CMDB export first, then CODEOWNERS; None when neither names one."""
+    """{"owner", "source", "service"?} for a finding seen in `files`: a CMDB export first, then CODEOWNERS; None when neither names one."""
     for rules, source in ((cmdb, "CMDB export"), (repo, "CODEOWNERS")):
         for f in files:
-            owner = owner_of(rules, f) if rules and "://" not in f else None
-            if owner:
-                return {"owner": owner, "source": source}
+            r = match(rules, f) if rules and "://" not in f else None
+            if r:
+                return {"owner": r[1], "source": source} | ({"service": r[2]} if len(r) > 2 and r[2] else {})
     return None

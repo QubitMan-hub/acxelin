@@ -12,7 +12,7 @@ from cryptography.utils import CryptographyDeprecationWarning
 from . import verify, rank, remedy
 from .crawler import CodeCrawler
 from .detectors.lexer import LANGS
-from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns
+from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns, aws as cloud
 
 DETECTORS = ("source", "implementations", "config", "artifacts", "volumes", "binary")
 
@@ -40,7 +40,7 @@ def coverage(root, scope, oversized_files, unparsed_python):
     return {"files": files, "read": read, "not_read": not_read, "percent": round(100 * read / files) if files else None}
 
 
-def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache=None):
+def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache=None, aws=(), aws_session=None):
     """Every detector reports everything it sees; nothing is filtered before verification."""
     h = Detected([], [], [], dict.fromkeys(DETECTORS, 0), crawler=CodeCrawler(cache))
     found = {}
@@ -103,6 +103,10 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
         h.detections += s
         h.endpoints += eps
         h.notes += n
+    if aws:
+        s, n = cloud.scan(aws, aws_session)
+        h.detections += s
+        h.notes += n
     h.detections += carried_hashes(h.detections)
     pyflow.mark(h.detections, found)
     return h
@@ -137,14 +141,14 @@ def load_baseline(path):
     return seen
 
 
-def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None):
+def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None, aws=(), aws_session=None):
     t0 = time.time()
     scope = snapshot(root, scope)
     horizon = horizon or rank.Horizon()
     with warnings.catch_warnings():  # other projects' code: Python's warnings about their escapes and cryptography's about odd certificates
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", CryptographyDeprecationWarning)
-        h = detect(root, scope, tls_targets, ssh_targets, captures, cache)
+        h = detect(root, scope, tls_targets, ssh_targets, captures, cache, aws, aws_session)
     lines = verify.Lines(root)
     references = rank.follow_references(root, h.artifacts, h.detections, scope)
     detections = verify.verify(h.detections, threshold, lines)

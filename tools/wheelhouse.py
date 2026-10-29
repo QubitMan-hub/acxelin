@@ -39,7 +39,7 @@ def build(product, out, extras=""):
     return out
 
 
-EXTRAS = {"vpn": "[vpn]", "readiness": "[crawler]"}
+EXTRAS = {"vpn": "[vpn]", "readiness": "[crawler,aws]"}
 CUSTOMER = ["install.sh", "install.ps1", "README.md", "LICENSE", "CHANGELOG.md", "docs", "config", "deploy/systemd"]
 
 
