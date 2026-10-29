@@ -33,7 +33,7 @@
 <li>Whoever holds the authority's key can issue certificates. Keep a root offline and issue from an intermediate authority.</li>
 <li>A revoked certificate works until the edge next fetches the revocation list.</li>
 <li>The service behind the edge sees plain traffic.</li>
-<li>Browsers cannot verify ML-DSA, so serving them means a classical fallback certificate.</li>
+<li>Browsers trust only public certificate authorities, which do not issue ML-DSA certificates yet, so serving them means a classical fallback certificate.</li>
 <li>Everything here was exercised on Linux with OpenSSL 3.5.9.</li>
 </ul>
 </div>

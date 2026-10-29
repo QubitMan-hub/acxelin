@@ -33,9 +33,11 @@
 <li><b>Configuration</b>: YAML, JSON, TOML, nginx, Apache, sshd, Kubernetes, Terraform</li>
 <li><b>Keys and certificates</b>: PEM, DER, keystores, SSH keys, known hosts</li>
 <li><b>Containers and binaries</b>: <code>docker save</code> and OCI archives, compiled files</li>
+<li><b>Encrypted volumes</b>: LUKS, qcow2, BitLocker and encrypted macOS disk images</li>
 <li><b>Dependencies</b>: manifests and lockfiles</li>
-<li><b>Live endpoints</b>: TLS groups, certificates and grades; SSH algorithms and host keys</li>
-<li><b>Network captures</b>: handshakes in <code>.pcap</code> and <code>.pcapng</code></li>
+<li><b>Live endpoints</b>: TLS groups, weak suites (RC4, 3DES, small DH), TLS 1.0 and 1.1, certificates and grades; SSH algorithms and host keys</li>
+<li><b>Network captures</b>: TLS, DTLS, QUIC, SSH, IKEv1 and IKEv2 handshakes in <code>.pcap</code> and <code>.pcapng</code></li>
+<li><b>Other tools' CBOMs</b>: CycloneDX files, rated on the same scale</li>
 </ul>
 <div class="node edge">acxelin-readiness scan<small>detect, verify, rank</small></div>
 <ul aria-label="What it writes">
@@ -80,7 +82,7 @@
 <div class="close">
 <div>
 <h2 id="start">Start with one repository</h2>
-<p>Install it, scan a folder, and open the report. The console then does the same without the command line.</p>
+<p>Install it, scan a folder or a GitHub repository, and open the report. The console does the same without the command line, and tracks an owner, status and due date for each finding.</p>
 </div>
 <div class="actions"><a class="btn primary" href="set-up.html">Check and install</a><a class="btn" href="https://acxelinquantum.com/">Talk to Acxelin Quantum</a></div>
 </div>

@@ -483,6 +483,9 @@ def main():
     shutil.copytree(SRC / "assets", OUT / "assets")
     for section in SECTIONS:
         (OUT / section).mkdir(parents=True)
+        guide = ROOT / f"documents/acxelin-{section}-how-it-works.pdf"
+        if guide.exists():
+            shutil.copy(guide, OUT / section / "guide.pdf")
     bom, excerpt = sample(OUT)
     tour, log = tls_tour()
     vpn = vpn_tour()

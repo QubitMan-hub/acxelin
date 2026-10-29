@@ -2,7 +2,7 @@
 <!-- description: How the edge decides whether a connection is allowed, how the certificate authority keeps certificates and revocations current, and what the edge reports. -->
 <section>
 <h1>How a connection is decided</h1>
-<p class="lead">The edge's policy is checked on every connection. Nothing falls back silently: a connection that cannot meet the policy ends, and the log says why.</p>
+<p class="lead">The edge's policy is checked on every connection. Nothing falls back silently: a connection that cannot meet the policy ends, and the log says why. For the whole product in everyday words, read the <a href="guide.pdf">full guide (PDF)</a>.</p>
 <ol class="steps">
 <li><h2>Key exchange</h2><p>Under <code>strict</code>, the client must offer a post-quantum group: X25519MLKEM768, SecP384r1MLKEM1024 or SecP256r1MLKEM768. A client that offers only classical groups is refused, and the log says the client offers no post-quantum key exchange.</p></li>
 <li><h2>Certificates</h2><p>Under <code>strict</code>, certificates must use ML-DSA. A client that cannot verify ML-DSA is refused, and the log says so.</p></li>

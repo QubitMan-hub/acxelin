@@ -2,7 +2,7 @@
 <!-- description: How a detection becomes a verified, ranked finding, how your timeline sets priority, and which standards it checks. -->
 <section>
 <h1>How a detection becomes a ranked result</h1>
-<p class="lead">Three stages, each doing one job. You can read every verdict they reach in <code>findings.json</code>.</p>
+<p class="lead">Three stages, each doing one job. You can read every verdict they reach in <code>findings.json</code>. For the whole product in everyday words, read the <a href="guide.pdf">full guide (PDF)</a>.</p>
 <ol class="steps">
 <li><h2>Detectors report everything they see</h2><p>Each detector reads one kind of input and reports every possible use of cryptography, noisily on purpose. Nothing is filtered at this stage.</p></li>
 <li><h2>Verification keeps what the evidence supports</h2><p>Each detection gets a confidence from its evidence: a call outweighs a name, and a second kind of evidence raises it. Above the threshold (0.6 by default) a detection is <em>accepted</em>. Below it, it is <em>held back</em>. Known false patterns are <em>rejected</em>, and lines you mark with an <code>acxelin:ignore</code> comment are <em>suppressed</em>.</p></li>

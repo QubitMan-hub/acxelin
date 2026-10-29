@@ -1,9 +1,9 @@
 name: website
 on:
   push:
-    paths: ["website/**", "products/*/docs/**", "products/*/src/**", "tools/build_site.py", "core/**", ".github/workflows/website.yml"]
+    paths: ["website/**", "documents/**", "products/*/docs/**", "products/*/src/**", "tools/build_site.py", "core/**", ".github/workflows/website.yml"]
   pull_request:
-    paths: ["website/**", "products/*/docs/**", "products/*/src/**", "tools/build_site.py", "core/**", ".github/workflows/website.yml"]
+    paths: ["website/**", "documents/**", "products/*/docs/**", "products/*/src/**", "tools/build_site.py", "core/**", ".github/workflows/website.yml"]
   workflow_dispatch:
 permissions:
   contents: read

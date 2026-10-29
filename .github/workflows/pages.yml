@@ -2,7 +2,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["website/**", "products/*/docs/**", "products/*/src/**", "products/*/examples/**", "tools/build_site.py", "core/**", ".github/workflows/pages.yml"]
+    paths: ["website/**", "documents/**", "products/*/docs/**", "products/*/src/**", "products/*/examples/**", "tools/build_site.py", "core/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 permissions:
   contents: read

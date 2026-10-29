@@ -72,7 +72,7 @@
 <div class="limits">
 <h2 id="limits">What it does not claim</h2>
 <ul>
-<li>Browsers cannot verify ML-DSA certificates yet. For them, the <code>transition</code> policy serves a classical fallback certificate, and that connection is only as strong as classical TLS.</li>
+<li>Browsers trust only public certificate authorities, and those do not issue ML-DSA certificates yet. For browsers, the <code>transition</code> policy serves a classical fallback certificate, so a visitor's identity check is only as strong as classical TLS; the key exchange is post-quantum either way.</li>
 <li>A revoked certificate works until the edge next fetches the revocation list: every 60 seconds by default for an edge that follows one.</li>
 <li>The service behind the edge sees plain traffic. Keep it on loopback or a private network.</li>
 <li>Signing through AWS KMS or your own command has not yet been run against real HSM hardware.</li>
