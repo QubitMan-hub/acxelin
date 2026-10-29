@@ -19,10 +19,6 @@ build/
 !tests/**/*.pem
 .env
 .env.*
-*.pqv
-# golden fixtures are synthetic test data and must be committed whole (tests/golden/README.md)
-!tests/golden/**
-tests/golden/**/__pycache__/
 *.part
 readiness-out/
 
@@ -32,17 +28,13 @@ readiness-out/
 # browser tests
 node_modules/
 test-results/
-.fixtures/
 playwright-report/
 
 # operating systems
 .DS_Store
 Thumbs.db
 
-# Private console workspace
-
 # archify working folders (finished diagrams go in the product's docs)
 .archify/
 
-console-audit.jsonl
 .impeccable/

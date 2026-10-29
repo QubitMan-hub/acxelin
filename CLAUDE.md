@@ -13,6 +13,7 @@ with few comments, wants limits stated honestly and pushes back on overclaiming.
 - `website/`: the shared home page and one section per product (`tools/build_site.py`); demo content is real product output.
 - `products/vpn/` (acxelin-vpn): site-to-site IPsec, WireGuard remote access, the desktop app and its installers, the VPN's
   CA subset, console and CBOM export, the gateway image and systemd units.
+- `documents/`: plain-language "How It Works" guides per product, Markdown plus PDF, exported from the owner's docs.
 - `tools/`: the site build, release gate, wheelhouse, browser test kit, and the repository checks in `tools/tests`.
 
 ## Rules

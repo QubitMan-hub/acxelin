@@ -307,7 +307,7 @@ if __name__ == "__main__":
 
 
 class BrowserTest(Scenario):
-    """A real browser: Chromium negotiates X25519MLKEM768 but cannot verify ML-DSA certificates yet."""
+    """A real browser: Chromium negotiates X25519MLKEM768; only recent versions verify ML-DSA in the handshake."""
 
     def browser(self):
         try:

@@ -1,33 +1,19 @@
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
 from jsonschema import Draft7Validator
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT7
 
-BASE = "https://raw.githubusercontent.com/CycloneDX/specification/master/schema/"
-NAMES = ["bom-1.6.schema.json", "spdx.schema.json", "jsf-0.82.schema.json"]
-CACHE = Path(__file__).resolve().parent.parent / ".cache" / "schemas"
-
-
-def schemas():
-    CACHE.mkdir(parents=True, exist_ok=True)
-    out = {}
-    for n in NAMES:
-        p = CACHE / n
-        if not p.exists():
-            urllib.request.urlretrieve(BASE + n, p)
-        out[n] = json.loads(p.read_text(encoding="utf-8"))
-    return out
+SCHEMAS = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "cyclonedx"
 
 
 def main(path):
     if not Path(path).is_file():
         print(f"{path} not found: run `acxelin-readiness scan PATH` first, or give the CBOM to check")
         return 1
-    s = schemas()
+    s = {p.name: json.loads(p.read_text(encoding="utf-8")) for p in SCHEMAS.glob("*.json")}
     reg = Registry()
     for n, doc in s.items():
         r = Resource.from_contents(doc, default_specification=DRAFT7)

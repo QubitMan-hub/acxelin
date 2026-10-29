@@ -160,22 +160,6 @@ def test_cancel_and_budget_never_replace_completed_outputs(tmp_path):
         assert (out/'assessment.json').read_bytes() == before
 
 
-def test_sample_project_preserves_edits_and_refuses_symlinks(tmp_path):
-    from acxelin_readiness.workspace import sample_project
-    root = sample_project(tmp_path)
-    assert scan(root)['summary']['resolved_calls'] == 1
-    (root/'keys.py').write_text('customer edit')
-    assert sample_project(tmp_path) == root
-    assert (root/'keys.py').read_text() == 'customer edit'
-    root.rename(tmp_path/'moved')
-    root.symlink_to(tmp_path/'moved', target_is_directory=True)
-    with pytest.raises(ValueError):
-        sample_project(tmp_path)
-
-
-
-
-
 @pytest.mark.parametrize("directory", ["test_vectors", "lib/Crypto/SelfTest"])
 def test_crypto_test_vectors_remain_visible_without_production_migration_candidates(tmp_path, directory):
     root = tmp_path / directory

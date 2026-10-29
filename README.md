@@ -18,8 +18,9 @@ steps, the console and the manual. The website is https://acxelinquantum.github.
 core/                 acxelin-core: shared mechanisms only (config, safe files, OpenSSL 3.5 binding, TLS contexts, CA, CRLs,
                       signers, EST, the console shell); no product names or policies
 products/readiness/   Acxelin Readiness + CBOM: src, tests, docs, examples, deploy (Docker), action.yml, installers
-products/tls/         Acxelin TLS/mTLS + CA: src, tests, docs, examples, deploy (Docker, systemd), installers
+products/tls/         Acxelin TLS/mTLS + CA: src, tests, docs, config, deploy (Docker, systemd), installers
 products/vpn/         Acxelin VPN: src, tests, docs, config, deploy (gateway image, systemd), packaging (desktop installers), installers
+documents/            plain-language guides to each product: how it works, in Markdown and PDF
 website/              the shared home page and one section per product, built by tools/build_site.py
 tools/                repository tooling: the site build, release gate, wheelhouse, browser test kit
 ```

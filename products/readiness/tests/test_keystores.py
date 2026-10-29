@@ -116,7 +116,7 @@ def test_a_keystore_scan_writes_a_valid_cyclonedx_cbom(tmp_path, key):
     (tmp_path / "src/server.jks").write_bytes(jks([(1, "server", certificate(key).public_bytes(serialization.Encoding.DER))]))
     assert cli.main(["scan", str(tmp_path / "src"), "--out", str(tmp_path / "out"), "--quiet"]) == 0
     cbom = json.loads((tmp_path / "out/cbom.json").read_text())
-    schemas = Path(__file__).resolve().parents[1] / ".cache/schemas"
+    schemas = Path(__file__).resolve().parent / "fixtures/cyclonedx"
     load = lambda n: json.loads((schemas / n).read_text())
     registry = Registry().with_resources([(s["$id"], Resource.from_contents(s)) for s in map(load, ("spdx.schema.json", "jsf-0.82.schema.json"))])
     jsonschema.Draft7Validator(load("bom-1.6.schema.json"), registry=registry).validate(cbom)

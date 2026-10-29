@@ -300,7 +300,7 @@ class ProjectStore:
             if len(graph) > self.GRAPH_LIMIT:
                 raise ValueError('Relationship graph exceeds 64 MB; narrow the repository scope')
             packed = base64.b64encode(zlib.compress(graph)).decode('ascii')
-            data['projects'][key] = {'graph_zlib': packed, 'assessment': current, 'tracking': tracking, 'missing': list(missing.values()), 'history': history, 'verifications': previous.get('verifications', [])}
+            data['projects'][key] = {'graph_zlib': packed, 'assessment': current, 'tracking': tracking, 'missing': list(missing.values()), 'history': history}
             return self.view(data['projects'][key])
         return self.update(change)
 
@@ -322,16 +322,10 @@ class ProjectStore:
                 raise ValueError('Stored relationship graph is damaged or exceeds its size limit') from error
         result['history'] = copy.deepcopy(project.get('history', []))
         result['not_observed'] = copy.deepcopy(project.get('missing', []))
-        result['verifications'] = copy.deepcopy(project.get('verifications', []))
         cmdb, repo = project.get('owners', []), result.get('codeowners', [])
         result['owner_rules'] = len(cmdb)
         for asset in result['assets'] + result['not_observed']:
             asset['owner_hint'] = owners.suggest(cmdb, repo, sorted({f for f, _ in asset['locations']}))
-        present = {a['id'] for a in result['assets']}
-        for evidence in result['verifications']:
-            evidence['source_state'] = 'observed' if evidence['finding'] in present else 'not_observed'
-            evidence['rescan_required'] = evidence['source_finished'] != result['finished']
-            evidence['expired'] = time.time() - evidence['checked'] > 86400
         for asset in result['assets'] + result['not_observed']:
             asset['tracking'] = copy.deepcopy(project.get('tracking', {}).get(asset['id'], {'owner': '', 'due': '', 'status': 'open', 'reason': '', 'until': ''}))
             tracking = asset['tracking']
@@ -353,17 +347,6 @@ class ProjectStore:
     def assessment(self, root):
         record = self.read()['projects'].get(self.key(root))
         return self.view(record) if record else None
-
-    def record_verification(self, root, binding, observation, source_finished):
-        def change(data):
-            project = data['projects'].get(self.key(root))
-            if not project or project['assessment']['finished'] != source_finished:
-                raise ValueError('Assessment changed during verification; select the current finding and retry')
-            evidence = binding | observation | {'source_finished': source_finished, 'checked': time.time(),
-                                                'mapping_basis': 'Operator-supplied deployment association; source-to-release provenance is not independently verified'}
-            project['verifications'] = project.get('verifications', [])[-99:] + [evidence]
-            return self.view(project)
-        return self.update(change)
 
     def set_owners(self, root, rules):
         def change(data):
@@ -400,17 +383,3 @@ class ProjectStore:
             return self.view(project)
         return self.update(change)
 
-
-def sample_project(parent):
-    """Create an intentionally classical demonstration; never overwrite customer edits."""
-    root = Path(parent) / 'sample-repository'
-    if root.is_symlink():
-        raise ValueError('Sample repository must not be a symlink')
-    if not root.exists():
-        root.mkdir(mode=0o700, parents=True)
-        write(root / 'keys.py', b'from cryptography.hazmat.primitives.asymmetric import rsa\n\ndef issue_key():\n    return rsa.generate_private_key(public_exponent=65537, key_size=2048)\n', secret=True)
-        write(root / 'checkout.py', b'from keys import issue_key\n\ndef enroll_customer():\n    return issue_key()\n', secret=True)
-        write(root / 'README.md', b'# Sample migration project\n\nIntentionally classical RSA for static scanning only. Do not use for production security.\nScan, assign an owner, edit the example and rescan to compare evidence.\nThe scanner never executes this code. Existing edits are preserved on restart.\n', secret=True)
-    if not root.is_dir():
-        raise ValueError('Sample repository path must be a folder')
-    return root
