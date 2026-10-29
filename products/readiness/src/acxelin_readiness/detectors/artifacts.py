@@ -68,13 +68,13 @@ def cert_record(cert, path, line, source="file"):
                                lang="x509", params=dict(pk_params, cert=fp[:16], role="subject-public-key")))
     if sig_algo:
         p = {"cert": fp[:16], "role": "certificate-signature"}
-        if sig_hash:
+        if sig_hash and not details["self_signed"]:  # no client checks a self-signature, so its hash weakens nothing
             p["hash"] = sig_hash
         sights.append(Detection(algo=sig_algo, file=path, line=line, evidence="artifact", detector="artifacts", snippet=f"certificate signature: {details['subject'][:80]}",
                                lang="x509", params=p))
         if sig_hash:
             sights.append(Detection(algo=sig_hash, file=path, line=line, evidence="artifact", detector="artifacts", snippet="certificate signature hash",
-                                   lang="x509", params={"cert": fp[:16], "role": "certificate-signature-hash"}))
+                                   lang="x509", params={"cert": fp[:16], "role": "certificate-signature-hash"} | ({"purpose": "self-signature"} if details["self_signed"] else {})))
     return art, sights
 
 

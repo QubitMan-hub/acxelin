@@ -17,7 +17,7 @@ from acxelin_readiness import endpoints
 from acxelin_readiness.detectors import probe, tls
 
 
-def server(request, tmp_path, oldest, newest=ssl.TLSVersion.TLSv1_2):
+def server(request, tmp_path, oldest, newest=ssl.TLSVersion.TLSv1_2, ciphers="ALL:@SECLEVEL=0", dh=None):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "old.internal")])
     now = dt.datetime.now(dt.timezone.utc)
@@ -29,11 +29,13 @@ def server(request, tmp_path, oldest, newest=ssl.TLSVersion.TLSv1_2):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            ctx.set_ciphers("ALL:@SECLEVEL=0")
+            ctx.set_ciphers(ciphers)
             ctx.minimum_version, ctx.maximum_version = oldest, newest
     except (ssl.SSLError, ValueError) as e:
         pytest.skip(f"this machine's OpenSSL cannot run a {oldest.name} server: {e}")
     ctx.load_cert_chain(tmp_path / "c.pem", tmp_path / "k.pem")
+    if dh:
+        ctx.load_dh_params(str(dh))
     sock = socket.create_server(("127.0.0.1", 0))
     request.addfinalizer(sock.close)
 

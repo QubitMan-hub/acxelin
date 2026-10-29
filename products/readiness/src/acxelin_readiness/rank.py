@@ -234,11 +234,16 @@ def declared_non_security(a):
 
 
 def trust_stores(arts, least=5):
-    """Files of five or more certificates, every one self-signed, and nothing else: roots the project trusts, not keys it holds."""
-    by = defaultdict(list)
+    """Roots the project trusts, not keys it holds: files of five or more certificates, every one self-signed and nothing else, and
+    folders of five or more files that each hold only self-signed certificates (/usr/share/ca-certificates keeps one root per file)."""
+    by, folders = defaultdict(list), defaultdict(set)
     for a in arts:
         by[a.file].append(a)
-    return {f: g for f, g in by.items() if "://" not in f and len(g) >= least and all(a.kind == "certificate" and a.details.get("self_signed") for a in g)}
+    roots = lambda g: all(a.kind == "certificate" and a.details.get("self_signed") for a in g)
+    for f, g in by.items():
+        folders[f.rsplit("/", 1)[0] if "/" in f else ""].add(f)
+    in_store = {f for files in folders.values() if len(files) >= least and all(roots(by[f]) for f in files) for f in files}
+    return {f: g for f, g in by.items() if "://" not in f and roots(g) and (len(g) >= least or f in in_store)}
 
 
 def assess(a, h, hybrid_files):
@@ -255,7 +260,9 @@ def assess(a, h, hybrid_files):
             a.why = "ECB mode leaks plaintext structure; broken today regardless of quantum"
             a.action = "Switch to AES-256-GCM (authenticated, randomized)"
         elif weak_hash:
-            a.why = f"Signature over {a.params['hash']}, which has practical collision attacks"
+            weak = {s.file for s in a.detections if s.params.get("hash") in ("MD5", "SHA-1")}
+            a.why = f"Signature over {a.params['hash']}, which has practical collision attacks" + \
+                (f", at {len(weak)} of {len({s.file for s in a.detections})} places" if 0 < len(weak) < len({s.file for s in a.detections}) else "")
             a.action = "Re-sign with SHA-256 or stronger now; plan ML-DSA migration"
         elif bits is not None and bits < 112 and c.threat != LEGACY:
             a.why = f"About {bits}-bit classical security, below NIST's 112-bit floor"
@@ -277,7 +284,10 @@ def assess(a, h, hybrid_files):
             a.why = "Breakable by Shor's algorithm on a future quantum computer" + ("" if conf else "; no harvest-now risk for signatures, but forgery risk once a CRQC exists")
         if a.algo == "ECC":
             a.why += ". Key use (signing or key agreement) not determined, so confidentiality is assumed"
-        if a.algo in ("TLS 1.3", "X25519", "X448", "ECDH", "DH") and {s.file for s in a.detections} <= hybrid_files:
+        places = {s.file for s in a.detections}
+        if a.algo in ("TLS 1.3", "X25519", "X448", "ECDH", "DH") and places & hybrid_files and not places <= hybrid_files:
+            a.why += f"; without a hybrid ML-KEM group at {len(places - hybrid_files)} of {len(places)} places (the others have one)"
+        if a.algo in ("TLS 1.3", "X25519", "X448", "ECDH", "DH") and places <= hybrid_files:
             if a.algo == "TLS 1.3":
                 tier, a.why, a.action = "ok", "TLS 1.3 with a hybrid ML-KEM group configured alongside it", ""
             else:
@@ -311,6 +321,10 @@ def assess(a, h, hybrid_files):
         tier = "low"
         a.why = "Only inside HMAC, PBKDF2, RSA-OAEP, MGF1 or a TLS cipher suite's MAC or PRF, which need no collision resistance from it, so it is not broken there"
         a.action = "Prefer SHA-256 in new configurations and code; both sides of an exchange must change together"
+    if tier in ("critical", "high", "medium") and a.detections and all(s.params.get("purpose") == "self-signature" for s in a.detections):
+        tier = "low"
+        a.why = "Only the self-signature of self-signed certificates, which no client checks: trust in a root comes from the store, not this signature"
+        a.action = "Nothing to change for this hash; the certificate's key is what to plan for"
     if tier in ("critical", "high", "medium") and all("trust-store" in s.context for s in a.detections):
         tier = "low"
         a.why = "Root certificates in a trust store: keys the project trusts, not keys it holds"

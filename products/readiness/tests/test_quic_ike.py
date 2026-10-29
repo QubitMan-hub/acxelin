@@ -70,7 +70,7 @@ def test_a_dtls_handshake_split_over_datagrams_is_read_like_tls(tmp_path):
     (tmp_path / "d.pcap").write_bytes(pcapgen.pcap(pcapgen.dtls_capture([0x001D, 0x0017], 0xC02B, group=None)))
     sights, eps, notes = capture.scan(tmp_path / "d.pcap")
     algos = {s.algo for s in sights}
-    assert {"TLS 1.2", "ECDH", "ECDSA", "AES"} <= algos and eps[0]["target"].startswith("pcap://d.pcap/dtls/10.0.0.9:4433")
+    assert {"TLS 1.2", "ECDH", "ECDSA", "AES"} <= algos and eps[0]["target"] == "pcap://d.pcap/dtls/vpn.example:4433"
     assert eps[0]["version"] == "DTLS 1.2" and "1 handshake(s)" in notes[0]
 
 
@@ -86,3 +86,18 @@ def test_an_ikev1_main_or_aggressive_mode_exchange_shows_what_the_responder_chos
     (tmp_path / "v1.pcap").write_bytes(pcapgen.pcap(pcapgen.ikev1_capture([aes_sha256_modp2048_rsa], [aes_sha256_modp2048_rsa], exchange)))
     found = {(s.algo, s.params.get("key_size") or s.params.get("hash")) for s in capture.scan(tmp_path / "v1.pcap")[0]}
     assert {("AES", 256), ("HMAC", "SHA-256"), ("DH", 2048), ("RSA", None)} <= found
+
+
+def test_two_sites_on_one_address_stay_apart_by_server_name_and_a_dhe_prime_size_is_read(tmp_path):
+    import struct
+    c, s = [10, 0, 0, 5], [10, 0, 0, 9]
+    dhe = pcapgen._record(12, struct.pack(">H", 128) + b"\xff" * 128 + struct.pack(">H", 1) + b"\x02" + struct.pack(">H", 128) + b"\x01" * 128)
+    frames = [pcapgen._eth_ip_tcp(c, s, 50000, 443, 1, pcapgen.client_hello("dh1024.example", [0x001D])),
+              pcapgen._eth_ip_tcp(s, c, 443, 50000, 1, pcapgen.server_hello(0x0033, version=0x0303) + dhe),
+              pcapgen._eth_ip_tcp(c, s, 50001, 443, 1, pcapgen.client_hello("pq.example", [0x11EC])),
+              pcapgen._eth_ip_tcp(s, c, 443, 50001, 1, pcapgen.server_hello(0x1301, group=0x11EC))]
+    (tmp_path / "two.pcap").write_bytes(pcapgen.pcap(frames))
+    sights, eps, notes = capture.scan(tmp_path / "two.pcap")
+    assert sorted(e["target"] for e in eps) == ["pcap://two.pcap/dh1024.example:443", "pcap://two.pcap/pq.example:443"]
+    assert any(s.algo == "DH" and s.params.get("key_size") == 1024 and "dh1024" in s.file for s in sights)
+    assert not any(s.algo == "X25519MLKEM768" and "dh1024" in s.file for s in sights)

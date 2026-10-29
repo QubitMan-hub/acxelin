@@ -203,3 +203,43 @@ def test_a_capture_of_raw_ip_frames_is_read_like_one_of_ethernet_frames(tmp_path
 def test_every_ikev2_hmac_integrity_transform_is_named(tid, hash_):
     from acxelin_readiness.detectors import ike
     assert ike.name(3, tid) == ("HMAC", {"hash": hash_})
+
+
+def test_the_python_index_keeps_bodies_only_where_crypto_is_named_and_still_follows_values_from_other_files(tmp_path):
+    from acxelin_readiness.detectors import pyflow
+    (tmp_path / "crypto_util.py").write_text("import hashlib\n\ndef digest(data, algo):\n    return hashlib.new(algo, data)\n")
+    (tmp_path / "views.py").write_text("from crypto_util import digest\n\nclass Page:\n    def render(self, body):\n        return digest(body, 'md5')\n")
+    idx = pyflow.Index(tmp_path)
+    assert idx.modules["views.py"].defs["Page.render"].node is None and idx.modules["crypto_util.py"].defs["digest"].node is not None
+    md5 = next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "MD5")
+    assert "crypto_util.py" in {f for f, _ in md5["locations"]}, "the value comes from a file whose function bodies were not kept"
+
+
+def test_a_very_large_python_project_indexes_only_crypto_files_and_their_neighbours_and_says_so(tmp_path, monkeypatch):
+    from acxelin_readiness.detectors import pyflow
+    monkeypatch.setattr(pyflow, "LARGE", 10)
+    (tmp_path / "settings.py").write_text("HASH = 'md5'\n")
+    (tmp_path / "crypto_util.py").write_text("import hashlib\nfrom settings import HASH\n\ndef digest(data, algo):\n    return hashlib.new(algo, data)\n\n"
+                                         "def fingerprint(data):\n    return hashlib.new(HASH, data)\n")
+    (tmp_path / "views.py").write_text("from crypto_util import digest\n\ndef render(body):\n    return digest(body, 'sha1')\n")
+    for i in range(20):
+        (tmp_path / f"unrelated_{i}.py").write_text(f"def f{i}(x):\n    return x + {i}\n")
+    idx = pyflow.Index(tmp_path)
+    assert set(idx.modules) == {"settings.py", "crypto_util.py", "views.py"} and idx.limited
+    names = {a["name"] for a in workspace.scan(tmp_path)["assets"]}
+    assert {"MD5", "SHA-1"} <= names, "the default from settings and the value from the caller are both still followed"
+    from acxelin_readiness import pipeline
+    assert any("one import away" in n for n in pipeline.run(tmp_path, "p").notes)
+
+
+def test_a_crypto_const_module_does_not_pull_in_every_other_package_s_const_importers(tmp_path, monkeypatch):
+    from acxelin_readiness.detectors import pyflow
+    monkeypatch.setattr(pyflow, "LARGE", 4)
+    for pkg in ("lock", "light", "fan"):
+        (tmp_path / pkg).mkdir()
+        (tmp_path / pkg / "__init__.py").write_text("")
+        (tmp_path / pkg / "sensor.py").write_text("from .const import DOMAIN\n")
+    (tmp_path / "lock/const.py").write_text("import hashlib\nDOMAIN = hashlib.sha256(b'lock').hexdigest()\n")
+    (tmp_path / "light/const.py").write_text("DOMAIN = 'light'\n")
+    (tmp_path / "fan/const.py").write_text("DOMAIN = 'fan'\n")
+    assert set(pyflow.Index(tmp_path).modules) == {"lock/const.py", "lock/sensor.py"}

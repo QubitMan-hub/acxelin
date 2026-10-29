@@ -2,9 +2,12 @@
 import json
 import sys
 import time
+import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from cryptography.utils import CryptographyDeprecationWarning
 
 from . import verify, rank, remedy
 from .crawler import CodeCrawler
@@ -51,7 +54,7 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
     unparsed = []
     on_code = lambda path, text, lang, parts: h.patterns.extend(patterns.scan_text(path, text, lang, parts))
     s, h.files["source"] = source.scan(root, scope, unparsed=unparsed, on_python=observe, on_source=h.crawler.observe_source,
-                                       parse_python=h.crawler.parse_python, parse_index=h.crawler.peek_python, on_code=on_code)
+                                       parse_python=h.crawler.parse_python, parse_index=h.crawler.peek_python, on_code=on_code, notes=h.notes)
     h.detections += s
     if unparsed:
         for path in unparsed:
@@ -138,7 +141,10 @@ def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False,
     t0 = time.time()
     scope = snapshot(root, scope)
     horizon = horizon or rank.Horizon()
-    h = detect(root, scope, tls_targets, ssh_targets, captures, cache)
+    with warnings.catch_warnings():  # other projects' code: Python's warnings about their escapes and cryptography's about odd certificates
+        warnings.simplefilter("ignore", SyntaxWarning)
+        warnings.simplefilter("ignore", CryptographyDeprecationWarning)
+        h = detect(root, scope, tls_targets, ssh_targets, captures, cache)
     lines = verify.Lines(root)
     references = rank.follow_references(root, h.artifacts, h.detections, scope)
     detections = verify.verify(h.detections, threshold, lines)

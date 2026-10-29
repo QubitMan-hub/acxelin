@@ -127,6 +127,10 @@ def scan(code, lang, path="", aliases=()):
             parts = re.split(r"\.|::|->", name)
             last = parts[-1]
             found = algos(name)
+            if "3DES" in found:
+                found = [a for a in found if a != "DES"]
+            if re.search(r"(?i)arc4random", name):  # the BSD and libc random generator, not RC4 (ChaCha20 for years)
+                continue
             line = bisect(ends, m.start(g)) + 1
             for first, end, alias, resolved in aliases:
                 if first <= line <= end and parts[0] == alias and len(parts) == 2 and parts[1] in {"sign", "verify", "keygen", "getPublicKey"}:

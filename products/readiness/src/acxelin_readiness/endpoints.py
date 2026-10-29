@@ -16,7 +16,7 @@ from acxelin_core.pki import algorithm_of
 
 from . import __version__
 from .brand import page as _page
-from .detectors.probe import legacy_versions, tls_groups
+from .detectors.probe import legacy_versions, tls_groups, weak_suites
 
 log = logging.getLogger(__name__)
 CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"  # every TLS 1.3 suite, so the probe never limits what the server can pick
@@ -96,6 +96,7 @@ def _raw(out, e, host, port, cert, server_name, timeout):
     pq, classical = (any(n in out["accepts"] for n in s) for s in (PQ, CLASSICAL))
     out["grade"] = "A" if pq and not classical else "B" if pq else "C" if classical else "F"
     out["certificate"], out["legacy"] = _cert_info(cert), _old_versions(out, host, port, server_name or host, timeout)
+    _weak(out, host, port, server_name or host, timeout)
     out["trusted"] = _trusted(host, port, server_name or host, timeout)
     _note(out, "Groups read with raw ClientHello messages: this machine's OpenSSL is older than 3.5.")
     return out
@@ -125,8 +126,24 @@ def _old_versions(out, host, port, server_name, timeout):
     return [name.replace(" ", "v") for name, _ in found]
 
 
+def _weak(out, host, port, server_name, timeout):
+    """RC4, 3DES and Diffie-Hellman under 2048 bits, which the server should not accept at all."""
+    from .detectors.capture import suite_name
+    found = weak_suites(host, port, timeout, server_name)
+    if found is None:
+        _note(out, "Weak cipher suites could not be checked: the server did not answer. Check again.")
+    out["weak_suites"] = [f"{kind}{f' {bits}-bit' if bits else ''} ({suite_name(code)})" for kind, code, bits in found or []]
+    return out["weak_suites"]
+
+
 def _only_old(out, e, host, port, server_name, timeout):
-    """A server that speaks only TLS 1.0 or 1.1, read with raw ClientHello messages: this machine's TLS library will not go so low."""
+    """A server this machine's TLS library will not talk to: one that speaks TLS 1.2 only with broken suites, or only TLS 1.0 or 1.1.
+    Both are read with raw ClientHello messages."""
+    if _weak(out, host, port, server_name, timeout):
+        out["negotiated"], out["grade"] = "TLSv1.2", "C"
+        out["legacy"] = _old_versions(out, host, port, server_name, timeout)
+        _note(out, "Speaks TLS 1.2 only with suites this machine's TLS library refuses, read with raw ClientHello messages; the certificate was not read.")
+        return out
     found = legacy_versions(host, port, timeout, server_name) or []
     if not found:
         out["error"], out["grade"] = explain(e), "F"
@@ -137,8 +154,19 @@ def _only_old(out, e, host, port, server_name, timeout):
     return out
 
 
+BROWSER_GROUPS = "*X25519MLKEM768:*X25519:" + ":".join(g for g in PQ + CLASSICAL if g not in ("X25519MLKEM768", "X25519"))
+
+
 def _hello(host, port, groups, server_name, timeout):
-    ctx = Context(False, groups, None, CIPHERSUITES, verify=False)  # acxelin:ignore (a probe of what the server offers; no data is sent)
+    """The group the server picks and its certificate. BROWSER_GROUPS sends key shares for X25519MLKEM768 and X25519 as browsers do,
+    so the group reported is the one a browser gets; an OpenSSL that cannot read the '*' marks is offered the plain list."""
+    try:
+        ctx = Context(False, groups, None, CIPHERSUITES, verify=False)  # acxelin:ignore (a probe of what the server offers; no data is sent)
+    except TLSError as e:
+        if groups != BROWSER_GROUPS or "use groups" not in str(e):
+            raise
+        groups = ":".join(PQ + CLASSICAL)
+        ctx = Context(False, groups, None, CIPHERSUITES, verify=False)  # acxelin:ignore (as above)
     try:
         with ctx.wrap(socket.create_connection((host, port), timeout=timeout), server_name, timeout) as conn:
             return conn.group, conn.peer_certificate()
@@ -193,6 +221,8 @@ def probe_ssh(host, port, timeout):
     out |= {"accepts": kex, "negotiated": pq[0] if pq else (kex[0] if kex else None), "banner": banner, "host_keys": hostkeys,
             "certificate": {"key": ", ".join(hostkeys[:3]), "expires": "", "days_left": None, "quantum_safe": False}}  # host keys do not expire
     out["grade"] = "A" if pq and len(pq) == len(kex) else "B" if pq else "C" if kex else "F"
+    if "ssh-dss" in hostkeys:
+        _note(out, "Still offers a DSA host key (ssh-dss), which OpenSSH removed in 9.8: remove it from HostKey.")
     return out
 
 
@@ -225,7 +255,7 @@ def probe(target, server_name=None, timeout=8.0):
         return probe_ssh(host, port, timeout)
     out = _result(_join(host, port), "tls")
     try:
-        out["negotiated"], cert = _hello(host, port, ":".join(PQ + CLASSICAL), server_name or host, timeout)
+        out["negotiated"], cert = _hello(host, port, BROWSER_GROUPS, server_name or host, timeout)
         out["negotiated"] = canonical(out["negotiated"])
     except (TLSError, OSError) as e:
         try:
@@ -239,6 +269,7 @@ def probe(target, server_name=None, timeout=8.0):
         out["negotiated"], out["grade"] = version, "C"  # no TLS 1.3, so no post-quantum group; which groups it takes was not read
         out["certificate"] = _cert_info(cert)
         out["legacy"] = _old_versions(out, host, port, server_name or host, timeout)
+        _weak(out, host, port, server_name or host, timeout)
         out["trusted"] = _trusted(host, port, server_name or host, timeout)
         return out
     out["certificate"] = _cert_info(cert)
@@ -254,6 +285,7 @@ def probe(target, server_name=None, timeout=8.0):
     cert_key = (out["certificate"] or {}).get("key")
     out["cnsa2"] = bool(out["accepts"]) and set(out["accepts"]) <= CNSA2_GROUPS and cert_key == "ML-DSA-87"
     out["legacy"] = _old_versions(out, host, port, server_name or host, timeout)
+    _weak(out, host, port, server_name or host, timeout)
     if not cert_key or not cert_key.startswith("ML-DSA"):
         out["trusted"] = _trusted(host, port, server_name or host, timeout)
     return out
@@ -295,11 +327,14 @@ def outlook(results):
     ssh_c = [r for r in results if r["grade"] == "C" and r["protocol"] == "ssh"]
     hybrid = [r for r in results if r["grade"] == "B"]
     legacy = [r for r in results if r.get("legacy")]
+    weak = [r for r in results if r.get("weak_suites")]
     untrusted = [r for r in results if r.get("trusted") is False]
     down = [r for r in results if r["grade"] == "F"]
     classical_key = [r for r in results if cert(r) and not cert(r)["quantum_safe"]]
     names = lambda rows: [r["target"] for r in rows]
     risks = [
+        (weak, "Broken cipher suites still accepted (RC4, 3DES, or Diffie-Hellman under 2048 bits): a client that picks one can be attacked "
+               "today, with no quantum computer."),
         (expired, "Certificate already expired: clients that check certificates refuse these connections now."),
         (soon, f"Certificate expires within 30 days (the first on {soon and cert(soon[0])['expires']}): from then on, clients that check certificates refuse these connections."),
         (tls_c + ssh_c, "Classical key exchange only: traffic recorded today can be decrypted once a large enough quantum computer exists (harvest now, "
@@ -313,6 +348,7 @@ def outlook(results):
                         "impersonate the server. Unlike recorded traffic, this risk only starts once such a computer exists."),
     ]
     actions = [
+        (weak, "Switch off RC4, 3DES and Diffie-Hellman under 2048 bits in the server's cipher list; keep ECDHE with AES-GCM or ChaCha20-Poly1305."),
         (expired + soon, "Renew the certificate before it expires, and automate renewal (ACME)."),
         (tls_c, "Enable TLS 1.3 with hybrid X25519MLKEM768 key exchange alongside the current groups (OpenSSL 3.5 or later, or a TLS front end that has it). "
                 "Clients without it keep working on classical key exchange."),

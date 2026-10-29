@@ -59,7 +59,7 @@ RX = {rule: {lang: re.compile(rx) for lang, rx in by.items()} for rule, by in P.
 GO_MATH_RAND = re.compile(r"\"math/rand(?:/v2)?\"")
 KEYISH = re.compile(r"(?i)(?:key|token|secret|salt|nonce|(?<![a-z])iv(?![a-z])|passw|otp|session_?id|csrf)")
 SECRET = re.compile(r"""(?<![\w.])([\w.]*?(?i:password|passwd|pwd|secret|api_?key|private_?key|access_?token|auth_?token|client_?secret|signing_?key|encryption_?key)(?![a-z])\w*)["']?\s*(?:(?<![=!<>])=(?!=)|:(?!:)|:=|=>)\s*[rbuRBU]?(["'`])([^"'`\n]{8,200})\2""")
-NOT_SECRET_NAME = re.compile(r"(?i)(?:field|label|prompt|message|msg|error|name|length|len|policy|pattern|regex|url|uri|path|file|dir|env|header|param|type|hash|_id$|placeholder|hint|title|key_?size|key_?length)$")
+NOT_SECRET_NAME = re.compile(r"(?i)(?:field|label|prompt|message|msg|error|name|length|len|policy|pattern|regex|url|uri|path|file|dir|env|header|param|type|hash|_id$|placeholder|hint|title|key_?size|key_?length|prefix|suffix|sep|separator|delimiter|format|template|marker)$")
 PLACEHOLDER = re.compile(r"(?i)\$\{|\{\{|%\(|<[^>]*>|\byour[_ -]|example|changeme|change_me|xxx|\*\*\*|dummy|placeholder|redacted|todo|replace|sample|(?-i:^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$|^[a-z]+(?:[ _-][a-z]+)+$)")
 
 
@@ -99,7 +99,7 @@ def blank(code):
 
 def secret(value):
     v = value.strip()
-    return len(v) >= 8 and not v.isdigit() and not re.search(r"(?i)pass|secret|token|key", v) and " " not in v and "/" not in v and "\\" not in v and not PLACEHOLDER.search(v) and len(set(v)) > 3 \
+    return len(v) >= 8 and not v.isdigit() and not v.endswith(("-", "_", ":", ".")) and not re.search(r"(?i)pass|secret|token|key", v) and " " not in v and "/" not in v and "\\" not in v and not PLACEHOLDER.search(v) and len(set(v)) > 3 \
         and not v.lower().endswith((".pem", ".key", ".crt", ".json", ".txt"))
 
 

@@ -9,11 +9,13 @@ algorithm's name (`def md5(x): return x`), which the names detector would otherw
 """
 import ast
 import builtins
+import re
 import itertools
 from collections import defaultdict
 
 from . import iter_files, rel, read
 
+LARGE = 5000  # Python files: above this, only crypto files and their direct neighbours are indexed (Home Assistant has 20,000)
 MAX_DEPTH = 4
 MAX_VALUES = 8
 MAX_BINDINGS = 8
@@ -38,13 +40,40 @@ def key(v):
     return repr(v)
 
 
+UNKNOWN = ast.Constant(value=...)  # resolves to nothing, as any expression the index cannot read would
+
+
+def _slim(e):
+    """The part of an argument that resolve() can read: constants, names, module or class attributes, subscripts of those and
+    literal dicts. Anything else becomes UNKNOWN, so a call site no longer holds its arguments' whole subtrees."""
+    if isinstance(e, (ast.Constant, ast.Name)) or isinstance(e, ast.Dict) and literal(e) is not None:
+        return e
+    if isinstance(e, ast.Attribute) and isinstance(e.value, ast.Name):
+        return e
+    if isinstance(e, ast.Subscript) and isinstance(e.slice, ast.Constant):
+        return ast.Subscript(value=_slim(e.value), slice=e.slice)
+    if isinstance(e, ast.Starred):
+        return ast.Starred(value=UNKNOWN)
+    return UNKNOWN
+
+
+def slim_call(node):
+    """A call site cut down to what linking and resolving need, or None when its callee cannot be named."""
+    f = node.func
+    if isinstance(f, ast.Attribute):
+        f = ast.Attribute(value=f.value if isinstance(f.value, ast.Name) else UNKNOWN, attr=f.attr)
+    elif not isinstance(f, ast.Name):
+        return None
+    return ast.Call(func=f, args=[_slim(a) for a in node.args], keywords=[ast.keyword(arg=k.arg, value=_slim(k.value)) for k in node.keywords])
+
+
 class Def:
-    __slots__ = ("module", "qual", "cls", "node", "params", "defaults", "callers")
+    __slots__ = ("module", "qual", "cls", "node", "name", "params", "kwonly", "defaults", "callers")
 
     def __init__(self, module, qual, cls, node):
         a = node.args
-        self.module, self.qual, self.cls, self.node, self.callers = module, qual, cls, node, []
-        self.params = [p.arg for p in a.posonlyargs + a.args + a.kwonlyargs]
+        self.module, self.qual, self.cls, self.node, self.name, self.callers = module, qual, cls, node, node.name, []
+        self.params, self.kwonly = [p.arg for p in a.posonlyargs + a.args + a.kwonlyargs], {p.arg for p in a.kwonlyargs}
         positional = a.posonlyargs + a.args
         self.defaults = {p.arg: d for p, d in zip(positional[len(positional) - len(a.defaults):], a.defaults)}
         self.defaults.update({p.arg: d for p, d in zip(a.kwonlyargs, a.kw_defaults) if d is not None})
@@ -66,7 +95,9 @@ class Module:
     def visit(self, st, d):
         for node in ast.walk(st):
             if isinstance(node, ast.Call):
-                self.calls.append((d, node))
+                c = slim_call(node)
+                if c is not None:
+                    self.calls.append((d, c))
             elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                 self.stores[node.id] += 1
             elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
@@ -102,13 +133,19 @@ class Module:
 
 
 class Index:
-    """One pass over the project's Python files; keeps only names, constants and call sites."""
+    """One pass over the project's Python files; keeps only names, constants and call sites. A function's body is kept only in
+    files that name a crypto library: no other function can hand a parameter to a crypto call, and bodies are most of a tree's
+    memory (Home Assistant's 20,000 files took over 3.9 GB with every body kept)."""
 
     def __init__(self, root, scope=False, parse=ast.parse):
+        from .pysrc import ROOTS
+        crypto = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(ROOTS))) + r")\b")
         self.modules, self.by_method, self.memo, self.used = {}, defaultdict(list), {}, {}
-        for p in iter_files(root, scope):
-            if p.suffix.lower() != ".py":
-                continue
+        files = [p for p in iter_files(root, scope) if p.suffix.lower() == ".py"]
+        self.limited = len(files) > LARGE
+        if self.limited:
+            files = neighbourhood(root, files, crypto)
+        for p in files:
             text = read(p)
             if text is None:
                 continue
@@ -118,19 +155,23 @@ class Index:
             except (SyntaxError, ValueError, RecursionError, MemoryError):  # MemoryError: the parser's own stack limit
                 continue
             try:
-                self.modules[path] = Module(path, path.endswith("__init__.py"), tree)
+                m = self.modules[path] = Module(path, path.endswith("__init__.py"), tree)
             except RecursionError:
                 continue
+            if not crypto.search(text):
+                for d in m.defs.values():
+                    d.node = None
         self.by_name = {m.name: m for m in self.modules.values()}
         for m in self.modules.values():
             for d in m.defs.values():
                 if d.cls:
-                    self.by_method[d.node.name].append(d)
+                    self.by_method[d.name].append(d)
         for m in self.modules.values():
             for caller, call in m.calls:
                 d, bound = self.callee(m, caller, call.func)
                 if d is not None:
                     d.callers.append((m, caller, call, bound))
+            m.calls = None  # the linked ones live on in their callee's callers
 
     def module(self, target):
         if target in self.by_name:
@@ -252,7 +293,7 @@ class Index:
             pos = i - (1 if d.method and bound else 0)
             arg = next((k.value for k in call.keywords if k.arg == name), None)
             if arg is None and 0 <= pos < len(call.args) and not any(isinstance(a, ast.Starred) for a in call.args[:pos + 1]) \
-                    and name not in [p.arg for p in d.node.args.kwonlyargs]:
+                    and name not in d.kwonly:
                 arg = call.args[pos]
             if arg is None and (call.keywords and any(k.arg is None for k in call.keywords)):
                 continue
@@ -298,9 +339,48 @@ class View:
             return []
         out = []
         for d in self.module.defs.values():
-            names = relevant(d.node) - {"self", "cls"}
+            names = relevant(d.node) - {"self", "cls"} if d.node is not None else set()
             out += [(d, b) for b in self.index.bindings(d, names)] if names else []
         return out
+
+
+IMPORT = re.compile(r"(?m)^[ \t]*(?:from[ \t]+(\.*)([\w.]*)[ \t]+import[ \t]+\(?([\w., \t]+)|import[ \t]+([\w.]+))")
+
+
+def imports(path, text):
+    """The dotted module names a file's import statements can refer to, relative imports resolved as Module does."""
+    name, package = module_name(path), path.endswith("__init__.py")
+    base = name.split(".") if package else name.split(".")[:-1]
+    out = set()
+    for m in IMPORT.finditer(text):
+        if m.group(4):
+            out.add(m.group(4))
+            continue
+        level, target = len(m.group(1)), m.group(2)
+        parts = base[:len(base) - level + 1] if level else []
+        head = ".".join(parts + ([target] if target else []))
+        if head:
+            out.add(head)
+        out.update(f"{head}.{n.strip()}".strip(".") for n in m.group(3).split(",") if n.strip())
+    return out
+
+
+def neighbourhood(root, files, crypto):
+    """The files that name a crypto library, the project modules they import (for constants) and the files that import them
+    (for call sites): values are followed one import away from crypto code, not further."""
+    seen, core = {}, set()
+    for p in files:  # one pass, keeping only each file's import names: holding 20,000 files' text is itself hundreds of MB
+        text, path = read(p) or "", rel(root, p)
+        seen[p] = (module_name(path), imports(path, text))
+        if crypto.search(text):
+            core.add(p)
+    by_name = {name: p for p, (name, _) in seen.items()}
+    core_names = {seen[p][0] for p in core}
+    wanted = set(core)
+    for p in core:
+        wanted.update(by_name[t] for t in seen[p][1] if t in by_name)
+    wanted.update(p for p in files if p not in wanted and seen[p][1] & core_names)
+    return [p for p in files if p in wanted]
 
 
 def inert(node):

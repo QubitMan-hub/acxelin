@@ -217,10 +217,19 @@ def concatenated(val, text):
     return [(a, {}) for a in dict.fromkeys(lookup(p) for p in parts if p.upper() not in AMBIGUOUS and len(p) > 2) if a]
 
 
+SWITCHED_OFF = re.compile(r"(?i)(?<![a-z0-9])NO_(?:SSL|TLS)v?\d|![ \t]*(?:SSL|TLS)v\d|\bdisabled?_?(?:protocols?|versions?)\b")
+
+
 def string_scout(path, lang, strings, lines, sink, base_ctx, docs):
+    off = {}
     for line, val in strings:
-        glued = concatenated(val, lines[line - 1]) if 0 < line <= len(lines) else None
+        text = lines[line - 1] if 0 < line <= len(lines) else ""
+        glued = concatenated(val, text) if text else None
         hits, prose = (glued, False) if glued is not None else classify_literal(val)
+        if line not in off:
+            off[line] = bool(SWITCHED_OFF.search(text))
+        if off[line]:  # SSL_FLAG_TBL_INV("TLSv1", SSL_OP_NO_TLSv1): the name of what is being turned off
+            hits = [(a, p) for a, p in hits if not re.match(r"(?:TLS|SSL) \d", a or "")]
         for a, p in hits:
             c = set(base_ctx)
             if prose:
@@ -270,11 +279,14 @@ def scan_file(root, p, sink, shared=((), {}), unparsed=None, on_python=None, on_
     return True
 
 
-def scan(root, scope=False, unparsed=None, on_python=None, on_source=None, parse_python=None, parse_index=None, on_code=None):
+def scan(root, scope=False, unparsed=None, on_python=None, on_source=None, parse_python=None, parse_index=None, on_code=None, notes=None):
     """`unparsed` collects Python files this interpreter cannot parse (newer syntax); only their strings and comments are read."""
     sink, n = [], 0
     shared = shared_constants(root, scope)
     flow = pyflow.Index(root, scope, parse_index or ast.parse)
+    if flow.limited and notes is not None:
+        notes.append(f"Over {pyflow.LARGE} Python files: values are followed one import away from crypto code, not across the whole project, "
+                     "to keep memory bounded; a value passed through more modules is not seen.")
     for p in iter_files(root, scope):
         n += scan_file(root, p, sink, shared, unparsed, on_python, on_source, parse_python, flow, on_code)
     for s in sink:

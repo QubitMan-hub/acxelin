@@ -323,7 +323,7 @@ class BrowserTest(Scenario):
         self.addCleanup(b.close)
         return b.new_context(ignore_https_errors=True).new_page()  # the fallback is self-signed here; trust is not what this checks
 
-    def test_a_browser_gets_post_quantum_key_exchange_through_transition_and_is_refused_by_strict(self):
+    def test_a_browser_gets_post_quantum_key_exchange_through_transition_and_strict_needs_ml_dsa(self):
         page = self.browser()
         www = self.d / "www"
         www.mkdir()
@@ -348,8 +348,16 @@ class BrowserTest(Scenario):
         import urllib.request
         groups = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{metrics}/status").read())["edge"]["groups"]
         self.assertIn("X25519MLKEM768", groups, groups)
-        with self.assertRaises(Exception):
+        from acxelin_core.openssl import Context, TLSError
+        classical = Context(False, "X25519MLKEM768:X25519", "ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:ed25519", verify=False)
+        self.addCleanup(classical.close)
+        with self.assertRaises((TLSError, OSError)):  # strict keeps no classical certificate: a client without ML-DSA signatures is refused
+            classical.wrap(socket.create_connection(("127.0.0.1", strict), timeout=10), "localhost", 10).close()
+        try:  # browsers differ: Chromium 156 verifies ML-DSA in TLS and gets through; earlier ones are refused like the client above
             page.goto(f"https://localhost:{strict}/", timeout=10000)
+        except Exception:  # noqa: BLE001
+            return
+        self.assertEqual(page.inner_text("h1"), "hello from behind the edge")
 
 
 class RevocationFollowTest(Scenario):

@@ -236,7 +236,7 @@ OPENSSL = _openssl_names()
 
 def tls_session(cbuf, sbuf):
     ch = sh = None
-    curve = None
+    curve = dh_bits = None
     for t, body in handshakes(cbuf):
         if t == 1:
             ch = client_hello(body)
@@ -244,11 +244,14 @@ def tls_session(cbuf, sbuf):
     for t, body in handshakes(sbuf):
         if t == 2 and sh is None:
             sh = server_hello(body)
+        elif t == 12 and len(body) >= 3 and sh and "DHE" in suite_name(sh["suite"]).replace("ECDHE", ""):
+            plen = struct.unpack(">H", body[:2])[0]  # finite-field DHE: the prime comes first
+            dh_bits = int.from_bytes(body[2:2 + plen], "big").bit_length()
         elif t == 12 and len(body) >= 3 and body[0] == 3:
             curve = struct.unpack(">H", body[1:3])[0]
     if not sh:
         return None
-    return {"client": ch, "server": sh, "group": sh["group"] or curve}
+    return {"client": ch, "server": sh, "group": sh["group"] or curve, "dh_bits": dh_bits}
 
 
 def quic_session(client, datagrams):
@@ -345,6 +348,12 @@ def ssh_session(cbuf, sbuf):
             "client_pq": [k for k in cl[0] if lookup(k.split("@")[0]) in HYBRIDS]}
 
 
+def named(server, session):
+    """The server as its client named it (SNI), so sites that share an address stay apart; the address when no name was sent."""
+    sni = (session.get("client") or {}).get("sni")
+    return (sni, server[1]) if sni else server
+
+
 def scan(path):
     """Detections, endpoint summaries and notes from one capture file."""
     data = Path(path).read_bytes()
@@ -359,7 +368,7 @@ def scan(path):
             elif cbuf[:1] == b"\x16":
                 s = tls_session(cbuf, sbuf)
                 if s:
-                    by_server[server]["tls"].append(s)
+                    by_server[named(server, s)]["tls"].append(s)
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
     for (client, server), datagrams in flows(data).items():
@@ -367,7 +376,7 @@ def scan(path):
         try:
             s = {"ike": ike_session, "dtls": dtls_session, "quic": quic_session}[kind](client, datagrams)
             if s:
-                by_server[server][kind].append(s)
+                by_server[named(server, s) if kind != "ike" else server][kind].append(s)
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
     sights, eps = [], []
@@ -394,6 +403,8 @@ def scan(path):
                     suites_.add(name_)
                     for a, p in suite(name_):
                         add(a, f"negotiated {name_}", role="cipher-suite", **p)
+                    if s.get("dh_bits"):
+                        add("DH", f"negotiated DHE with a {s['dh_bits']}-bit prime", role="key-exchange", key_size=s["dh_bits"])
                     g = s["group"]
                     if g is not None:
                         gname = GROUPS.get(g, f"0x{g:04X}")

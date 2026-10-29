@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Endpoints: RC4, 3DES and Diffie-Hellman under 2048 bits are offered by raw ClientHello and named with their suite and size
+  ("DHE 1024-bit (DHE-RSA-AES128-SHA)"), with a risk and a recommendation of their own; a server that speaks TLS 1.2 only with
+  such suites is graded C, not F, and no longer described as TLS 1.0 or 1.1 only. The probe now sends key shares for
+  X25519MLKEM768 and X25519 as browsers do, so the negotiated group is the one a browser gets (an OpenSSL that cannot read the
+  key-share marks is offered the plain list). An SSH server that still offers a DSA host key says so.
+- Captures: connections are kept apart by the name the client asked for (SNI), so sites sharing an address no longer merge,
+  and the size of a DHE prime is read from the ServerKeyExchange.
+- Fewer false alarms, each found scanning a real project: `arc4random` is a random generator, not RC4 (Go); `des.NewTripleDESCipher`
+  is 3DES and not also DES (Vault); a TLS version named next to `SSL_OP_NO_TLSv1` is being switched off (OpenSSL); a constant
+  ending in `_PREFIX` is not a secret (Django); `testing/` packages and `testing.go` or `testutil` files are tests (Kubernetes,
+  Vault); a folder of one-root-per-file certificates is a trust store (`/usr/share/ca-certificates`); the hash of a
+  self-signature is not asked to be re-signed. A finding weak in only some places says how many ("at 1 of 9 places").
+- Memory: the project-wide Python index keeps function bodies only in files that name a crypto library and keeps call sites
+  cut down to what values need; over 5,000 Python files it indexes only crypto files and their direct imports and importers,
+  and the scan says so. Home Assistant's 20,000 files no longer run out of memory. Scans no longer print Python's warnings
+  about other projects' code or cryptography's about unusual certificates.
 - Endpoints, from a run against real servers: a server that speaks only TLS 1.0 or 1.1 is graded C with those versions named
   (it was graded F, "handshake failed"); when the TLS 1.0 and 1.1 check gets no answer the result says it could not be
   checked instead of reporting none (a hang-up is asked once more before it counts as a refusal); negotiated group names

@@ -60,3 +60,43 @@ def test_ssh_host_keys_have_no_made_up_expiry_and_the_summary_copes(request):
     s = endpoints.summary([r])
     assert s["expiring_30d"] == 0
     endpoints.outlook([r])
+
+
+def test_the_probe_offers_key_shares_like_a_browser_and_falls_back_where_openssl_cannot(monkeypatch):
+    from acxelin_core.openssl import TLSError
+    seen = []
+
+    class Fake:
+        def __init__(self, server, groups, *a, **k):
+            seen.append(groups)
+            if groups.startswith("*") and len(seen) == 1:
+                raise TLSError(f"cannot use groups {groups}: not supported by this OpenSSL")
+
+        def close(self):
+            pass
+
+        def wrap(self, *a):
+            raise TLSError("stop here")
+    monkeypatch.setattr(endpoints, "Context", Fake)
+    monkeypatch.setattr(endpoints.socket, "create_connection", lambda *a, **k: None)
+    try:
+        endpoints._hello("127.0.0.1", 9, endpoints.BROWSER_GROUPS, "x", 1)
+    except TLSError as e:
+        assert "stop here" in str(e)
+    assert seen[0].startswith("*X25519MLKEM768:*X25519:") and seen[1] == ":".join(endpoints.PQ + endpoints.CLASSICAL)
+
+
+def test_an_ssh_server_that_still_offers_a_dsa_host_key_says_so(request, monkeypatch):
+    monkeypatch.setattr(endpoints, "ssh_kexinit", lambda h, p, t: ("SSH-2.0-x", ["curve25519-sha256"], ["ssh-ed25519", "ssh-dss"]))
+    r = endpoints.probe("ssh://127.0.0.1:22", timeout=1)
+    assert "ssh-dss" in r["note"] and "DSA" in r["note"]
+
+
+def test_a_scan_of_foreign_code_prints_no_parser_or_certificate_warnings(tmp_path):
+    import warnings
+    from acxelin_readiness import workspace
+    (tmp_path / "old.py").write_text('import re\nx = re.compile("\\d+")\nimport hashlib\nhashlib.md5(b"x")\n')
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        workspace.scan(tmp_path)
+    assert not [w for w in caught if issubclass(w.category, SyntaxWarning)], [str(w.message) for w in caught]

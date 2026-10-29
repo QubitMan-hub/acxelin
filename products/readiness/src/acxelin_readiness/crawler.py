@@ -21,7 +21,7 @@ def dotted(node):
 
 class ParseCache:
     """Bounded in-memory syntax reuse; relationships and findings are always recomputed."""
-    def __init__(self, max_bytes=32_000_000, max_entries=5000):
+    def __init__(self, max_bytes=8_000_000, max_entries=5000):  # source bytes; the trees kept take about twenty times as much
         self.max_bytes, self.max_entries = max_bytes, max_entries
         self.entries, self.bytes = OrderedDict(), 0
         self.lock = threading.Lock()
