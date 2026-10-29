@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - Consoles read a request's body only after its session is checked (sign-in excepted), so an unauthenticated request never
   has a body parsed or awaited. A route can take a larger body than the default (`App(..., limits=...)`).

@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-readiness"
-version = "1.0.2"
+version = "1.1.0"
 description = "Acxelin Readiness: find the cryptography in code, configs, keys, binaries and live endpoints, write a CycloneDX 1.6 CBOM, and rank what to migrate first for post-quantum"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=43", "acxelin-core>=1,<2"]
+dependencies = ["cryptography>=43", "acxelin-core>=1.1,<2"]
 authors = [{name = "Acxelin Quantum"}]
 license = {file = "LICENSE"}
 classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]

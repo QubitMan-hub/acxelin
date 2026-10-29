@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - Endpoints: RC4, 3DES and Diffie-Hellman under 2048 bits are offered by raw ClientHello and named with their suite and size
   ("DHE 1024-bit (DHE-RSA-AES128-SHA)"), with a risk and a recommendation of their own; a server that speaks TLS 1.2 only with

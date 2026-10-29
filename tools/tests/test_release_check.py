@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release_check import FOLDERS, check, parse_tag  # noqa: E402
 
-VERSION = {p: tomllib.loads((FOLDERS[p] / "pyproject.toml").read_text())["project"]["version"] for p in ("tls", "vpn", "readiness")}
+VERSION = {p: tomllib.loads((FOLDERS[p] / "pyproject.toml").read_text())["project"]["version"] for p in ("core", "tls", "vpn", "readiness")}
 
 
 def test_tags_name_a_product_and_a_version():
@@ -34,4 +34,4 @@ def test_a_product_needs_a_released_core_in_its_range():
 
 
 def test_core_releases_need_no_core_tag():
-    assert check("core", "1.0.0", tags=[]) == "acxelin-core 1.0.0"
+    assert check("core", VERSION["core"], tags=[]) == f"acxelin-core {VERSION['core']}"
