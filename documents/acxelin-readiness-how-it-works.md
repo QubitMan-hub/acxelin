@@ -16,7 +16,7 @@ Acxelin Readiness answers the question in three parts:
 | --- | --- | --- |
 | **The scanner** | A building inspector with a checklist | Reads a company's code, configuration, keys, certificates, keystores, disk images and network captures, and lists every algorithm it finds, where, and how it was seen. |
 | **The endpoint grader** | A locksmith testing the front doors | Connects to live TLS and SSH servers and grades each A to F on post-quantum key exchange, weak ciphers and certificates. |
-| **The console** | The inspector's report, on your own desk | A web page on your own computer that turns findings into four answers: what was found, why it matters, what can happen, and what to do first. |
+| **The console** | The inspector's report, on your own desk | A web page on your own computer that turns findings into four answers: what we found, why it matters, what could happen, and what to do first. |
 
 Everything it finds goes into a **CBOM** (Cryptography Bill of Materials) in the CycloneDX 1.6 standard, so auditors and other tools can read it. It runs offline on the customer's own machines and never sends anything to Acxelin Quantum.
 
@@ -57,7 +57,8 @@ The scanner reads everything on the left without changing it, decides how weak e
 | Network recordings | Our own reader for Wireshark files | Sees what was really agreed on the wire, without installing Wireshark |
 | Console | One web page, served from your own computer | Nothing extra to install, nothing loaded from the internet |
 | Outputs | Standard file formats (CycloneDX, SARIF, CSV, PDF) | Auditors and other tools can read them without our software |
-| Tests | 518 automatic tests, plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
+| Tests | 538 automatic tests (32 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
+| Cloud keys (optional) | boto3, Amazon's own library | Only for reading AWS KMS keys and ACM certificates; it comes with the aws extra, which the release folder and the Docker image include |
 
 ### The code is split in two packages
 
@@ -84,6 +85,7 @@ The rule between them: **core holds mechanisms, the product holds policy.** Core
 | Packet captures | What clients and servers actually negotiated | TLS, DTLS, QUIC, SSH, IKEv1 and IKEv2 in `.pcap` and `.pcapng` |
 | Live endpoints | Post-quantum key exchange, weak suites, old TLS versions, certificates | `cloudflare.com`, `ssh://github.com` |
 | Other tools' CBOMs | Their findings, rated on the same scale | a CycloneDX CBOM from CodeQL or another scanner |
+| Cloud keys | AWS KMS keys and ACM certificates, read with your own credentials; list and describe only, never the keys | scan --aws eu-west-1 |
 
 A GitHub link works as well as a folder: the console downloads a public or private repository (with a token) and scans it the same way.
 
@@ -155,8 +157,8 @@ If the browser does not open, add `--no-browser` and copy the address it prints.
 
 | Page | What you do there |
 | --- | --- |
-| **Projects** | Choose a folder of code, paste a GitHub link (public, or private with a token), or load a CBOM from another tool. Press Scan. |
-| **Endpoints** | Paste server addresses, one per line (`bank.example.com`, `ssh://server`). Press Check. |
+| **Projects** | Pick one of three starting points: a folder of code on this computer, a GitHub link (public, or private with a token), or a CBOM from another tool. It is scanned straight away. |
+| **Endpoints** | Paste server addresses, one per line (`bank.example.com`, `ssh://server`). Press Check. Before the first check, the page explains what each grade means. |
 
 ### What every result shows
 
@@ -164,16 +166,18 @@ Each result opens with a short summary at the top, then four sections that each 
 
 | Section | The question it answers | What you see |
 | --- | --- | --- |
-| **What was found** | What cryptography do we have? | A colour bar of priorities, the list of findings, and a progress bar of what is already fixed |
-| **Why** | Why does each one matter? | What each priority means, what puts the findings at risk, how sure the scan is, the score over time |
-| **What can happen** | What happens if we do nothing? | Plain risks, such as "traffic recorded today can be read later" or "this certificate expires in 15 days" |
+| **What we found** | What cryptography do we have? | A colour bar of priorities, the list of findings, and a progress bar of what is already fixed |
+| **Why it matters** | Why does each one matter? | What each priority means, what puts the findings at risk, how sure the scan is, the score over time |
+| **What could happen** | What happens if we do nothing? | Plain risks, such as "traffic recorded today can be read later" or "this certificate expires in 15 days" |
 | **What to do** | What should we fix first? | Numbered steps, worst first, each naming the findings it fixes |
+
+Above the sections, four cards show the numbers that matter: how many findings need action now, the readiness score, how many a quantum computer could break, and how many have no owner yet. From the second scan on, a line says what is new and what is no longer found.
 
 ### Keeping track of the fixes
 
-- **Owner and due date** for each finding. The console suggests an owner from the code's ownership file (CODEOWNERS) or from a spreadsheet of who owns what.
+- **Owner and due date** for each finding. The console suggests an owner from the code's ownership file (CODEOWNERS) or from a spreadsheet of who owns what. The spreadsheet can also name the business service each part of the code belongs to; buttons above the list then show one service at a time.
 - **Status:** To do, Planned, In progress, Fixed, or Accepted risk (with a reason and an end date). A finding marked Fixed that the next scan still finds is flagged.
-- **Downloads:** a spreadsheet (CSV), a PDF (Print), and the CBOM for auditors.
+- **Downloads:** a spreadsheet (CSV), tickets ready to import into Jira or ServiceNow, a PDF (Print), and the CBOM for auditors.
 
 ### How it is kept safe
 
@@ -198,8 +202,13 @@ Each result opens with a short summary at the top, then four sections that each 
 | **Compliance report** (`acxelin-readiness report`) | Which certificates, servers and findings break the US deadlines in NIST IR 8547 (2030 and 2035) or the NSA's CNSA 2.0 list | Compliance and audit teams |
 | **Code scanning results** (SARIF) | Findings in the format GitHub and other code tools show next to the code | Developers |
 | **Company-wide view** (`acxelin-readiness merge`) | Many scans (repositories, servers, other tools' CBOMs) combined into one inventory and dashboard | Whoever owns the migration programme |
+| Tickets (tickets.csv) | One ticket per finding that needs work, with what to do, where it was seen, its owner, service and priority | The teams that make the fixes, in Jira or ServiceNow |
 
 A scan can also act as a gate in a build pipeline: compared with the last CBOM, it fails the build only when something new and weak appears.
+
+### Keeping watch
+
+`acxelin-readiness watch` scans again on a schedule, every day for example, and writes down only what changed: findings that appeared and findings no longer found. It can run a command when something changed, such as posting to the team's chat, and it can also be started by the computer's own scheduler (cron, a systemd timer or Windows Task Scheduler). It uses the scanned folder's settings, so live servers and AWS regions listed there are checked each time.
 
 ## Code tour
 
@@ -218,7 +227,9 @@ A scan can also act as a gate in a build pipeline: compared with the last CBOM, 
 | `rank.py`, `catalog.py` | 389, 322 | The priority of each finding, and the list of every algorithm with what breaks it and what replaces it. |
 | `endpoints.py`, `detectors/probe.py` | 419, 219 | Grading live servers, including the hand-built hello messages. |
 | `cbom.py`, `report.py`, `evidence.py` | 222, 225, 225 | The CBOM, the HTML report, the CSV and the compliance mapping. |
-| `workspace.py`, `console.py` + `console.html` | 416, 414 + page | The console: projects, tracking, owners, and its 17 routes. |
+| `workspace.py`, `console.py` + `console.html` | 416, 414 + page | The console: projects, tracking, owners, and its 18 routes. |
+| tickets.py, detectors/aws.py | 26, 47 | Tickets for Jira and ServiceNow; AWS KMS keys and ACM certificates through list and describe calls. |
+| cli.py (watch) | 410 | Every command; watch scans again and compares the CBOM with the previous one. |
 
 ### Design decisions worth discussing
 
@@ -263,6 +274,7 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 | Inventory across the company | Scan many repositories and servers, then merge them into one list |
 | What a vendor ships | Scan a container image or a vendor's CBOM before accepting their product |
 | Keys and certificates lying around | Find private keys committed to code, and certificates about to expire |
+| Keys held in the cloud | Read the AWS KMS keys and ACM certificates of a region and rank them with everything else |
 
 ### 2. "What is exposed to quantum attack today?"
 
@@ -279,6 +291,7 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 | A migration plan | The ranked list, worst first, each with its replacement (for example ML-KEM-768 instead of RSA) |
 | Owners and deadlines | Each finding gets an owner from CODEOWNERS or the company's ownership spreadsheet, a status and a due date |
 | Proof that fixes landed | The next scan checks every finding marked Fixed |
+| Hand the work to the right team | Tickets for Jira or ServiceNow, each with its owner and business service from the company's ownership spreadsheet |
 
 ### 4. "Can we prove it to the regulator?"
 
@@ -287,6 +300,7 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 | Evidence for auditors | A standard CBOM and a compliance report against NIST IR 8547 and CNSA 2.0 |
 | Progress over time | The readiness score and coverage after every scan |
 | Stopping new weak code | A build check that fails only when something new and weak is added |
+| Staying on top of it | A scheduled scan that reports only what appeared or disappeared since the last one |
 
 ### What it doesn't cover
 
@@ -302,7 +316,7 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 1. **The risk, in their terms.** "Regulators now expect a plan to move off RSA and elliptic curves: NIST's draft plan phases them out after 2030 and bans them after 2035. Your account data must stay secret for ten years, so anyone recording your traffic today could read it later."
 2. **The first step.** "You cannot replace what you have not found. Readiness finds the locks in your systems without changing anything."
 3. **Show it.** Paste one of their public addresses into the Endpoints page: they see their own grade in seconds, next to Cloudflare's B.
-4. **Show the plan.** Scan one of their repositories (or a public sample): the console shows what was found, why it matters, what can happen and what to fix first.
+4. **Show the plan.** Scan one of their repositories (or a public sample): the console shows what we found, why it matters, what could happen and what to fix first.
 5. **The path.** Assign owners, fix the critical items, scan again: the score rises and the auditor gets a standard CBOM.
 
 ### Questions clients ask
@@ -330,6 +344,8 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 | Very large Python projects | Above 5,000 Python files, values are followed only one file away from cryptography code, to keep memory low; the scan says so. |
 | Priorities are a model | They follow the NIST dates and Mosca's inequality with default numbers (10 years of secrecy, 5 of migration, a quantum computer in 9); a client can set their own. |
 | Not a certified product | It uses public standards, but has no FIPS or Common Criteria certificate of its own. |
+| AWS only, among cloud key services | Google Cloud KMS and Azure Key Vault are read only from settings written in code or Terraform, not from the live service. |
+| Watching is a scheduled scan, not a sensor | watch scans again every few hours; changes between scans, and traffic on the wire, are not seen until the next one. |
 
 ## Glossary
 
