@@ -491,8 +491,11 @@ async function showBoard() {
       h("li", {}, h("strong", {}, b.score == null ? "–" : b.score + " of 100"), h("span", {}, "readiness"), h("small", {}, trend)),
       h("li", {class: b.critical ? "bad" : "ok"}, h("strong", {}, String(b.critical + b.high)), h("span", {}, "need action now"), h("small", {}, b.critical + " critical, " + b.high + " high")),
       h("li", {class: b.recordable ? "exposed" : ""}, h("strong", {}, String(b.recordable)), h("span", {}, "recordable now, readable later"), h("small", {}, "harvest now, decrypt later")),
-      h("li", {}, h("strong", {}, String(b.deadline_findings)), h("span", {}, "to replace by 2030–2035"), h("small", {}, "NIST IR 8547 (draft)"))),
+      b.next_deadline ? h("li", {}, h("strong", {}, String(b.next_deadline.year)), h("span", {}, b.next_deadline.what), h("small", {}, b.next_deadline.who + " · " + b.deadline_findings + " quantum-vulnerable findings"))
+        : h("li", {}, h("strong", {}, String(b.deadline_findings)), h("span", {}, "quantum-vulnerable findings"), h("small", {}, "no dated deadline chosen"))),
     h("p", {}, h("strong", {}, b.done + " of " + b.to_fix), " findings that need work are fixed or accepted." + (effort ? " Of what is left to change, " + effort + "." : "")),
+    b.agility.total ? h("p", {}, h("strong", {}, "Crypto-agility: " + Math.round(100 * b.agility.without_code / b.agility.total) + "%"), " of the remaining changes need no code change (a setting, a new key or certificate, or a library upgrade).") : "",
+    b.weakest && b.scanned > 1 ? h("p", {}, h("strong", {}, "Weakest project: " + b.weakest.name + ", " + b.weakest.score + " of 100."), " The average hides it; the board should watch the lowest.") : "",
     b.actions.length ? [h("h3", {}, "First five actions"), h("ol", {}, b.actions.map((a) => h("li", {}, a.text, " ", h("small", {}, [a.names.join(", "), a.projects.join(", ")].filter(Boolean).join(" · ")))))] : "",
     b.services.length ? [h("h3", {}, "Services most at risk"), h("p", {style: "margin:0"}, b.services.join(" · "))] : "",
     b.libraries_without_pq ? h("p", {class: "legend"}, b.libraries_without_pq + (b.libraries_without_pq === 1 ? " third-party library has" : " third-party libraries have") + " no post-quantum support yet: ask those suppliers for their dates.") : "",
@@ -502,6 +505,26 @@ async function showBoard() {
   section.focus();
 }
 addEventListener("afterprint", () => document.body.classList.remove("board-print"));
+function deadlineForm(o) {
+  const chosen = o.deadline_choice, box = (group, key, label) => {
+    const id = group + "-" + key;
+    return h("label", {for: id, style: "display:inline-flex;gap:6px;align-items:center;margin:4px 14px 4px 0;font-weight:400"},
+      h("input", {type: "checkbox", id, value: key, "data-group": group, checked: chosen[group].includes(key)}), label);
+  };
+  const save = async () => {
+    const pick = (g) => [...document.querySelectorAll("input[data-group=" + g + "]:checked")].map((x) => x.value);
+    try { await call("settings/deadlines", {countries: pick("countries"), sectors: pick("sectors")}); notify("Deadlines saved."); refreshOverview(); } catch (e) {}
+  };
+  const list = o.board.deadlines;
+  return h("details", {class: "add", style: "margin-top:34px"}, h("summary", {}, "Deadlines that apply to you" + (o.board.next_deadline ? ": next " + o.board.next_deadline.year : "")),
+    h("p", {class: "legend"}, chosen.countries.length ? "From the countries and sectors you chose." : "Showing the United States (NIST) until you choose. Pick where you operate and what you are."),
+    h("fieldset", {style: "border:0;padding:0;margin:8px 0 0"}, h("legend", {style: "font-size:13px;color:var(--muted)"}, "Countries"), Object.entries(o.countries).map(([k, n]) => box("countries", k, n))),
+    h("fieldset", {style: "border:0;padding:0;margin:8px 0 0"}, h("legend", {style: "font-size:13px;color:var(--muted)"}, "Sectors"), Object.entries(o.sectors).map(([k, n]) => box("sectors", k, n))),
+    h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: save}, "Save")),
+    list.length ? h("ul", {class: "runs", style: "margin-top:14px"}, list.map((d) => h("li", {}, h("strong", {}, String(d.year)), " · " + d.what + " · ", h("a", {href: d.source, target: "_blank", rel: "noopener"}, d.who))))
+      : h("p", {class: "state"}, "No upcoming deadline for this choice."),
+    h("p", {class: "legend"}, "Dates checked against each source in October 2026. Guidance and drafts are included; confirm which bind you."));
+}
 async function refreshOverview() {
   const out = $("#ov");
   if (!out) return;
@@ -543,6 +566,7 @@ async function refreshOverview() {
         h("thead", {}, h("tr", {}, ["Library", "Post-quantum", "Used by"].map((c) => h("th", {}, c)))),
         h("tbody", {}, o.libraries.map((x) => h("tr", {}, h("td", {class: "asset"}, x.name, h("small", {class: "basis"}, x.ecosystem + (x.note ? " · " + x.note : ""))),
           h("td", {}, h("span", {class: "pill " + (x.pq ? "ok" : "mute")}, x.pq ? "supported" : "not yet")), h("td", {}, x.projects.join(", ")))))))) : "",
+    deadlineForm(o),
     h("h2", {}, "Scheduled scans"),
     o.watch.length ? h("ul", {class: "runs"}, o.watch.map((w) => h("li", {}, h("details", {}, h("summary", {}, when(w.finished) + " · " + w.path + " · " +
       (w.first ? "first scan" : w.new_count + " new, " + w.gone_count + " no longer found")),

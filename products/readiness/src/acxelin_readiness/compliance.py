@@ -16,6 +16,46 @@ CNSA = {"SHA-384", "SHA-512", "ML-KEM-1024", "ML-DSA-87"}
 CNSA_SCOPE = {"pke", "signature", "key-agree", "kem", "other", "block-cipher", "stream-cipher", "ae", "hash"}
 
 
+COUNTRIES = {"us": "United States", "uk": "United Kingdom", "eu": "European Union", "ca": "Canada", "in": "India"}
+SECTORS = {"enterprise": "Enterprise", "government": "Government", "critical-infrastructure": "Critical infrastructure",
+           "national-security": "National security"}
+ALL = tuple(SECTORS)
+NIST = "https://csrc.nist.gov/pubs/ir/8547/ipd"
+NCSC = "https://www.ncsc.gov.uk/guidance/pqc-migration-timelines"
+EU = "https://digital-strategy.ec.europa.eu/en/library/coordinated-implementation-roadmap-transition-post-quantum-cryptography"
+CCCS = "https://www.cyber.gc.ca/en/guidance/roadmap-migration-post-quantum-cryptography-government-canada-itsm40001"
+NSA = "https://www.nsa.gov/Cybersecurity/Post-Quantum-Cybersecurity-Resources/"
+DST = "https://dst.gov.in/quantum-safe-ecosystem-in-india"
+# (country, sectors it applies to, year, what is due, who says so, source), checked against each source in October 2026
+ROSTER = [
+    ("us", ALL, 2030, "Quantum-vulnerable public-key algorithms deprecated", "NIST IR 8547 (draft)", NIST),
+    ("us", ALL, 2035, "Quantum-vulnerable public-key algorithms disallowed", "NIST IR 8547 (draft)", NIST),
+    ("us", ("national-security",), 2030, "Software signing and networking equipment use CNSA 2.0 only", "NSA CNSA 2.0", NSA),
+    ("us", ("national-security",), 2033, "Browsers, servers, cloud services and operating systems use CNSA 2.0 only", "NSA CNSA 2.0", NSA),
+    ("uk", ALL, 2028, "Discovery finished and an initial migration plan made", "NCSC migration timelines", NCSC),
+    ("uk", ALL, 2031, "Highest-priority migrations finished", "NCSC migration timelines", NCSC),
+    ("uk", ALL, 2035, "Migration to post-quantum cryptography complete", "NCSC migration timelines", NCSC),
+    ("eu", ALL, 2026, "First steps: inventory and national roadmaps begun", "EU coordinated roadmap", EU),
+    ("eu", ALL, 2030, "High-risk use cases migrated", "EU coordinated roadmap", EU),
+    ("eu", ALL, 2035, "Medium-risk use cases migrated", "EU coordinated roadmap", EU),
+    ("ca", ("government",), 2031, "High-priority federal systems migrated", "Canadian Centre for Cyber Security, ITSM.40.001", CCCS),
+    ("ca", ("government",), 2035, "Remaining federal systems migrated", "Canadian Centre for Cyber Security, ITSM.40.001", CCCS),
+    ("in", ("critical-infrastructure",), 2029, "Critical information infrastructure fully post-quantum", "DST National Quantum Mission task force", DST),
+    ("in", ("enterprise",), 2033, "Enterprises fully post-quantum", "DST National Quantum Mission task force", DST),
+]
+
+
+def deadlines(countries, sectors, this_year=None):
+    """The dated milestones for the chosen countries and sectors (none chosen: every sector), earliest first, each marked passed or not."""
+    bad = [c for c in countries if c not in COUNTRIES] + [s for s in sectors if s not in SECTORS]
+    if bad:
+        raise ValueError(f"Unknown country or sector: {', '.join(map(str, bad))[:80]}")
+    this_year = this_year or date.today().year
+    rows = [{"year": y, "what": what, "who": f"{COUNTRIES[c]}: {who}", "source": src, "passed": y < this_year}
+            for c, applies, y, what, who, src in ROSTER if c in countries and (not sectors or set(sectors) & set(applies))]
+    return sorted(rows, key=lambda r: (r["year"], r["who"]))
+
+
 @dataclass
 class Violation:
     rule: str

@@ -11,6 +11,7 @@ def build(tmp_path, repos):
     for name, files in repos.items():
         (root / name).mkdir(parents=True)
         for f, text in files.items():
+            (root / name / f).parent.mkdir(parents=True, exist_ok=True)
             (root / name / f).write_text(text)
     app = rc.build(tmp_path / "home")
     r = lambda method, path, body=None: app.routes[(method, path)](body or {})[1]

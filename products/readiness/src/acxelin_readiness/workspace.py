@@ -357,6 +357,14 @@ class ProjectStore:
         record = self.read()['projects'].get(self.key(root))
         return self.view(record) if record else None
 
+    def deadline_choice(self):
+        return self.read().get('deadlines', {"countries": [], "sectors": []})
+
+    def set_deadline_choice(self, countries, sectors):
+        def change(data):
+            data['deadlines'] = {"countries": countries, "sectors": sectors}
+        self.update(change)
+
     def owner_rules(self, root):
         return self.read()['projects'].get(self.key(root), {}).get('owners', [])
 

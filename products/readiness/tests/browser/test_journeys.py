@@ -600,3 +600,20 @@ def test_the_board_summary_prints_alone_and_says_when_it_is_provisional(page, co
     page.emulate_media(media="screen")
     page.evaluate("document.body.classList.remove('board-print')")
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_choosing_countries_and_sectors_sets_the_next_deadline_on_the_board(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    page.get_by_role("tab", name="Overview").click()
+    page.get_by_text("Deadlines that apply to you: next 2030").click()
+    page.get_by_label("India").check()
+    page.get_by_label("Critical infrastructure").check()
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.get_by_text("Deadlines that apply to you: next 2029").wait_for()
+    page.get_by_role("button", name="Board summary").click()
+    card = page.locator("#board .cards li").nth(3)
+    card.get_by_text("2029").wait_for()
+    assert "India" in card.inner_text()
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []

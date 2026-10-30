@@ -57,7 +57,7 @@ The scanner reads everything on the left without changing it, decides how weak e
 | Network recordings | Our own reader for Wireshark files | Sees what was really agreed on the wire, without installing Wireshark |
 | Console | One web page, served from your own computer | Nothing extra to install, nothing loaded from the internet |
 | Outputs | Standard file formats (CycloneDX, SARIF, CSV, PDF) | Auditors and other tools can read them without our software |
-| Tests | 585 automatic tests (33 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
+| Tests | 590 automatic tests (34 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
 | Cloud keys (optional) | boto3, Amazon's own library | Only for reading AWS KMS keys and ACM certificates; it comes with the aws extra, which the release folder and the Docker image include |
 
 ### The code is split in two packages
@@ -135,7 +135,7 @@ Each of these came from scanning a real project, and each has a test.
 
 1. **Greet it like a browser.** It connects the way Chrome does, offering the new quantum-safe lock and the classic one together, and notes which one the server picks.
 2. **Ask about every lock, one at a time.** It asks the server about each quantum-safe and each classic option. These questions are built by hand, so the answer does not depend on how new the scanning computer's own software is.
-3. **Ask about old and broken settings.** Does it still accept TLS 1.0 or 1.1? RC4, 3DES, or Diffie-Hellman keys under 2048 bits? Each one found is named.
+3. **Ask about old and broken settings.** Does it still accept TLS 1.0 or 1.1? Does its public certificate last longer than the new limits (200 days from March 2026, 100 from March 2027, 47 from March 2029) allow? RC4, 3DES, or Diffie-Hellman keys under 2048 bits? Each one found is named.
 4. **Read its ID card.** The certificate's key type, who issued it, how many days are left, and whether this computer trusts it. If every server shows the same issuer, the page warns that a company proxy probably answered instead.
 5. **SSH servers too.** Which quantum-safe options it offers for remote logins, and whether it still offers a DSA key, which OpenSSH has removed.
 
@@ -178,7 +178,7 @@ Above the sections, four cards show the numbers that matter: how many findings n
 
 **What each change takes.** Every finding says whether fixing it means changing a setting, reissuing a key or certificate, upgrading a library, changing code (and in how many files) or replacing a vendor's component. A small chart counts them, so a team can see how much is quick work and how much needs a project. Where the code is Python, Java, Go, JavaScript, TypeScript or nginx, a link shows a short before and after in that language.
 
-**Every project at once.** The Overview tab puts every project side by side with its score and what changed, scans them all with one button, adds every repository of a GitHub organisation, ranks the business services most at risk, lists the third-party cryptography libraries and whether they support post-quantum algorithms, and shows the results of scheduled scans. **Board summary** prints all of it as one page for directors, marked provisional when projects are unscanned or coverage is under 80%.
+**Every project at once.** The Overview tab puts every project side by side with its score and what changed, scans them all with one button, adds every repository of a GitHub organisation, ranks the business services most at risk, lists the third-party cryptography libraries and whether they support post-quantum algorithms, and shows the results of scheduled scans. **Board summary** prints all of it as one page for directors, marked provisional when projects are unscanned or coverage is under 80%, with the weakest project, the share of changes that need no code, and the next deadline for the countries and sectors you choose (US, UK, EU, Canada, India).
 
 ### Keeping track of the fixes
 

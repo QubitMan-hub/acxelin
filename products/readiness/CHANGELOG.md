@@ -31,6 +31,12 @@
 - Board summary: one printable page for directors from every project's latest scan (level and trend, findings that need action,
   harvest-now and 2030 exposure, progress, the first five actions, the services most at risk), marked provisional when projects
   are unscanned or coverage is under 80%.
+- Deadlines that apply to you: choose countries (US, UK, EU, Canada, India) and sectors on the Overview; their dated milestones
+  are listed with sources and the next one goes on the board summary. The board also gives the weakest project and the share of
+  remaining changes that need no code (crypto-agility).
+- Endpoints: publicly trusted TLS certificates are checked against the CA/Browser Forum's shorter lifetimes (200 days from
+  15 March 2026, 100 from 15 March 2027, 47 from 15 March 2029); certificates over the limit, or that renewal by hand will not
+  keep up with, are named, with automated renewal (ACME) as the action. Certificates now record their issue date and lifetime.
 - Before and after: a rescan lists the findings no longer found and the new ones, by name and priority.
 - Fix examples: findings in Python, Java, Go, JavaScript, TypeScript and nginx show a short before and after in that language.
 - Console polish: a search box for findings (`/`), confirmation before removing a token or an owner list, a message when

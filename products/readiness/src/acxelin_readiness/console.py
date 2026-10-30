@@ -16,7 +16,7 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, endpoints, evidence, owners, pipeline, remote, workspace
+from . import cbom, compliance, endpoints, evidence, owners, pipeline, remote, workspace
 from .rank import Horizon
 
 MAX_TARGETS = 500
@@ -323,7 +323,7 @@ class Readiness:
         with self.lock:
             projects, scan_all = list(enumerate(self.projects)), dict(self.all)
         saved, rows, services, libraries, actions = self.store.read()["projects"], [], {}, {}, {}
-        board = {"projects": len(projects), "scanned": 0, "critical": 0, "high": 0, "recordable": 0, "deadline_findings": 0, "to_fix": 0, "done": 0,
+        board = {"weakest": None, "projects": len(projects), "scanned": 0, "critical": 0, "high": 0, "recordable": 0, "deadline_findings": 0, "to_fix": 0, "done": 0,
                  "effort": Counter(), "scores": [], "previous": [], "coverage": []}
         for i, path in projects:
             record = saved.get(self.store.key(path))
@@ -352,8 +352,11 @@ class Readiness:
         ranked = sorted(({**s, "projects": sorted(s["projects"])} for s in services.values()),
                         key=lambda s: (-s["risk"], -s["critical"], -s["high"], s["service"]))
         libs = sorted(({**x, "projects": sorted(x["projects"])} for x in libraries.values()), key=lambda x: (x["pq"], -len(x["projects"]), x["name"]))
+        choice = self.store.deadline_choice()
+        due = [d for d in compliance.deadlines(choice["countries"] or ["us"], choice["sectors"]) if not d["passed"]]
         return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home),
-                     "board": summary(board, actions, ranked, libs)}
+                     "board": summary(board, actions, ranked, libs) | {"next_deadline": due[0] if due else None, "deadlines": due},
+                     "deadline_choice": choice, "countries": compliance.COUNTRIES, "sectors": compliance.SECTORS}
 
     @staticmethod
     def tally(board, actions, v, live, name):
@@ -375,6 +378,8 @@ class Readiness:
         s = v["summary"]
         if s.get("score") is not None:
             board["scores"].append(s["score"])
+            if board["weakest"] is None or s["score"] < board["weakest"]["score"]:
+                board["weakest"] = {"name": name, "score": s["score"]}
             before = [h["summary"].get("score") for h in v.get("history", []) if h.get("finished", 0) < v["finished"] and h["summary"].get("score") is not None]
             if before:
                 board["previous"].append(before[-1])
@@ -407,6 +412,14 @@ class Readiness:
             result = self.store.track(path, body)
             if self.job["last"] and self.job["last"].get("project_key") == self.store.key(path):
                 self.job["last"] = result
+        return 200, {"saved": True}
+
+    def deadlines(self, body):
+        countries, sectors = body.get("countries"), body.get("sectors")
+        if not (isinstance(countries, list) and isinstance(sectors, list) and all(isinstance(x, str) for x in countries + sectors)):
+            raise ValueError("Choose countries and sectors from the lists")
+        compliance.deadlines(countries, sectors)  # refuses an unknown name
+        self.store.set_deadline_choice(sorted(set(countries)), sorted(set(sectors)))
         return 200, {"saved": True}
 
     def owners(self, body):
@@ -511,6 +524,7 @@ def summary(board, actions, services, libraries):
     top = sorted(actions.values(), key=lambda a: (a["rank"], -len(a["projects"]), a["text"]))[:5]
     return {**board, "score": mean(board.pop("scores")), "previous": mean(board["previous"]) if board["previous"] else None,
             "coverage": min(known) if known else None, "provisional": "; ".join(gaps), "effort": dict(board["effort"]),
+            "agility": {"without_code": sum(n for k, n in board["effort"].items() if k in ("setting", "reissue", "upgrade")), "total": sum(board["effort"].values())},
             "actions": [{"text": a["text"], "names": sorted(a["names"])[:4], "projects": sorted(a["projects"])} for a in top],
             "services": [s["service"] for s in services[:3]], "libraries_without_pq": sum(not x["pq"] for x in libraries)}
 
@@ -531,7 +545,7 @@ def page():
 def build(home):
     r = Readiness(home)
     routes = {("GET", "/api/status"): r.status, ("POST", "/api/setup"): r.setup,
-              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/projects/owners"): r.owners, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
+              ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/projects/owners"): r.owners, ("POST", "/api/settings/deadlines"): r.deadlines, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv,

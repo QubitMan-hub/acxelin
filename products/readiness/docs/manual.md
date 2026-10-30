@@ -184,6 +184,14 @@ Every HTML report has a **Print or save as PDF** button, which uses your browser
 the controls. In the console, **Download CSV** exports a repository's findings (with owners and due dates) or the endpoint
 grades. CSV cells that a spreadsheet would run as a formula (starting with `=`, `+`, `-` or `@`) are prefixed with `'`.
 
+### Shorter certificate lifetimes
+
+Grading endpoints also checks each publicly trusted TLS certificate against the CA/Browser Forum's limits for its issue date
+(Ballot SC-081v3: 398 days, then 200 days from 15 March 2026, 100 from 15 March 2027 and 47 from 15 March 2029). A certificate
+longer than its date allows is named as a risk, and one that lasts longer than the next step allows is named too, because
+renewing by hand will not keep up; the action is to automate renewal (ACME). Certificates this computer does not trust (a
+private CA) are left out, as the limits apply only to public ones.
+
 ### Read AWS keys and certificates
 
 `--aws REGION` (repeatable, or `aws = [...]` in the settings) lists the region's KMS keys and ACM certificates with your
@@ -294,7 +302,15 @@ findings.
 the scans before, how many findings need action now, how many protect data that can be recorded now and read later, how many
 NIST IR 8547 (draft) wants replaced by 2030 to 2035, how much of the work is done, what the rest takes, the first five actions
 with the projects they apply to, and the services most at risk. It is marked **provisional** when some projects are not scanned
-or a project's coverage is under 80%, and it says that owners, budget and vendor commitments are for the board to confirm.
+or a project's coverage is under 80%, and it says that owners, budget and vendor commitments are for the board to confirm. It
+also gives the weakest project's score beside the average, and crypto-agility: the share of the remaining changes that need no
+code change (a setting, a new key or certificate, or a library upgrade).
+
+**Deadlines that apply to you**, on the Overview, takes the countries (United States, United Kingdom, European Union, Canada,
+India) and sectors (enterprise, government, critical infrastructure, national security) you operate in, lists their dated
+milestones with a link to each source, and puts the next one on the board summary. Until you choose, it shows NIST IR 8547.
+The dates were checked against each source in October 2026; some are guidance or drafts, so confirm which bind you. Australia
+is not listed yet: its milestones could not be checked against the ASD's own pages.
 
 ### Before and after
 

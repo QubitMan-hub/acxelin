@@ -235,7 +235,8 @@ def _cert_info(cert):
     except Exception:
         key = cert.public_key_algorithm_oid.dotted_string
     return {"subject": cert.subject.rfc4514_string(), "issuer": cert.issuer.rfc4514_string(), "key": key,
-            "expires": cert.not_valid_after_utc.date().isoformat(),
+            "expires": cert.not_valid_after_utc.date().isoformat(), "issued": cert.not_valid_before_utc.date().isoformat(),
+            "lifetime_days": (cert.not_valid_after_utc - cert.not_valid_before_utc).days,
             "days_left": (cert.not_valid_after_utc - dt.datetime.now(dt.timezone.utc)).days, "quantum_safe": key.startswith("ML-DSA")}
 
 
@@ -319,7 +320,15 @@ def summary(results):
             "pq_certificates": sum(c["quantum_safe"] for c in certs), "expiring_30d": sum(c["days_left"] is not None and c["days_left"] < 30 for c in certs)}
 
 
-def outlook(results):
+CAPS = [(dt.date(2029, 3, 15), 47), (dt.date(2027, 3, 15), 100), (dt.date(2026, 3, 15), 200), (dt.date(2020, 9, 1), 398)]  # CA/Browser Forum SC-081v3
+
+
+def cap(issued):
+    """Days a publicly trusted TLS certificate issued on `issued` may last, or None before the 398-day rule."""
+    return next((days for start, days in CAPS if issued >= start), None)
+
+
+def outlook(results, today=None):
     """What can happen if nothing changes, and what to do about it, most urgent first. Rules, not forecasts: each names its evidence."""
     cert = lambda r: r["certificate"] if r["protocol"] == "tls" and r["grade"] != "F" and r["certificate"] else None
     expired = [r for r in results if cert(r) and cert(r)["days_left"] < 0]
@@ -332,6 +341,11 @@ def outlook(results):
     untrusted = [r for r in results if r.get("trusted") is False]
     down = [r for r in results if r["grade"] == "F"]
     classical_key = [r for r in results if cert(r) and not cert(r)["quantum_safe"]]
+    public = [r for r in results if cert(r) and r.get("trusted") and cert(r).get("issued")]
+    over = [r for r in public if (cap(dt.date.fromisoformat(cert(r)["issued"])) or 10**6) < cert(r)["lifetime_days"]]
+    today = today or dt.date.today()
+    nxt = next(((start, days) for start, days in reversed(CAPS) if start > today), None)
+    squeezed = [r for r in public if nxt and r not in over and cert(r)["lifetime_days"] > nxt[1]]
     names = lambda rows: [r["target"] for r in rows]
     risks = [
         (weak, "Broken cipher suites still accepted (RC4, 3DES, or Diffie-Hellman under 2048 bits): a client that picks one can be attacked "
@@ -342,6 +356,10 @@ def outlook(results):
                         "decrypt later). NIST IR 8547 (draft) deprecates quantum-vulnerable key exchange after 2030 at 112-bit strength and disallows it after 2035."),
         (hybrid, "Post-quantum offered, classical still accepted: a client that offers only classical key exchange gets a classical session, "
                  "which can be recorded now and decrypted later."),
+        (over, "Certificate lasts longer than public certificates issued on its date may (CA/Browser Forum: 200 days from 15 March 2026, "
+               "100 from 15 March 2027, 47 from 15 March 2029): browsers can reject it, and its CA may have to revoke it."),
+        (squeezed, f"Certificate lasts more than {nxt and nxt[1]} days: public certificates issued from {nxt and f'{nxt[0].day} {nxt[0]:%B %Y}'} may last at most "
+                   f"{nxt and nxt[1]} days, and 47 from 15 March 2029, so renewing by hand will not keep up."),
         (legacy, "TLS 1.0 and 1.1 still accepted: a client that falls back to them uses protocols deprecated since 2021 (RFC 8996)."),
         (untrusted, "Certificate not trusted by this computer: a private CA, or a TLS-inspecting proxy answered instead, and then these grades describe the proxy."),
         (down, "Endpoint could not be graded: unreachable from here, or no TLS or SSH. Its exposure is unknown until it answers."),
@@ -351,6 +369,8 @@ def outlook(results):
     actions = [
         (weak, "Switch off RC4, 3DES and Diffie-Hellman under 2048 bits in the server's cipher list; keep ECDHE with AES-GCM or ChaCha20-Poly1305."),
         (expired + soon, "Renew the certificate before it expires, and automate renewal (ACME)."),
+        (over + squeezed, "Automate certificate renewal (ACME) so each certificate is replaced well within the shorter lifetimes, and replace any "
+                          "certificate that already lasts longer than its issue date allows."),
         (tls_c, "Enable TLS 1.3 with hybrid X25519MLKEM768 key exchange alongside the current groups (OpenSSL 3.5 or later, or a TLS front end that has it). "
                 "Clients without it keep working on classical key exchange."),
         (ssh_c, "Add mlkem768x25519-sha256 (OpenSSH 9.9 or later) or sntrup761x25519-sha512 (OpenSSH 9.0 or later) to KexAlgorithms."),
