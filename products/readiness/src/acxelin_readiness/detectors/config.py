@@ -4,7 +4,7 @@ from ..catalog import lookup, pq_from_text, curve, CATALOG
 from ..model import Detection
 from . import iter_files, rel, is_test, read, DENY
 from .lexer import split_hash
-from .suites import cipher_string, ssh_token, sig_scheme, kms_spec
+from .suites import cipher_string, ssh_token, sig_scheme, kms_spec, opcua_policy
 
 EXT = {".conf", ".cnf", ".cfg", ".ini", ".yaml", ".yml", ".properties", ".toml", ".env", ".xml", ".json", ".tf", ".hcl"}
 NAMES = {"sshd_config", "ssh_config", "openssl.cnf", "nginx.conf", "httpd.conf", "haproxy.cfg", "java.security", "dockerfile", ".env"}
@@ -23,6 +23,7 @@ PAIRS = [
     (re.compile(r"""^\s*["']?[\w./-]*ssl-protocols["']?\s*:\s*(.+)""", re.I), "protocols"),
     (re.compile(r"""^\s*["']?(?:ssl_policy|policy_name|SslPolicy|sslPolicy)["']?\s*[=:]\s*["']?((?:ELBSecurityPolicy|AppGwSslPolicy)[\w-]*)""", re.I), "lbpolicy"),
     (re.compile(r"""^\s*["']?(?:customer_master_key_spec|key_spec|KeySpec|CustomerMasterKeySpec|key_type|kty|KeyType)["']?\s*[=:]\s*["']?([\w\-]+)""", re.I), "kms"),
+    (re.compile(r"""(?:security[_-]?polic(?:y|yuri|ies)["']?\s*[=:>]\s*["']?(?:[^\s"'<>#]*#)?|SecurityPolicy#)([A-Za-z0-9_]+)""", re.I), "opcua"),
     (re.compile(r"""^\s*["']?(?:ecdsa_curve|ec_curve|curve|named_curve|crv)["']?\s*[=:]\s*["']?([\w-]+)""", re.I), "curve"),
     (re.compile(r"^\s*[\w.\-\"']*(?:algorithm|alg|signing[_-]?alg\w*|key[_-]?algorithm|keyAlgorithm|hash[_-]?algorithm|digest[_-]?algorithm|kex)[\w\"']*\s*[=:]\s*[\"']?([\w\-/]+)", re.I), "algo"),
     (re.compile(r"^\s*(?:[\w.\-\"']*(?:key[_-]?size|keysize|key[_-]?length|rsa[_-]?bits|modulus[_-]?length)[\w\"']*|[\"']?size[\"']?)\s*[=:]\s*[\"']?(\d{3,5})\b", re.I), "size"),
@@ -78,6 +79,8 @@ def parse_line(kind, m):
         return [(lookup(f"TLSv1.{m.group(2)}"), {"minimum": True})]
     if kind == "lbpolicy":
         return lb_policy(m.group(1))
+    if kind == "opcua":
+        return opcua_policy(m.group(1))
     if kind == "kms":
         v = m.group(1)
         return kms_spec(v) or ([(lookup(v), {})] if v.upper() in ("RSA", "EC") and lookup(v) else [])

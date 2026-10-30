@@ -471,7 +471,7 @@ function ownersForm(last) {
       last.owner_rules ? h("button", {class: "btn quiet", onclick: () => send("")}, "Remove them") : ""));
 }
 function endpointsView() {
-  const area = h("textarea", {id: "targets", placeholder: "api.example.com:443\nssh://bastion.example.com", spellcheck: "false"}, state.targets);
+  const area = h("textarea", {id: "targets", placeholder: "api.example.com:443\nssh://bastion.example.com\nmqtts://broker.example.com", spellcheck: "false"}, state.targets);
   state.restore = !state.targets;  // after a reload, the last check's hosts come back into the box
   const go = h("button", {class: "btn", id: "check"}, "Check endpoints");
   $("#panel").replaceChildren(h("h1", {}, "Are your endpoints ready?"),

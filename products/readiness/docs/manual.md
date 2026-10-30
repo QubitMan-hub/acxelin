@@ -153,7 +153,10 @@ The finding is kept as *suppressed* in `findings.json`, so the decision stays vi
 
 ### Grade endpoints
 
-`acxelin-readiness grade hosts.txt` grades each TLS and SSH endpoint in the file (one `host:port` per line):
+`acxelin-readiness grade hosts.txt` grades each TLS and SSH endpoint in the file (one `host:port` per line). A TLS protocol
+can be written as its scheme, which gives its usual port: `mqtts://broker` (8883), `amqps://` (5671), `ldaps://` (636),
+`imaps://` (993), `pop3s://` (995), `smtps://` (465), `ftps://` (990), `sips://` (5061). CoAP over DTLS (`coaps://`) cannot be
+checked live: record its traffic and read it with `scan --pcap`.
 
 | Grade | Means |
 |---|---|

@@ -17,6 +17,7 @@ from acxelin_core.pki import algorithm_of
 from . import __version__
 from .brand import page as _page
 from .detectors.probe import legacy_versions, tls_groups, weak_suites
+from .detectors.tls import scheme_port
 
 log = logging.getLogger(__name__)
 CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"  # every TLS 1.3 suite, so the probe never limits what the server can pick
@@ -246,7 +247,7 @@ def endpoint(target):
     host, port = (t.strip("[]"), None) if bare else hostport(t, "")
     if not host or not re.fullmatch(r"[\w.:%-]+", host):
         raise ValueError(f"expected host, host:port or ssh://host, got {target!r}")
-    return ("ssh" if ssh else "tls"), host, port or (22 if ssh else 443)
+    return ("ssh" if ssh else "tls"), host, port or (22 if ssh else scheme_port(target, 443))
 
 
 def probe(target, server_name=None, timeout=8.0):

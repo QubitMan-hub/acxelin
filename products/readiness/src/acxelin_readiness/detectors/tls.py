@@ -25,7 +25,19 @@ def _handshake(host, port, ctx, timeout):
             return t.version(), t.cipher(), t.getpeercert(binary_form=True)
 
 
+SCHEMES = {"https": 443, "mqtts": 8883, "amqps": 5671, "ldaps": 636, "imaps": 993, "pop3s": 995, "smtps": 465, "ftps": 990, "sips": 5061}
+
+
+def scheme_port(target, default):
+    """The port of a TLS protocol written as a scheme (mqtts://broker is 8883); CoAP over DTLS cannot be checked live."""
+    scheme = target.split("://", 1)[0].lower() if "://" in target else ""
+    if scheme == "coaps":
+        raise ValueError(f"{target}: CoAP runs over DTLS, which a live check cannot speak; record its traffic and read it with --pcap")
+    return SCHEMES.get(scheme, default)
+
+
 def _split(target, default):
+    default = scheme_port(target, default)
     target = target.split("://", 1)[-1].split("/", 1)[0]
     host, _, port = target.rpartition(":")
     if not host or not port.isdigit() or ":" in host and not host.endswith("]"):

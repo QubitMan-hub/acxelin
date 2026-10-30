@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- IoT and industrial systems: OPC UA security policies (Basic128Rsa15 to ECC_curve448) are read from code, by their URI, and from
+  configuration (`securityPolicy: Basic256Sha256`, `<SecurityPolicyUri>`) as the algorithms each uses; endpoints can be written
+  as `mqtts://`, `amqps://`, `ldaps://` and other TLS schemes, which give their usual port, and `coaps://` is pointed at a capture.
 - `report --cbom` rates another tool's CBOM: a component without Readiness's own priority gets one estimated from its algorithm,
   with its NIST IR 8547 status, as `merge` and the console already did. It gave an empty report before.
 - A packet capture's notes name the conversations that were not TLS, DTLS, QUIC, SSH or IKE, so a capture of a protocol the

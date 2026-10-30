@@ -153,6 +153,30 @@ def noise_name(s):
     return [(NOISE_DH[m.group(1)], {}), (cipher, dict(p)), (lookup(m.group(3)), {})]
 
 
+CBC = lambda bits: ("AES", {"key_size": bits, "mode": "CBC"})
+OPCUA = {  # OPC UA security policies (OPC 10000-7): asymmetric signature and key transport or agreement, hash, symmetric cipher
+    "Basic128Rsa15": [("RSA", {"padding": "pkcs1v15", "hash": "SHA-1"}), ("SHA-1", {}), CBC(128)],
+    "Basic256": [("RSA", {"padding": "oaep", "hash": "SHA-1"}), ("SHA-1", {}), CBC(256)],
+    "Basic256Sha256": [("RSA", {"padding": "pkcs1v15", "hash": "SHA-256"}), ("SHA-256", {}), CBC(256)],
+    "Aes128_Sha256_RsaOaep": [("RSA", {"padding": "oaep", "hash": "SHA-256"}), ("SHA-256", {}), CBC(128)],
+    "Aes256_Sha256_RsaPss": [("RSA", {"padding": "pss", "hash": "SHA-256"}), ("SHA-256", {}), CBC(256)],
+    **{f"ECC_{c}": [("ECDSA", {"curve": cv}), ("ECDH", {"curve": cv}), (h, {}), CBC(bits)] for c, cv, h, bits in (
+        ("nistP256", "P-256", "SHA-256", 128), ("nistP384", "P-384", "SHA-384", 256),
+        ("brainpoolP256r1", "brainpoolP256r1", "SHA-256", 128), ("brainpoolP384r1", "brainpoolP384r1", "SHA-384", 256))},
+    "ECC_curve25519": [("Ed25519", {}), ("X25519", {})],
+    "ECC_curve448": [("Ed448", {}), ("X448", {})],
+}
+
+
+def opcua_policy(v, in_code=False):
+    """The algorithms of an OPC UA security policy, by name or URI (http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256).
+    In code a bare "Basic256" is too common a word to count; its URI or a configuration key naming the policy is needed."""
+    name = str(v).strip().strip("\"'").rsplit("#", 1)[-1]
+    if in_code and name == "Basic256" and "#" not in str(v):
+        return []
+    return [(a, dict(p)) for a, p in OPCUA.get(name, [])]
+
+
 def jose_alg(s):
     """A JOSE (JWE/JWA) identifier: A256GCM, A128CBC-HS256, A128KW, PBES2-HS512+A256KW, RSA-OAEP-256, RSA1_5, ECDH-ES+A128KW."""
     out = []

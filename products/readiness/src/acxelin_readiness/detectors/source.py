@@ -9,7 +9,7 @@ from . import iter_files, rel, is_test, read, names as named, pyflow
 from .lexer import LANGS, split, line_of
 from .pysrc import scan_python
 from .rules import RULES
-from .suites import sig_scheme, ssh_token, noise_name, jose_alg, kms_spec
+from .suites import sig_scheme, ssh_token, noise_name, jose_alg, kms_spec, opcua_policy
 
 WORD = re.compile(r"\b(?:TLS ?v?1\.[0-3]|SSL ?v?[23]|SHA-?(?:1|224|256|384|512)|SHA3-\d+|MD[45]|[A-Z][A-Za-z0-9-]{1,20})\b")
 SSH_LIKE = re.compile(r"^(?:ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp\d+|ecdh-sha2-nistp\d+|rsa-sha2-(?:256|512)|hmac-(?:sha|md5)[\w-]*|diffie-hellman-[\w-]+|curve25519-sha256|sntrup761x25519-sha512|mlkem768x25519-sha256|(?:aes\d+|3des|chacha20-poly1305)[\w-]*@openssh\.com|(?:aes\d+|3des)-(?:ctr|cbc|gcm))(?:@[\w.]+)?$")
@@ -162,6 +162,8 @@ def run_rules(path, text, lang, sink, base_ctx, comment=False):
 
 def classify_literal(v):
     v = v.strip()
+    if "opcfoundation.org/UA/SecurityPolicy#" in v and len(v) <= 200:
+        return opcua_policy(v), False
     if not v or len(v) > 200 or v.startswith(("http://", "https://", "/", "./")):
         return [], False
     if len(v) > 40 or v.count(" ") >= 2:
@@ -180,7 +182,7 @@ def classify_literal(v):
         return hits, False
     if SIG_LIKE.match(v):
         return sig_scheme(v), False
-    for parse in (noise_name, jose_alg, kms_spec):
+    for parse in (noise_name, jose_alg, kms_spec, lambda s: opcua_policy(s, in_code=True)):
         hits = parse(v)
         if hits:
             return hits, False
