@@ -62,7 +62,12 @@ jobs:
           m = re.search(rf"^## {re.escape(sys.argv[2])}\b.*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
           print(m.group(1).strip() if m else "")
           PY
-          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS --title "Acxelin $PRODUCT $VERSION" --notes-file notes.md
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then  # the tag was moved: the release is rebuilt in place
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS --clobber
+            gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS --title "Acxelin $PRODUCT $VERSION" --notes-file notes.md
+          fi
   image:
     needs: [gate, build]
     if: needs.gate.outputs.product != 'core'

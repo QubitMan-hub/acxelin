@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - IoT and industrial systems: OPC UA security policies (Basic128Rsa15 to ECC_curve448) are read from code, by their URI, and from
   configuration (`securityPolicy: Basic256Sha256`, `<SecurityPolicyUri>`) as the algorithms each uses; endpoints can be written
@@ -33,9 +33,6 @@
 - Console polish: a search box for findings (`/`), confirmation before removing a token or an owner list, a message when
   something is saved, numbers aligned in tables, and the GitHub and import forms tucked under one heading.
 - Owners loaded from a CMDB export are kept when the project is scanned again; they were dropped before.
-
-## 1.1.0
-
 - Endpoints: RC4, 3DES and Diffie-Hellman under 2048 bits are offered by raw ClientHello and named with their suite and size
   ("DHE 1024-bit (DHE-RSA-AES128-SHA)"), with a risk and a recommendation of their own; a server that speaks TLS 1.2 only with
   such suites is graded C, not F, and no longer described as TLS 1.0 or 1.1 only. The probe now sends key shares for
