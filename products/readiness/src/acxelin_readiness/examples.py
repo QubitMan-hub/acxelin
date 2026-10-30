@@ -1,4 +1,5 @@
-"""A short before-and-after for a finding, in the language of the file it was seen in: what the change looks like, not a patch."""
+"""A short before-and-after for a finding, in the language of the file it was seen in (what the change looks like, not a patch), and
+how hard the change is."""
 from pathlib import PurePosixPath
 
 LANGS = {".py": "Python", ".java": "Java", ".go": "Go", ".js": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript", ".ts": "TypeScript",
@@ -88,3 +89,37 @@ def example(asset):
     if not out or not out[0]:
         return None
     return {"language": lang, "before": out[0], "after": out[1], "note": out[2]}
+
+
+SETTING = {".conf", ".cnf", ".cfg", ".ini", ".yaml", ".yml", ".toml", ".xml", ".json", ".properties", ".env", ".tf", ".hcl"}
+KEYFILE = {".pem", ".crt", ".cer", ".der", ".key", ".p12", ".pfx", ".jks", ".keystore", ".bks", ".p7b", ".csr", ".pub"}
+MANIFEST = {"requirements.txt", "pyproject.toml", "package.json", "pom.xml", "build.gradle", "build.gradle.kts", "go.mod", "cargo.toml",
+            "packages.config", "setup.py", "setup.cfg", "pipfile", "gemfile", "composer.json", "package-lock.json", "go.sum", "cargo.lock"}
+BINARY = {".so", ".dll", ".exe", ".dylib", ".a", ".lib", ".jar", ".war", ".class", ".bin", ".elf", ".o"}
+EFFORT = {"setting": "Change a setting", "reissue": "Reissue a key or certificate", "upgrade": "Upgrade a library",
+          "code": "Change code", "replace": "Replace or rebuild a vendor component"}
+
+
+def _kind(path):
+    p = PurePosixPath(str(path).lower())
+    if "://" in str(path):
+        return "reissue" if str(path).startswith("aws://") else "setting"
+    if p.name in MANIFEST:
+        return "upgrade"
+    if p.suffix in KEYFILE:
+        return "reissue"
+    if p.suffix in BINARY:
+        return "replace"
+    return "setting" if p.suffix in SETTING or p.name.endswith("_config") else "code"
+
+
+def effort(asset):
+    """How hard a finding is to change, judged by the hardest place it was seen outside tests: {"level", "text", "places"}."""
+    if asset.get("tier") in (None, "ok"):
+        return None
+    places = [f for f, _ in asset.get("locations", []) if "test" not in str(f).lower()]
+    if not places:
+        return None
+    level = max((_kind(f) for f in places), key=list(EFFORT).index)
+    files = len(set(places))
+    return {"level": level, "text": EFFORT[level] + (f" in {files} files" if level == "code" and files > 1 else ""), "places": files}

@@ -14,10 +14,15 @@
   changed. The console says what is new since the last scan.
 - AWS: `scan --aws REGION` reads KMS keys and ACM certificates with the caller's credentials, list and describe calls only, and
   ranks them like any other finding (the new `aws` extra, included in the release folder and the Docker image).
-- Tickets: `scan --tickets jira|servicenow` writes `tickets.csv`, one row per finding that needs work, with owner, service and
-  priority; the console downloads the same.
-- Services: a CMDB export may name each path's business service; findings show it, the console filters by it, and the CSV and
-  tickets carry it.
+- Services: a CMDB export may name each path's business service; findings show it, the console filters by it, and the CSV
+  carries it.
+- How long data stays secret: a CMDB export's `keep secret (years)` column sets, per path, the years used for harvest-now risk
+  (default 10), in the console from the next scan and with `scan --owners`. Its `importance` column weighs services in the ranking.
+- How hard each change is: every finding says whether fixing it means changing a setting, reissuing a key or certificate,
+  upgrading a library, changing code or replacing a vendor component, and "Why it matters" counts them.
+- Third-party libraries: the Overview lists the cryptography libraries each project depends on and whether they support
+  post-quantum algorithms.
+- `--policy india-dst`: India's DST roadmap, quantum-vulnerable cryptography due by the end of 2029 (`india_deadline` to change it).
 - Console: a start page with three clear choices, summary cards for the numbers that matter, sections named by the question they
   answer instead of "descriptive" and "prescriptive", a quieter owner prompt, the downloads grouped, and the endpoint grades
   explained before the first check.

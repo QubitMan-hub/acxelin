@@ -9,7 +9,7 @@ from pathlib import Path
 from acxelin_core.files import locked, write
 
 from . import owners
-from .examples import example
+from .examples import effort, example
 from .rank import TIERS
 from .detectors import is_test
 
@@ -56,7 +56,7 @@ def score(assets):
     return round(sum(listed) / len(listed)) if listed else None
 
 
-def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None, name=None):
+def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None, name=None, horizon=None):
     notify = progress or (lambda stage: None)
     notify("Preparing project")
     root = Path(path).resolve()
@@ -79,7 +79,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
             except ValueError:
                 pass
     try:
-        result = pack.run(root, name or root.name, scope=Scope(exclude=tuple(excluded), checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes), cache=cache)
+        result = pack.run(root, name or root.name, scope=Scope(exclude=tuple(excluded), checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes), cache=cache, horizon=horizon)
     except ScanLimitError as error:
         raise ScanStopped(str(error)) from None
     checkpoint()
@@ -106,7 +106,8 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
                               "resolved_calls": sum(bool(c["target"]) for c in graph["calls"]), "calls": len(graph["calls"]),
                               "libraries": result.stats["libraries"], "seconds": result.stats["seconds"], "graph_limited": graph["limited"], "truncated_files": len(graph.get("truncated_files", {})), "incremental": graph.get("incremental", {})},
                   "evidence_boundary": "Static source evidence is not runtime protection or proof of business ownership.",
-                  "codeowners": owners.codeowners(root), "relationships": graph}
+                  "codeowners": owners.codeowners(root), "relationships": graph,
+                  "libraries": [{"name": x.name, "ecosystem": x.ecosystem, "version": x.version, "pq": x.pq, "note": x.note} for x in result.libraries][:500]}
     if out:
         folder = Path(out)
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -333,7 +334,7 @@ class ProjectStore:
         result['owner_rules'] = len(cmdb)
         for asset in result['assets'] + result['not_observed']:
             asset['owner_hint'] = owners.suggest(cmdb, repo, sorted({f for f, _ in asset['locations']}))
-            asset['example'] = example(asset)
+            asset['example'], asset['effort'] = example(asset), effort(asset)
         for asset in result['assets'] + result['not_observed']:
             asset['tracking'] = copy.deepcopy(project.get('tracking', {}).get(asset['id'], {'owner': '', 'due': '', 'status': 'open', 'reason': '', 'until': ''}))
             tracking = asset['tracking']
@@ -355,6 +356,9 @@ class ProjectStore:
     def assessment(self, root):
         record = self.read()['projects'].get(self.key(root))
         return self.view(record) if record else None
+
+    def owner_rules(self, root):
+        return self.read()['projects'].get(self.key(root), {}).get('owners', [])
 
     def set_owners(self, root, rules):
         def change(data):

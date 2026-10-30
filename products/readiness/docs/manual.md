@@ -133,10 +133,10 @@ Live endpoints show what your servers actually negotiate, which configuration fi
 | Read handshakes from a packet capture | `acxelin-readiness scan PATH --pcap traffic.pcapng` |
 | Read AWS KMS keys and ACM certificates | `acxelin-readiness scan PATH --aws eu-west-1` |
 | Scan again every day and report what changed | `acxelin-readiness watch PATH --every 24` |
-| Tickets for Jira or ServiceNow | `acxelin-readiness scan PATH --tickets jira --owners owners.csv` |
+| Rank by how long each system's data stays secret | `acxelin-readiness scan PATH --owners owners.csv` (see Owners) |
 | Grade endpoints A to F | `acxelin-readiness grade hosts.txt --html grades.html` |
 | Evidence for an audit | `acxelin-readiness report --certs certs/ --targets hosts.txt --cbom readiness-out` |
-| Check against standards | `acxelin-readiness scan PATH --policy nist-ir-8547 --policy cnsa-2.0` |
+| Check against standards | `acxelin-readiness scan PATH --policy nist-ir-8547 --policy cnsa-2.0 --policy india-dst` |
 | One view of many systems | `acxelin-readiness merge out-a out-b other.cbom.json --name "Example Bank"` |
 | Leave out folders | `acxelin-readiness scan PATH --exclude generated --exclude "*.min.js"` |
 | See what this machine can scan | `acxelin-readiness doctor` |
@@ -192,13 +192,6 @@ It needs the `aws` extra (`pip install "acxelin-readiness[aws]"`; the release fo
 only these read permissions: `kms:ListKeys`, `kms:DescribeKey`, `acm:ListCertificates` and `acm:DescribeCertificate`. It never
 asks for key material or certificate bodies. A region the credentials cannot read becomes a note, and certificates that have
 expired or expire within 30 days are named in the notes.
-
-### Tickets for Jira or ServiceNow
-
-`--tickets jira` or `--tickets servicenow` also writes `tickets.csv`: one row per finding that needs work, worst first, with
-what to do, where it was seen, a priority, and the owner and service from `--owners` (a CMDB export, see Owners) or the
-repository's `CODEOWNERS`. Import it with Jira's CSV importer or a ServiceNow import set. In the console, **Tickets for Jira**
-and **Tickets for ServiceNow** do the same, leaving out findings marked fixed or accepted.
 
 ## 6. Running it in CI
 
@@ -330,11 +323,37 @@ Each finding suggests an owner and says where it came from:
 1. An owner you set on the finding.
 2. A CMDB export: under **Owners from a CMDB export**, a CSV whose first row has a `path` (or `pattern`) column and an
    `owner` (or `team`, `owned by`, `support group`) column, and optionally a `service` (or `application`) column naming the
-   business service. Paths are CODEOWNERS patterns, and the last matching row wins.
+   business service. Paths are CODEOWNERS patterns, and the last matching row wins. Two more columns are optional:
+   `keep secret (years)` (how long the data at that path must stay secret) and `importance` (`critical`, `high`, `medium` or
+   `low`: how much the business depends on that service).
 3. The repository's `CODEOWNERS` file (in `.github/`, the root or `docs/`, as GitHub looks for it).
 
 A finding none of these covers reads **Assign an owner**. When the export names services, each finding shows its service,
-buttons above the findings show only one service's, and the CSV and ticket downloads carry a service column.
+buttons above the findings show only one service's, and the CSV download carries a service column.
+
+**Keep secret (years)** changes the ranking from the next scan. A finding that protects data is high (harvest now, decrypt
+later) when the years its data must stay secret plus the years a migration takes (5) reach past the year a quantum computer is
+assumed (2035); otherwise it is medium. Without the column every path counts as 10 years. Chat messages kept for one year drop
+to medium; health records kept for 25 stay high, and the finding says the years came from the CMDB export. On the command line,
+`scan --owners owners.csv` does the same.
+
+**Importance** ranks services: each service's findings are weighted by priority (critical 8, high 4, medium 2, low 1) and
+multiplied by its importance (critical 4, high 3, medium 2, low 1; none given counts as medium). A critical-importance payments
+service with three high findings comes before a low-importance intranet with one critical one.
+
+### How hard each change is
+
+Under each finding's action, the console also says what fixing it takes, judged by the hardest place it was seen outside tests:
+**Change a setting** (a configuration file or a server), **Reissue a key or certificate** (a key file, keystore or cloud key),
+**Upgrade a library** (a dependency manifest), **Change code**, with the number of files, or **Replace a vendor component** (a
+binary). "Why it matters" counts them. It is a first estimate of the work, from where the finding was seen, not a measure of
+how the code is built.
+
+### Third-party libraries
+
+The Overview lists, folded away, the cryptography libraries every project depends on, which projects use each, and whether it
+supports post-quantum algorithms, with a note for libraries that are unmaintained. It covers libraries Readiness recognises in
+dependency manifests and binaries; ask the suppliers of the others, and of the ones without support, for their plans.
 
 ### How a finding was seen
 
@@ -419,7 +438,10 @@ The tier follows Mosca's inequality: an asset is urgent when the years its data 
 
 ### Standards
 
-`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87). A key size that was not observed is reported as unverified, never as compliant.
+`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87). A key size that was not observed is reported as unverified, never as compliant. `--policy india-dst` follows the roadmap of
+India's DST National Quantum Mission task force (2026): anything broken now is overdue, and quantum-vulnerable public-key
+cryptography is due by the end of 2029, the date for critical information infrastructure. Other enterprises have until 2033:
+set `india_deadline = 2033` under `[policy]`.
 
 ## 9. When something goes wrong
 

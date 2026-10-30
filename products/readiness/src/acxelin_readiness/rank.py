@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import owners
 from .catalog import CATALOG, SHOR, LEGACY, GROVER, SAFE, HYBRIDS, classical_bits, nist_status
 from .detectors import config, iter_files, read, rel, DENY
 from .detectors.lexer import LANGS
@@ -212,6 +213,12 @@ class Horizon:
     shelf_life: float = 10
     migration: float = 5
     crqc_year: int = 2035
+    secrets: tuple = ()  # (path pattern, years) from a CMDB export; the last match wins
+
+    def shelf(self, files):
+        """Years the data at `files` must stay secret, and whether a CMDB export said so: the longest any of them needs."""
+        given = [r[1] for f in files if (r := owners.match(self.secrets, f))] if self.secrets else []
+        return (max(given), True) if given else (self.shelf_life, False)
 
     @property
     def z(self):
@@ -272,10 +279,11 @@ def assess(a, h, hybrid_files):
     elif c.threat == SHOR:
         conf = c.primitive in CONFIDENTIALITY or a.params.get("padding") == "oaep"
         z = h.z
-        if conf and h.shelf_life + h.migration > z:
+        shelf, given = h.shelf({s.file for s in a.detections if "://" not in s.file})
+        if conf and shelf + h.migration > z:
             tier = "high"
-            a.why = (f"Harvest now, decrypt later: data needs {h.shelf_life:g}y secrecy + {h.migration:g}y migration "
-                     f"= {h.shelf_life + h.migration:g}y, but a CRQC is assumed in {z}y (Mosca)")
+            a.why = (f"Harvest now, decrypt later: data needs {shelf:g}y secrecy{' (CMDB export)' if given else ''} + {h.migration:g}y migration "
+                     f"= {shelf + h.migration:g}y, but a CRQC is assumed in {z}y (Mosca)")
         elif not conf and h.migration > z:
             tier = "high"
             a.why = f"Signature migration ({h.migration:g}y) exceeds assumed time to a CRQC ({z}y)"

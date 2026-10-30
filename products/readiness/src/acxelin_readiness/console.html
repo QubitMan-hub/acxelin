@@ -258,7 +258,7 @@ function bars(rows) {
 }
 const SEEN = {negotiated: "Negotiated", offered: "Offered", "in code": "In code", configured: "Configured", supported: "Supported only", imported: "Imported"};
 const basis = (a) => {
-  const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : ""].filter(Boolean);
+  const parts = [(a.seen || []).map((x) => SEEN[x] || x).join(", "), a.confidence_level ? a.confidence_level + " confidence" : "", a.effort ? a.effort.text : ""].filter(Boolean);
   return parts.length ? h("small", {class: "basis"}, parts.join(" · ")) : "";
 };
 const STATUS = {open: "To do", planned: "Planned", in_progress: "In progress", fixed: "Fixed", exception: "Accepted risk"};
@@ -310,20 +310,26 @@ function changesView(cmp) {
   return h("section", {class: "changes", "aria-label": "Since the scan on " + when(cmp.previous_finished)},
     h("div", {class: "pair"}, list(cmp.gone_findings || [], "No longer found", "gone"), list(cmp.new_findings || [], "New", "new")));
 }
+const WEIGHT = {critical: 8, high: 4, medium: 2, low: 1}, IMPORTANCE = {critical: 4, high: 3, medium: 2, low: 1};
+const serviceName = (s) => [s.service, s.importance ? h("small", {class: "basis"}, s.importance + " importance") : ""];
 function serviceTable(assets) {
   const rank = {};
   for (const a of assets) {
-    const s = (a.owner_hint || {}).service;
+    const hint = a.owner_hint || {}, s = hint.service;
     if (!s || a.tier === "ok") continue;
-    rank[s] = rank[s] || {critical: 0, high: 0, medium: 0, low: 0};
+    rank[s] = rank[s] || {service: s, critical: 0, high: 0, medium: 0, low: 0, importance: ""};
     rank[s][a.tier]++;
+    if ((IMPORTANCE[hint.importance] || 0) > (IMPORTANCE[rank[s].importance] || 0)) rank[s].importance = hint.importance;
   }
-  const rows = Object.entries(rank).sort(([an, a], [bn, b]) => b.critical - a.critical || b.high - a.high || b.medium - a.medium || b.low - a.low || an.localeCompare(bn));
+  const risk = (s) => (IMPORTANCE[s.importance] || 2) * Object.keys(WEIGHT).reduce((t, k) => t + WEIGHT[k] * s[k], 0);
+  const rows = Object.values(rank).sort((a, b) => risk(b) - risk(a) || b.critical - a.critical || b.high - a.high || a.service.localeCompare(b.service));
   if (!rows.length) return "";
   return [h("h3", {}, "Services most at risk"), h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Services, scrolls sideways"},
     h("table", {}, h("thead", {}, h("tr", {}, ["Service", "Critical", "High", "Medium", "Low"].map((c, i) => h("th", {class: i ? "num" : null}, c)))),
-      h("tbody", {}, rows.map(([s, n]) => h("tr", {}, h("td", {}, s), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(n[k]))))))))];
+      h("tbody", {}, rows.map((s) => h("tr", {}, h("td", {}, serviceName(s)), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(s[k])))))))),
+    h("p", {class: "legend"}, "Ranked by findings weighted by priority, times the service's importance from the CMDB export.")];
 }
+const EFFORT = [["setting", "Change a setting"], ["reissue", "Reissue a key or certificate"], ["upgrade", "Upgrade a library"], ["code", "Change code"], ["replace", "Replace a vendor component"]];
 function findBox() {
   const box = h("input", {type: "search", id: "find", value: state.query, autocomplete: "off", spellcheck: "false", placeholder: "Algorithm, file, owner or service"});
   let t;
@@ -368,7 +374,8 @@ function results(p) {
   const cd = last.summary.coverage_detail || {}, gaps = Object.entries(cd.not_read || {}).map(([k, n]) => n + " " + k).join(", ");
   const cause = (a) => a.tier === "critical" || a.threat === "legacy" ? "broken" : a.threat === "shor" && a.tier !== "ok" ? "shor" : a.threat === "grover" && a.tier === "low" ? "grover" : "safe";
   const causes = {broken: 0, shor: 0, grover: 0, safe: 0}, seen = {};
-  for (const a of shownAssets) { causes[cause(a)]++; for (const x of a.seen || []) seen[x] = (seen[x] || 0) + 1; }
+  const effort = {};
+  for (const a of shownAssets) { causes[cause(a)]++; for (const x of a.seen || []) seen[x] = (seen[x] || 0) + 1; if (a.effort) effort[a.effort.level] = (effort[a.effort.level] || 0) + 1; }
   const act = (pri.critical || 0) + (pri.high || 0), unowned = shownAssets.filter((a) => a.tier !== "ok" && !(a.tracking || {}).owner && !a.owner_hint).length;
   const prog = progress(shownAssets);
   const cmp = last.comparison || {};
@@ -395,6 +402,8 @@ function results(p) {
       serviceTable(shownAssets),
       shownAssets.length ? h("h3", {}, "What puts them at risk") : "",
       bars([["Broken today", causes.broken, "bad"], ["Breakable by a quantum computer", causes.shor, "exposed"], ["Weakened by quantum search", causes.grover, "low"], ["No known quantum break", causes.safe, "ok"]]),
+      Object.keys(effort).length ? h("h3", {}, "How hard they are to change") : "",
+      bars(EFFORT.map(([k, label]) => [label, effort[k] || 0, k === "replace" || k === "code" ? "ink" : "low"])),
       Object.keys(seen).length ? h("h3", {}, "How they were seen") : "",
       bars(Object.keys(SEEN).filter((k) => seen[k]).map((k) => [SEEN[k], seen[k], "ink"])),
       h("h3", {}, "Score and coverage"),
@@ -403,8 +412,7 @@ function results(p) {
         {percent: last.summary.coverage ?? null, text: cd.read + " of " + cd.files + " source and configuration files analysed" + (gaps ? " (" + gaps + ")" : "")})),
     section("pj", "predictive", "What could happen if nothing changes", outlookList(last.outlook && last.outlook.risks, "ul", "Nothing in this scan points to a risk.")),
     section("pj", "prescriptive", "What to do", outlookList(last.outlook && last.outlook.actions, "ol", "Nothing to change now.")),
-    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv"),
-      ...[["jira", "Jira"], ["servicenow", "ServiceNow"]].map(([k, n]) => h("button", {class: "btn quiet", onclick: () => exportCsv("projects/tickets", {project: state.selected, system: k}, last.project + "-" + k + "-tickets.csv")}, "Tickets for " + n))),
+    exports(() => exportCsv("projects/csv", {project: state.selected}, last.project + "-findings.csv")),
     ownersForm(last));
 }
 
@@ -494,8 +502,15 @@ async function refreshOverview() {
     h("h2", {}, "Services most at risk"),
     o.services.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Services, scrolls sideways"}, h("table", {},
       h("thead", {}, h("tr", {}, ["Service", "Critical", "High", "Medium", "Low", "Projects"].map((c, i) => h("th", {class: i && i < 5 ? "num" : null}, c)))),
-      h("tbody", {}, o.services.map((s) => h("tr", {}, h("td", {}, s.service), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(s[k]))), h("td", {}, s.projects.join(", ")))))))
+      h("tbody", {}, o.services.map((s) => h("tr", {}, h("td", {}, serviceName(s)), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(s[k]))), h("td", {}, s.projects.join(", ")))))))
       : h("p", {class: "state"}, "Services appear here once a project has an owners spreadsheet with a service column (Projects, Owners from a CMDB export)."),
+    o.libraries.length ? h("details", {class: "add", style: "margin-top:34px"}, h("summary", {}, "Third-party libraries: " + o.libraries.length +
+      (o.libraries.filter((x) => !x.pq).length ? ", " + o.libraries.filter((x) => !x.pq).length + " without post-quantum support" : ", all with post-quantum support")),
+      h("p", {class: "legend"}, "The cryptography libraries your projects depend on. Ask the suppliers of those without support when they will have it."),
+      h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Libraries, scrolls sideways"}, h("table", {},
+        h("thead", {}, h("tr", {}, ["Library", "Post-quantum", "Used by"].map((c) => h("th", {}, c)))),
+        h("tbody", {}, o.libraries.map((x) => h("tr", {}, h("td", {class: "asset"}, x.name, h("small", {class: "basis"}, x.ecosystem + (x.note ? " · " + x.note : ""))),
+          h("td", {}, h("span", {class: "pill " + (x.pq ? "ok" : "mute")}, x.pq ? "supported" : "not yet")), h("td", {}, x.projects.join(", ")))))))) : "",
     h("h2", {}, "Scheduled scans"),
     o.watch.length ? h("ul", {class: "runs"}, o.watch.map((w) => h("li", {}, h("details", {}, h("summary", {}, when(w.finished) + " · " + w.path + " · " +
       (w.first ? "first scan" : w.new_count + " new, " + w.gone_count + " no longer found")),
@@ -580,7 +595,7 @@ async function exportCbom() {
 }
 async function exportCsv(path, body, name) { try { save(name, (await call(path, body)).csv, "text/csv"); } catch (e) {} }
 const exports = (csv, ...more) => h("section", {class: "share", "aria-labelledby": "share-h"}, h("h2", {id: "share-h"}, "Share the results"),
-  h("p", {class: "state"}, "A spreadsheet for your team" + (more.length ? ", tickets for Jira or ServiceNow" : "") + ", or a PDF for auditors."),
+  h("p", {class: "state"}, "A spreadsheet for your team, or a PDF for auditors."),
   h("div", {class: "row"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"), ...more, h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")));
 function ownersForm(last) {
   const file = h("input", {type: "file", id: "ownersfile", accept: ".csv,text/csv"});
@@ -590,7 +605,7 @@ function ownersForm(last) {
   };
   const use = async () => { const f = file.files[0]; if (!f) return say("Choose a CSV file first."); await send(await f.text()); };
   return h("details", {class: "more", style: "margin-top:18px"}, h("summary", {}, last.owner_rules ? "Owners from a CMDB export: " + last.owner_rules + " rules" : "Owners from a CMDB export"),
-    h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns, and if you like a service column naming the business service; the last matching row wins. It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),
+    h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns; the last matching row wins. Optional columns: service (the business service), keep secret (years) (how long that data must stay secret, which ranks harvest-now risk from the next scan) and importance (critical, high, medium or low, which ranks services). It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),
     h("label", {for: "ownersfile"}, "CSV file"), file,
     h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: use}, "Use these owners"),
       last.owner_rules ? h("button", {class: "btn quiet", onclick: () => send("")}, "Remove them") : ""));

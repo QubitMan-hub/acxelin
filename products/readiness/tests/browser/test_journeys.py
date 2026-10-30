@@ -92,6 +92,8 @@ def test_add_scan_see_priorities_and_assign_an_owner(page, console, repos):
     fill_setup(page, repos)
     scan_shop(page)
     assert page.locator("td .tag.critical, td .tag.high").first.is_visible()
+    assert "Change code" in page.get_by_role("region", name="Findings, scrolls sideways").inner_text()
+    assert page.get_by_role("heading", name="How hard they are to change").is_visible()
     page.locator("details.track summary").first.click()
     page.get_by_label("Owner").first.fill("payments team")
     page.get_by_role("button", name="Save").first.click()
@@ -409,7 +411,7 @@ def test_findings_and_grades_download_as_csv_and_print_without_the_controls(page
     assert Path(d.value.path()).read_text().splitlines()[1].startswith("127.0.0.1:1,C,")
 
 
-def test_services_from_a_cmdb_export_filter_the_findings_and_tickets_download_for_jira(page, console, repos, tmp_path):
+def test_services_from_a_cmdb_export_filter_and_rank_the_findings(page, console, repos, tmp_path):
     (repos / "shop/legacy.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
     open_console(page, console)
     fill_setup(page, repos)
@@ -425,9 +427,7 @@ def test_services_from_a_cmdb_export_filter_the_findings_and_tickets_download_fo
     assert "MD5" in table.inner_text() and "RSA-2048" not in table.inner_text()
     services = page.get_by_role("region", name="Services, scrolls sideways").inner_text()
     assert services.index("Ledger") < services.index("Card payments")
-    with page.expect_download() as d:
-        page.get_by_role("button", name="Tickets for Jira").click()
-    assert d.value.suggested_filename == "shop-jira-tickets.csv" and Path(d.value.path()).read_text().startswith("Summary,Description,Priority")
+    assert not page.get_by_role("button", name="Tickets for Jira").count()
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
 
 

@@ -57,7 +57,7 @@ The scanner reads everything on the left without changing it, decides how weak e
 | Network recordings | Our own reader for Wireshark files | Sees what was really agreed on the wire, without installing Wireshark |
 | Console | One web page, served from your own computer | Nothing extra to install, nothing loaded from the internet |
 | Outputs | Standard file formats (CycloneDX, SARIF, CSV, PDF) | Auditors and other tools can read them without our software |
-| Tests | 538 automatic tests (32 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
+| Tests | 581 automatic tests (32 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
 | Cloud keys (optional) | boto3, Amazon's own library | Only for reading AWS KMS keys and ACM certificates; it comes with the aws extra, which the release folder and the Docker image include |
 
 ### The code is split in two packages
@@ -153,11 +153,12 @@ A check that gets no answer says *could not be checked*, never *none found*. Rea
 
 If the browser does not open, add `--no-browser` and copy the address it prints. Each address works once; `acxelin-readiness console link` gives a fresh one.
 
-### The two pages
+### The three pages
 
 | Page | What you do there |
 | --- | --- |
 | **Projects** | Pick one of three starting points: a folder of code on this computer, a GitHub link (public, or private with a token), or a CBOM from another tool. It is scanned straight away. |
+| **Overview** | Every project side by side. Scan them all with one button, add every repository of a GitHub organisation, and see the services most at risk, the third-party libraries and the scheduled scans. |
 | **Endpoints** | Paste server addresses, one per line (`bank.example.com`, `ssh://server`). Press Check. Before the first check, the page explains what each grade means. |
 
 ### What every result shows
@@ -173,11 +174,17 @@ Each result opens with a short summary at the top, then four sections that each 
 
 Above the sections, four cards show the numbers that matter: how many findings need action now, the readiness score, how many a quantum computer could break, and how many have no owner yet. From the second scan on, a line says what is new and what is no longer found.
 
+**Before and after.** After a second scan, the page lists side by side what is no longer found (usually a fix) and what is new.
+
+**What each change takes.** Every finding says whether fixing it means changing a setting, reissuing a key or certificate, upgrading a library, changing code (and in how many files) or replacing a vendor's component. A small chart counts them, so a team can see how much is quick work and how much needs a project. Where the code is Python, Java, Go, JavaScript, TypeScript or nginx, a link shows a short before and after in that language.
+
+**Every project at once.** The Overview tab puts every project side by side with its score and what changed, scans them all with one button, adds every repository of a GitHub organisation, ranks the business services most at risk, lists the third-party cryptography libraries and whether they support post-quantum algorithms, and shows the results of scheduled scans.
+
 ### Keeping track of the fixes
 
-- **Owner and due date** for each finding. The console suggests an owner from the code's ownership file (CODEOWNERS) or from a spreadsheet of who owns what. The spreadsheet can also name the business service each part of the code belongs to; buttons above the list then show one service at a time.
+- **Owner and due date** for each finding. The console suggests an owner from the code's ownership file (CODEOWNERS) or from a spreadsheet of who owns what. The spreadsheet can also name the business service each part of the code belongs to; buttons above the list then show one service at a time. Two more columns are optional: how many years the data in that part must stay secret, which decides whether recorded traffic is an urgent risk (chat kept for a year is not; health records kept for 25 years are), and how important the service is, which puts the services that matter most first.
 - **Status:** To do, Planned, In progress, Fixed, or Accepted risk (with a reason and an end date). A finding marked Fixed that the next scan still finds is flagged.
-- **Downloads:** a spreadsheet (CSV), tickets ready to import into Jira or ServiceNow, a PDF (Print), and the CBOM for auditors.
+- **Downloads:** a spreadsheet (CSV), a PDF (Print), and the CBOM for auditors.
 
 ### How it is kept safe
 
@@ -199,10 +206,9 @@ Above the sections, four cards show the numbers that matter: how many findings n
 | **CBOM** (`cbom.json`) | The full list of cryptography, with where each item was found, in the CycloneDX 1.6 standard | Auditors, risk tools, the next scan (to show what is new) |
 | **Report** (HTML, printable to PDF) | A readable summary: priorities, risks, what to fix first | Managers and security leaders |
 | **Spreadsheet** (CSV) | One row per finding with owner, status and due date | The team doing the fixes |
-| **Compliance report** (`acxelin-readiness report`) | Which certificates, servers and findings break the US deadlines in NIST IR 8547 (2030 and 2035) or the NSA's CNSA 2.0 list | Compliance and audit teams |
+| **Compliance report** (`acxelin-readiness report`) | Which certificates, servers and findings break the US deadlines in NIST IR 8547 (2030 and 2035), the NSA's CNSA 2.0 list, or India's roadmap (critical infrastructure by the end of 2029) | Compliance and audit teams |
 | **Code scanning results** (SARIF) | Findings in the format GitHub and other code tools show next to the code | Developers |
 | **Company-wide view** (`acxelin-readiness merge`) | Many scans (repositories, servers, other tools' CBOMs) combined into one inventory and dashboard | Whoever owns the migration programme |
-| Tickets (tickets.csv) | One ticket per finding that needs work, with what to do, where it was seen, its owner, service and priority | The teams that make the fixes, in Jira or ServiceNow |
 
 A scan can also act as a gate in a build pipeline: compared with the last CBOM, it fails the build only when something new and weak appears.
 
@@ -224,11 +230,11 @@ A scan can also act as a gate in a build pipeline: compared with the last CBOM, 
 | `detectors/config.py`, `artifacts.py`, `keystores.py` | 178, 233, 137 | Config files, key and certificate files, Java and PKCS#12 keystores. |
 | `detectors/capture.py`, `quic.py`, `ike.py` | 448, 101, 116 | Reading handshakes out of network captures. |
 | `verify.py` | 141 | Checks each sighting against its line, so comments and switched-off options do not count. |
-| `rank.py`, `catalog.py` | 389, 322 | The priority of each finding, and the list of every algorithm with what breaks it and what replaces it. |
+| `rank.py`, `catalog.py` | 397, 322 | The priority of each finding, and the list of every algorithm with what breaks it and what replaces it. |
 | `endpoints.py`, `detectors/probe.py` | 419, 219 | Grading live servers, including the hand-built hello messages. |
 | `cbom.py`, `report.py`, `evidence.py` | 222, 225, 225 | The CBOM, the HTML report, the CSV and the compliance mapping. |
-| `workspace.py`, `console.py` + `console.html` | 416, 414 + page | The console: projects, tracking, owners, and its 18 routes. |
-| tickets.py, detectors/aws.py | 26, 47 | Tickets for Jira and ServiceNow; AWS KMS keys and ACM certificates through list and describe calls. |
+| `workspace.py`, `console.py` + `console.html` | 397, 513 + page | The console: projects, the overview of all of them, tracking, owners, and its 20 routes. |
+| examples.py, detectors/aws.py | 125, 47 | Before-and-after examples in each language and how hard each change is; AWS KMS keys and ACM certificates through list and describe calls. |
 | cli.py (watch) | 410 | Every command; watch scans again and compares the CBOM with the previous one. |
 
 ### Design decisions worth discussing
@@ -291,7 +297,7 @@ The owner pushes a tag such as `readiness-v1.1.0`. GitHub then checks the versio
 | A migration plan | The ranked list, worst first, each with its replacement (for example ML-KEM-768 instead of RSA) |
 | Owners and deadlines | Each finding gets an owner from CODEOWNERS or the company's ownership spreadsheet, a status and a due date |
 | Proof that fixes landed | The next scan checks every finding marked Fixed |
-| Hand the work to the right team | Tickets for Jira or ServiceNow, each with its owner and business service from the company's ownership spreadsheet |
+| Know where to start | Services ranked by risk and by how much the business depends on them, what each change takes, and the third-party libraries to ask suppliers about |
 
 ### 4. "Can we prove it to the regulator?"
 

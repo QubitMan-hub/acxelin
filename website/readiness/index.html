@@ -19,7 +19,7 @@
 <section aria-labelledby="when">
 <h2 id="when">Why RSA ranks high today</h2>
 <p>Traffic and backups recorded now can be decrypted once a quantum computer exists. An asset is urgent when the years its data must stay secret, plus the years your migration takes, run past the year that computer is assumed to arrive.</p>
-<p>You set all three numbers. The sample used the defaults.</p>
+<p>You set all three numbers, and a CMDB export can set the first one per system: chat kept for a year ranks lower than health records kept for twenty-five. The sample used the defaults.</p>
 {{MOSCA}}
 </section>
 
@@ -58,16 +58,16 @@
 <div class="cols">
 <div><h3>In every pull request</h3><p>Fail the build only on cryptography a change introduces, by comparing with the CBOM from the main branch.</p>
 <pre><code>acxelin-readiness scan . --baseline cbom.json --fail-on high</code></pre></div>
-<div><h3>For an audit</h3><p>Check against NIST IR 8547 and the NSA's CNSA 2.0 suite, and fail when a rule is already broken.</p>
+<div><h3>For an audit</h3><p>Check against NIST IR 8547, the NSA's CNSA 2.0 suite and India's DST roadmap (2029), and fail when a rule is already broken.</p>
 <pre><code>acxelin-readiness scan . \
-  --policy nist-ir-8547 --policy cnsa-2.0 \
+  --policy nist-ir-8547 --policy india-dst \
   --fail-on-policy</code></pre></div>
 <div><h3>On a schedule</h3><p>Scan again every day and hear only when something appeared or disappeared since the last scan.</p>
 <pre><code>acxelin-readiness watch . --every 24 \
   --on-change "notify-team"</code></pre></div>
-<div><h3>Into your ticket queue</h3><p>One ticket per finding that needs work, with its owner, service and priority, for Jira or ServiceNow.</p>
+<div><h3>By business service</h3><p>Name each path's owner, service, how long its data must stay secret and how important it is, and the ranking follows.</p>
 <pre><code>acxelin-readiness scan . \
-  --tickets jira --owners owners.csv</code></pre></div>
+  --owners owners.csv</code></pre></div>
 <div><h3>Across many systems</h3><p>Merge the CBOMs of every system, including ones made by other tools, into one ranked inventory.</p>
 <pre><code>acxelin-readiness merge out-a out-b \
   --name "Example Bank"</code></pre></div>
@@ -89,7 +89,7 @@
 <div class="close">
 <div>
 <h2 id="start">Start with one repository</h2>
-<p>Install it, scan a folder or a GitHub repository, and open the report. The console does the same without the command line, tracks an owner, service, status and due date for each finding, and hands the work to Jira or ServiceNow.</p>
+<p>Install it, scan a folder or a GitHub repository, and open the report. The console does the same without the command line, tracks an owner, service, status and due date for each finding, says how hard each change is, and shows every project, the services most at risk and the third-party libraries on one page.</p>
 </div>
 <div class="actions"><a class="btn primary" href="set-up.html">Check and install</a><a class="btn" href="https://acxelinquantum.com/">Talk to Acxelin Quantum</a></div>
 </div>

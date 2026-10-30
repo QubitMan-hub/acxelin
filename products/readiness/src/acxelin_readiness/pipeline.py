@@ -174,6 +174,6 @@ def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False,
              "libraries": len(h.libraries), "endpoints": len(h.endpoints), "raw_detections": len(h.detections),
              **{v: verdicts[v] for v in ("accepted", "quarantined", "rejected", "suppressed")},
              "promoted_on_second_look": sum(looks.values()), "patterns": len(found), "second_look": looks, "held_as_formats": held, "references_followed": references,
-             "coverage": h.coverage, "seconds": round(time.time() - t0, 2), "horizon": vars(horizon) | {"years_to_crqc": horizon.z}}
+             "coverage": h.coverage, "seconds": round(time.time() - t0, 2), "horizon": {k: v for k, v in vars(horizon).items() if k != "secrets"} | {"years_to_crqc": horizon.z}}
     return Result(project, detections, assets, h.artifacts, h.libraries, al, rank.readiness(assets), stats, h.notes, h.endpoints, str(baseline or ""), relationships=relationships,
                   patterns=found)

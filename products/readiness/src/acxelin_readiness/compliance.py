@@ -10,8 +10,8 @@ from datetime import date
 
 from .catalog import CATALOG, HYBRIDS, LEGACY, SHOR, classical_bits
 
-PROFILES = ("nist-ir-8547", "cnsa-2.0")
-KEYS = {"profiles": list, "as_of": int, "cnsa_deadline": int, "forbid": list, "min_bits": dict, "require_hybrid": bool, "fail": bool}
+PROFILES = ("nist-ir-8547", "cnsa-2.0", "india-dst")
+KEYS = {"profiles": list, "as_of": int, "cnsa_deadline": int, "india_deadline": int, "forbid": list, "min_bits": dict, "require_hybrid": bool, "fail": bool}
 CNSA = {"SHA-384", "SHA-512", "ML-KEM-1024", "ML-DSA-87"}
 CNSA_SCOPE = {"pke", "signature", "key-agree", "kem", "other", "block-cipher", "stream-cipher", "ae", "hash"}
 
@@ -51,7 +51,7 @@ def evaluate(assets, endpoints, policy, today=None):
     min_bits = {k.upper(): v for k, v in policy.get("min_bits", {}).items()}
 
     def add(a, rule, message, deadline=None):
-        v = Violation(rule, a.variant if a else "", message, deadline, deadline is None or (as_of > deadline if rule == "NIST IR 8547" else as_of >= deadline),
+        v = Violation(rule, a.variant if a else "", message, deadline, deadline is None or (as_of > deadline if rule in ("NIST IR 8547", "India DST roadmap") else as_of >= deadline),
                       sorted({s.file for s in a.detections})[:10] if a else [])
         out.append(v)
         if a:
@@ -73,6 +73,11 @@ def evaluate(assets, endpoints, policy, today=None):
                 add(a, "CNSA 2.0", "AES key size not observed: CNSA 2.0 compliance unverified (it needs AES-256)")
             elif not (a.algo in CNSA or a.algo == "AES" and size == 256):
                 add(a, "CNSA 2.0", "not in the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87)", policy.get("cnsa_deadline", 2033))
+        if "india-dst" in profiles and (c.threat in (LEGACY, SHOR) or bits is not None and bits < 112):
+            # DST National Quantum Mission task force roadmap (2026): critical information infrastructure fully post-quantum by
+            # December 2029, other enterprises by 2033 (india_deadline = 2033)
+            add(a, "India DST roadmap", "disallowed now" if c.threat == LEGACY or bits is not None and bits < 112 else "quantum-vulnerable: replace by the end of "
+                + str(policy.get("india_deadline", 2029)), None if c.threat == LEGACY or bits is not None and bits < 112 else policy.get("india_deadline", 2029))
         names = {a.algo.upper(), c.family.upper(), a.variant.upper()}
         if names & forbid:
             add(a, "policy: forbid", f"{a.variant} is forbidden by policy")

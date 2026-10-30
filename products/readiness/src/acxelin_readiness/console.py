@@ -16,9 +16,12 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, endpoints, evidence, owners, pipeline, remote, tickets, workspace
+from . import cbom, endpoints, evidence, owners, pipeline, remote, workspace
+from .rank import Horizon
 
 MAX_TARGETS = 500
+WEIGHT = {"critical": 8, "high": 4, "medium": 2, "low": 1}
+IMPORTANCE = {"critical": 4, "high": 3, "medium": 2, "": 2, "low": 1}  # a service with no importance given counts as medium
 TOKEN = re.compile(r"[A-Za-z0-9_]{20,255}")
 
 
@@ -257,7 +260,8 @@ class Readiness:
                 progress("Reading the imported CBOM")
                 result = workspace.imported(path, self.imports()[path.name])
             else:
-                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
+                horizon = Horizon(secrets=owners.secrets(self.store.owner_rules(path)))
+                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name, horizon=horizon)
             result["project_key"] = self.store.key(path)
             try:
                 result = self.store.save(path, result)
@@ -318,7 +322,7 @@ class Readiness:
         """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
         with self.lock:
             projects, scan_all = list(enumerate(self.projects)), dict(self.all)
-        saved, rows, services = self.store.read()["projects"], [], {}
+        saved, rows, services, libraries = self.store.read()["projects"], [], {}, {}
         for i, path in projects:
             record = saved.get(self.store.key(path))
             if not record:
@@ -331,14 +335,21 @@ class Readiness:
                          "tiers": dict(Counter(a["tier"] for a in live)), "new": cmp.get("new") if cmp.get("baseline") else None,
                          "gone": cmp.get("not_observed") if cmp.get("baseline") else None})
             for a in live:
-                name = (a.get("owner_hint") or {}).get("service")
-                if name and a["tier"] != "ok":
-                    s = services.setdefault(name, {"service": name, "critical": 0, "high": 0, "medium": 0, "low": 0, "projects": set()})
+                hint = a.get("owner_hint") or {}
+                if hint.get("service") and a["tier"] != "ok":
+                    s = services.setdefault(hint["service"], {"service": hint["service"], "critical": 0, "high": 0, "medium": 0, "low": 0, "projects": set(), "importance": ""})
                     s[a["tier"]] += 1
                     s["projects"].add(self.label(path))
+                    s["importance"] = max(s["importance"], hint.get("importance", ""), key=lambda x: IMPORTANCE[x] if x else 0)
+            for x in v.get("libraries", []):
+                lib = libraries.setdefault((x["ecosystem"], x["name"]), {**x, "projects": set()})
+                lib["projects"].add(self.label(path))
+        for s in services.values():
+            s["risk"] = IMPORTANCE.get(s["importance"], 2) * sum(WEIGHT[k] * s[k] for k in WEIGHT)
         ranked = sorted(({**s, "projects": sorted(s["projects"])} for s in services.values()),
-                        key=lambda s: (-s["critical"], -s["high"], -s["medium"], -s["low"], s["service"]))
-        return 200, {"projects": rows, "services": ranked, "scan_all": scan_all, "watch": watch_runs(self.home)}
+                        key=lambda s: (-s["risk"], -s["critical"], -s["high"], s["service"]))
+        libs = sorted(({**x, "projects": sorted(x["projects"])} for x in libraries.values()), key=lambda x: (x["pq"], -len(x["projects"]), x["name"]))
+        return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home)}
 
     def select(self, body):
         i, path = self.selected(body)
@@ -385,16 +396,6 @@ class Readiness:
                  (a.get("owner_hint") or {}).get("service", ""), a["tracking"]["status"], a["tracking"]["due"]] for a in last["assets"] if not a["test_only"]]
         return 200, {"csv": evidence.csv_text(["Asset", "Algorithm", "Priority", "What to do", "Places", "Seen as", "Confidence", "Not seen",
                                                "Owner", "Service", "Status", "Due"], rows)}
-
-    def project_tickets(self, body):
-        i, path = self.selected(body)
-        last = self.store.assessment(path)
-        if not last:
-            raise ValueError("Scan this repository first")
-        hint = lambda a: a.get("owner_hint") or {}
-        found = [a | {"owner": a["tracking"]["owner"] or hint(a).get("owner", ""), "service": hint(a).get("service", ""), "due": a["tracking"]["due"],
-                      "status": a["tracking"]["status"]} for a in last["assets"]]
-        return 200, {"csv": tickets.csv_for(found, body.get("system"), last["project"])}
 
     # --- endpoints
 
@@ -485,7 +486,7 @@ def build(home):
               ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/projects/owners"): r.owners, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
-              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/projects/tickets"): r.project_tickets,
+              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv,
               ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
     return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000, ("POST", "/api/projects/owners"): 2_000_000})  # a CBOM can be large; read only after sign-in
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import __version__, pipeline, report, image, inventory, compliance, remote, owners, tickets
+from . import __version__, pipeline, report, image, inventory, compliance, remote, owners
 from .rank import Horizon, TIERS
 from .report import write_results
 from .detectors import Scope
@@ -59,8 +59,7 @@ def main(argv=None):
                    help=f"check against a published transition standard (repeatable): {', '.join(compliance.PROFILES)}; own rules go in [policy] in .acxelin-readiness.toml")
     s.add_argument("--as-of", type=int, metavar="YEAR", help="judge policy deadlines as of this year (default: this year)")
     s.add_argument("--fail-on-policy", action="store_true", help="exit 2 if any policy rule is already broken (deadline passed or none)")
-    s.add_argument("--tickets", choices=tickets.SYSTEMS, help="also write tickets.csv for Jira or ServiceNow to import: one row per finding that needs work")
-    s.add_argument("--owners", metavar="CSV", help="CMDB export with path, owner and (optional) service columns, for the tickets; CODEOWNERS is used too")
+    s.add_argument("--owners", metavar="CSV", help="CMDB export with path and owner columns; a keep secret (years) column sets how long each path's data must stay secret")
     s.add_argument("-q", "--quiet", action="store_true")
     w = sub.add_parser("watch", help="scan again on a schedule and say what appeared or disappeared since the last scan")
     w.add_argument("path", nargs="?", default=".", help="folder or GitHub link to scan; its .acxelin-readiness.toml adds endpoints and other settings")
@@ -173,7 +172,6 @@ def main(argv=None):
     except OSError as e:
         sys.exit(f"acxelin-readiness: cannot write to {out}: {e}")
     only = changed_files(root, a.changed_since) if a.changed_since else None
-    h = Horizon(a.shelf_life, a.migration, a.crqc_year)
     unpacked, notes = None, []
     if image.is_image(root):
         unpacked = Path(tempfile.mkdtemp(prefix="readiness-image-"))
@@ -183,11 +181,11 @@ def main(argv=None):
         except (OSError, ValueError, KeyError, IndexError, TypeError, EOFError) as e:
             sys.exit(f"acxelin-readiness: {root.name} could not be read as a container image ({e.__class__.__name__}); save it again with docker save")
         name = a.name or root.name.split(".")[0]
-    repo_owners = owners.codeowners(root) if root.is_dir() else []
     try:
         cmdb = owners.from_csv(Path(a.owners).read_text(encoding="utf-8")) if a.owners else []
     except (OSError, ValueError) as e:
         sys.exit(f"acxelin-readiness: cannot read --owners {a.owners}: {e}")
+    h = Horizon(a.shelf_life, a.migration, a.crqc_year, owners.secrets(cmdb))
     try:
         r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap,
                          aws=a.aws, aws_session=aws_session)
@@ -202,14 +200,6 @@ def main(argv=None):
         r.compliance = compliance.evaluate(r.assets, r.endpoints, policy)
     try:
         write_results(out, name, r)
-        if a.tickets:
-            found = []
-            for x in r.assets:
-                places = sorted({(s.file, s.line) for s in x.detections})
-                hint = owners.suggest(cmdb, repo_owners, [p for p, _ in places]) or {}
-                found.append({"name": x.variant, "algorithm": x.algo, "tier": x.tier, "action": x.action, "why": x.why, "locations": places,
-                              "test_only": x.test_only, "owner": hint.get("owner", ""), "service": hint.get("service", "")})
-            (out / "tickets.csv").write_text(tickets.csv_for(found, a.tickets, name), encoding="utf-8")
     except OSError as e:
         sys.exit(f"acxelin-readiness: cannot write to {out}: {e}")
     if not a.quiet:
