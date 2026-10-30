@@ -7,7 +7,6 @@ LANGS = {".py": "Python", ".java": "Java", ".go": "Go", ".js": "JavaScript", ".m
 HASH = {"MD5": ("md5", "MD5", "md5.Sum", "md5"), "SHA-1": ("sha1", "SHA-1", "sha1.Sum", "sha1")}
 SIGN = {"RSA", "ECDSA", "Ed25519", "Ed448", "DSA", "ECC"}
 AGREE = {"ECDH", "X25519", "X448", "DH"}
-OLD_CIPHER = {"DES", "3DES", "RC4", "RC2", "Blowfish"}
 TLS = {"SSL 2.0": "SSLv2", "SSL 3.0": "SSLv3", "TLS 1.0": "TLSv1", "TLS 1.1": "TLSv1.1", "TLS 1.2": "TLSv1.2"}
 GCM = {
     "Python": "from cryptography.hazmat.primitives.ciphers.aead import AESGCM\nnonce = os.urandom(12)  # new for every message\n"
@@ -72,7 +71,7 @@ def example(asset):
                "Go": ("private, _ := ecdh.X25519().GenerateKey(rand.Reader)",
                       "dk, _ := mlkem.GenerateKey768()  // Go 1.24 or later\nshared, ciphertext := peerKey.Encapsulate()  // the peer runs dk.Decapsulate(ciphertext)")}[lang] + (
             "In TLS, prefer the hybrid group X25519MLKEM768 over writing this yourself.",)
-    elif (algo in OLD_CIPHER or algo == "AES" and "ECB" in name.upper()) and lang in OLD and algo != "RC4":
+    elif (algo in CIPHER_NAMES or algo == "AES" and "ECB" in name.upper()) and lang in OLD:
         py, mode, java, go, js = CIPHER_NAMES["AES-ECB" if algo == "AES" else algo]
         out = OLD[lang].format(py=py, mode=mode, java=java, go=go, js=js), GCM[lang], "AES-256-GCM also checks that nothing was changed."
     elif algo in TLS:

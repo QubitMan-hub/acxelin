@@ -170,3 +170,15 @@ def test_scheduled_scans_appear_in_the_overview(two):
     runs = r("GET", "/api/overview")["watch"]
     assert len(runs) == 2 and runs[0]["new_count"] >= 1 and ["MD5", "src/legacy.py"] in runs[0]["new"] and runs[1]["first"]
     assert Path(runs[0]["out"]).name == "w"
+
+
+def test_every_algorithm_in_every_language_gets_an_example_or_none_never_an_error():
+    from acxelin_readiness.catalog import CATALOG
+    from acxelin_readiness.examples import LANGS, effort, example
+    for algo in CATALOG:
+        for ext in LANGS:
+            for tier in ("critical", "high", "medium", "low"):
+                asset = {"tier": tier, "algorithm": algo, "name": algo + " ECB", "locations": [["nginx/a" + ext, 1]]}
+                got = example(asset)
+                assert got is None or got["before"] and got["after"], (algo, ext)
+                assert effort(asset)["level"]
