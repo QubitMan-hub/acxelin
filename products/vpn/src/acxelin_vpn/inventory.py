@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives import serialization
 
 from . import PROFILES, NAME, __version__, load_config
 from .controller import LABEL as IPSEC_LABEL
-from .policies import POLICY
+from .policies import CNSA2, POLICY, policy_for
 from .wireguard import LABEL as WG_LABEL, load_gateway
 
 # name: (primitive, parameter set, mode, curve, NIST quantum security level, functions)
@@ -43,7 +43,7 @@ ALGORITHMS = {
 }
 # strongSwan proposal keywords, as the profiles spell them
 PROPOSAL = {"aes256gcm16": "AES-256-GCM", "prfsha384": "HMAC-SHA384", "prfsha512": "HMAC-SHA512", "x25519": "X25519",
-            "ecp384": "ECDH-P-384", "ke1_mlkem768": "ML-KEM-768", "ke1_mlkem1024": "ML-KEM-1024"}
+            "ecp384": "ECDH-P-384", "ke1_mlkem768": "ML-KEM-768", "ke1_mlkem1024": "ML-KEM-1024", "mlkem1024": "ML-KEM-1024"}
 SUITES = {"TLS_AES_256_GCM_SHA384": ["AES-256-GCM", "SHA-384"], "TLS_CHACHA20_POLY1305_SHA256": ["ChaCha20-Poly1305", "SHA-256"],
           "TLS_AES_128_GCM_SHA256": ["AES-128-GCM", "SHA-256"]}
 SIGNATURE_OIDS = {"2.16.840.1.101.3.4.3.17": "ML-DSA-44", "2.16.840.1.101.3.4.3.18": "ML-DSA-65", "2.16.840.1.101.3.4.3.19": "ML-DSA-87"}
@@ -132,17 +132,19 @@ class Inventory:
                              where=path, encrypted=("yes" if encrypted(Path(path)) else "no") if exists else None,
                              missing=None if exists else Path(path).as_posix())
 
-    def key_agreement(self):
+    def key_agreement(self, policy=POLICY):
         """The post-quantum mutual TLS both sites and gateways agree keys over."""
-        groups = [self.algorithm(g) for g in POLICY.groups.split(":")]
-        signatures = [self.algorithm(SIGALGS[s]) for s in POLICY.sigalgs.split(":")]
-        suites = [{"name": s, "algorithms": [self.algorithm(a) for a in SUITES[s]]} for s in POLICY.ciphersuites.split(":")]
-        return self.protocol("TLS-1.3", "TLS 1.3", {"type": "tls", "version": "1.3", "cipherSuites": suites, "cryptoRefArray": groups + signatures},
+        groups = [self.algorithm({"MLKEM1024": "ML-KEM-1024"}.get(g, g)) for g in policy.groups.split(":")]
+        signatures = [self.algorithm(SIGALGS[s]) for s in policy.sigalgs.split(":")]
+        suites = [{"name": s, "algorithms": [self.algorithm(a) for a in SUITES[s]]} for s in policy.ciphersuites.split(":")]
+        strict = policy is CNSA2
+        return self.protocol("TLS-1.3-cnsa2" if strict else "TLS-1.3", "TLS 1.3 (CNSA 2.0)" if strict else "TLS 1.3",
+                             {"type": "tls", "version": "1.3", "cipherSuites": suites, "cryptoRefArray": groups + signatures},
                              use="key agreement for IPsec and WireGuard: ML-DSA mutual TLS, then keys from the TLS exporter")
 
     def site(self, path):
         site = load_config(path)
-        tls = self.key_agreement()
+        tls = self.key_agreement(policy_for(site))
         self.certificates(site.cert)
         self.certificates(site.ca)
         self.private_key(site.name, site.key, site.cert)
@@ -150,7 +152,7 @@ class Inventory:
         for p in site.peers:
             ike, esp = (proposal.split("-") for proposal in PROFILES[p.profile])
             ike_refs = {k: [self.algorithm(PROPOSAL[t]) for t in ike if t.startswith(prefix)] for k, prefix in
-                        (("encr", "aes"), ("prf", "prf"), ("ke", ("x25519", "ecp", "ke1_")))}
+                        (("encr", "aes"), ("prf", "prf"), ("ke", ("x25519", "ecp", "ke1_", "mlkem")))}
             esp_refs = [self.algorithm(PROPOSAL[t]) for t in esp]
             everything |= set(ike) | set(esp)
             pair = f"{site.name} to {p.name}"

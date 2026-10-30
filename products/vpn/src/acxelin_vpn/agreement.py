@@ -64,14 +64,17 @@ def read_line(conn, limit=4096):
     return msg
 
 
-def dial(address, ca, cert, key, passphrase=None, server_name=None, timeout=10):
+def dial(address, ca, cert, key, passphrase=None, server_name=None, timeout=10, policy=POLICY):
     """The initiator's side: a verified session to a keyring, presenting our certificate."""
-    return tls.connect(*address, tls.client_context(POLICY, ca, cert, key, passphrase), server_name=server_name, timeout=timeout)
+    ctx = tls.client_context(policy, ca, cert, key, passphrase)
+    return tls.connect(*address, ctx, server_name=server_name, timeout=timeout)
 
 
-def keyring(listen, cert, key, ca, respond, crl=None, passphrase=lambda: None, max_connections=64):
+def keyring(listen, cert, key, ca, respond, crl=None, passphrase=lambda: None, max_connections=64, policy=POLICY):
     """The responder's side, started: certificate files are reloaded when they change, and a CRL, when given, is checked first."""
-    make = lambda: tls.server_context(POLICY, cert, key, ca, True, passphrase())
+    make = lambda: tls.server_context(policy, cert, key, ca, True, passphrase())
+    if policy.cert_algorithm:
+        make()  # a certificate the policy cannot use fails here, not at every handshake
     server = Server(hostport(listen), make, respond, watch=[cert, key, ca], crl=crl or None, ca=ca, max_connections=max_connections, name="keyring")
     server.start()
     return server

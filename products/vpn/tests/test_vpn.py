@@ -23,10 +23,10 @@ def site(**kw):
 
 
 class ConfigTest(unittest.TestCase):
-    def test_every_exchange_is_hybrid_post_quantum(self):
-        for ike, esp in PROFILES.values():
-            self.assertIn("ke1_mlkem", ike)
-            self.assertIn("ke1_mlkem", esp)
+    def test_every_exchange_is_post_quantum_and_hybrid_except_the_strict_profile(self):
+        for name, (ike, esp) in PROFILES.items():
+            self.assertIn("mlkem1024" if name == "cnsa2" else "ke1_mlkem", ike)
+            self.assertIn("mlkem1024" if name == "cnsa2" else "ke1_mlkem", esp)
             self.assertIn("aes256gcm16", esp)
 
     def test_conn_requires_a_ppk_and_pins_it_per_peer(self):

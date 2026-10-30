@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A strict profile, `profile = "cnsa2"`: only the NSA's CNSA 2.0 suite. IKE and ESP use ML-KEM-1024 alone with AES-256-GCM
+  and SHA-384, and the gateways' key agreement allows only ML-KEM-1024, ML-DSA-87 certificates and AES-256; a gateway whose
+  certificate is not ML-DSA-87 refuses to start. Every peer of a site uses it or none. The CBOM lists the strict key agreement
+  separately. Checked by unit tests; not yet run against strongSwan in the two-site test.
 - Windows: `install.ps1` writes its command wrapper in the console code page, so a user name such as José keeps its
   path. ASCII turned it into `Jos?`.
 

@@ -1,6 +1,7 @@
 """Acxelin VPN: post-quantum site-to-site IPsec, and WireGuard remote access for people.
 
-Key exchange is IKEv2 with a hybrid classical + ML-KEM exchange (RFC 9370), on the initial exchange and on every rekey.
+Key exchange is IKEv2 with a hybrid classical + ML-KEM exchange (RFC 9370), on the initial exchange and on every rekey; the
+strict `cnsa2` profile uses ML-KEM-1024 alone, with only CNSA 2.0 algorithms everywhere.
 strongSwan cannot yet authenticate with ML-DSA, so authentication is anchored in ML-DSA another way: the gateways agree keys
 over post-quantum mutual TLS (ML-DSA certificates from our CA, X25519MLKEM768) and derive, from that session's exporter,
 the IKE pre-shared key and an RFC 8784 post-quantum pre-shared key (PPK). Both rotate; a revoked gateway gets no new keys.
@@ -16,6 +17,7 @@ __version__ = "1.0.2"
 PROFILES = {
     "standard": ("aes256gcm16-prfsha384-x25519-ke1_mlkem768", "aes256gcm16-x25519-ke1_mlkem768"),
     "high": ("aes256gcm16-prfsha512-ecp384-ke1_mlkem1024", "aes256gcm16-ecp384-ke1_mlkem1024"),
+    "cnsa2": ("aes256gcm16-prfsha384-mlkem1024", "aes256gcm16-mlkem1024"),  # NSA CNSA 2.0: ML-KEM-1024, AES-256, SHA-384
 }
 
 
@@ -69,6 +71,9 @@ def validate(site):
     for p in site.peers:
         if p.profile not in PROFILES:
             raise ValueError(f"{p.name}: profile must be one of {', '.join(PROFILES)}")
+    if len({p.profile == "cnsa2" for p in site.peers}) > 1:
+        raise ValueError("profile = \"cnsa2\" must be set on every peer of a site or none: they share one key agreement service")
+    for p in site.peers:
         if p.initiate and not p.keyring:
             raise ValueError(f"{p.name}: initiate = true needs keyring = \"host:port\" (the peer's key agreement service)")
         if p.rotate_minutes < 1:

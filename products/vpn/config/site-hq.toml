@@ -16,5 +16,5 @@ name = "branch1.acme.example"
 address = "198.51.100.7"
 local_subnets = ["10.1.0.0/16"]
 remote_subnets = ["10.2.0.0/16"]
-profile = "standard"                  # X25519 + ML-KEM-768; "high" = P-384 + ML-KEM-1024 (CNSA 2.0 level)
+profile = "standard"                  # X25519 + ML-KEM-768; "high" = P-384 + ML-KEM-1024; "cnsa2" = ML-KEM-1024 only (strict)
 rotate_minutes = 60

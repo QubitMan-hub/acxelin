@@ -18,7 +18,8 @@
 <thead><tr><th>Profile</th><th>IKE key exchange</th><th>Encryption</th></tr></thead>
 <tbody>
 <tr><td><code>standard</code> (default)</td><td>X25519 + ML-KEM-768, with the PPK</td><td>AES-256-GCM</td></tr>
-<tr><td><code>high</code> (CNSA 2.0 level)</td><td>P-384 + ML-KEM-1024, with the PPK</td><td>AES-256-GCM</td></tr>
+<tr><td><code>high</code></td><td>P-384 + ML-KEM-1024, with the PPK</td><td>AES-256-GCM</td></tr>
+<tr><td><code>cnsa2</code> (strict, CNSA 2.0)</td><td>ML-KEM-1024 only, with the PPK; key agreement with ML-DSA-87 certificates only</td><td>AES-256-GCM</td></tr>
 </tbody></table></div>
 </section>
 

@@ -14,6 +14,7 @@ from acxelin_core.server import Revocation
 from . import agreement
 from .agreement import TAG, common_name, read_line
 from .charon import Charon, CharonError, conn_config, ppk_pattern, protected
+from .policies import policy_for
 
 log = logging.getLogger(__name__)
 LABEL, context = agreement.IPSEC, agreement.ipsec_context
@@ -55,7 +56,8 @@ class Controller:
 
     def agree(self, peer):
         """Initiator side: connect to the peer's keyring, prove who we are, derive the keys, wait for the peer to confirm."""
-        with agreement.dial(hostport(peer.keyring, peer.address), self.site.ca, self.site.cert, self.site.key, self.passphrase(), peer.name) as conn:
+        with agreement.dial(hostport(peer.keyring, peer.address), self.site.ca, self.site.cert, self.site.key, self.passphrase(), peer.name,
+                            policy=policy_for(self.site)) as conn:
             cert = conn.peer_certificate()
             if common_name(cert) != peer.name:
                 raise tls.TLSError(f"{peer.keyring} presented {common_name(cert)!r}, expected {peer.name!r}")
@@ -151,7 +153,7 @@ class Controller:
             if not p.initiate:
                 self.charon.load_conn(conn_config(s, p))
         if s.keyring_listen:
-            self.server = agreement.keyring(s.keyring_listen, s.cert, s.key, s.ca, self.respond, s.crl, self.passphrase)
+            self.server = agreement.keyring(s.keyring_listen, s.cert, s.key, s.ca, self.respond, s.crl, self.passphrase, policy=policy_for(s))
         for p in s.peers:
             if p.initiate:
                 threading.Thread(target=self.initiator_loop, args=(p,), daemon=True, name=p.name).start()

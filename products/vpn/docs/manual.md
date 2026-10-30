@@ -239,9 +239,16 @@ By default only the gateway's `routes` go through the tunnel, and other internet
 | Profile | IKE key exchange | Encryption |
 |---|---|---|
 | `standard` (default) | X25519 + ML-KEM-768 | AES-256-GCM |
-| `high` (CNSA 2.0 level) | P-384 + ML-KEM-1024 | AES-256-GCM |
+| `high` | P-384 + ML-KEM-1024 | AES-256-GCM |
+| `cnsa2` (strict, government grade) | ML-KEM-1024 only | AES-256-GCM, SHA-384 |
 
 Set `profile` per `[[peer]]`. Both sides of a tunnel must use the same one.
+
+`cnsa2` keeps to the NSA's CNSA 2.0 suite on every layer: no classical key exchange in IKE or ESP, and the key agreement
+between gateways allows only ML-KEM-1024, ML-DSA-87 certificates and AES-256. Every peer of the site must use it (they share
+one key agreement service), and both gateways need ML-DSA-87 certificates: `acxelin-vpn ca issue site NAME --algorithm ML-DSA-87`.
+A gateway with another certificate refuses to start and says why. WireGuard remote access cannot meet CNSA 2.0 (Curve25519
+and ChaCha20 are outside the suite), so a CNSA 2.0 network leaves it off.
 
 ### For an audit
 
