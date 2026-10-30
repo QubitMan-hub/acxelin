@@ -358,7 +358,7 @@ def scan(path):
     """Detections, endpoint summaries and notes from one capture file."""
     data = Path(path).read_bytes()
     name = Path(path).name
-    by_server, skipped = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": [], "dtls": []}), 0
+    by_server, skipped, unknown = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": [], "dtls": []}), 0, []
     for (client, server), (cbuf, sbuf) in streams(data).items():
         try:  # a capture cut short by its snap length, or a damaged frame, ends that handshake only
             if cbuf[:4] == b"SSH-" or sbuf[:4] == b"SSH-":
@@ -369,6 +369,8 @@ def scan(path):
                 s = tls_session(cbuf, sbuf)
                 if s:
                     by_server[named(server, s)]["tls"].append(s)
+            elif cbuf or sbuf:
+                unknown.append(f"tcp {server[0]}:{server[1]}")
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
     for (client, server), datagrams in flows(data).items():
@@ -377,6 +379,8 @@ def scan(path):
             s = {"ike": ike_session, "dtls": dtls_session, "quic": quic_session}[kind](client, datagrams)
             if s:
                 by_server[named(server, s) if kind != "ike" else server][kind].append(s)
+            else:
+                unknown.append(f"udp {server[0]}:{server[1]}")
         except (struct.error, IndexError, KeyError, ValueError):
             skipped += 1
     sights, eps = [], []
@@ -443,6 +447,10 @@ def scan(path):
                           clients_offering_pq=sum(bool(s["client_pq"]) for s in sessions))
             eps.append(ep)
     notes = [f"capture {name}: {sum(e['observed'] for e in eps)} handshake(s) with {len(eps)} server(s) read; payloads are encrypted and were not read"]
+    if unknown:
+        names = sorted(set(unknown))
+        notes.append(f"capture {name}: {len(names)} other conversation(s) were not TLS, DTLS, QUIC, SSH or IKE ({', '.join(names[:5])}"
+                     + (" and more" if len(names) > 5 else "") + "); any cryptography in them is not reported")
     if skipped:
         notes.append(f"capture {name}: {skipped} handshake(s) cut short or damaged and not read (a capture's snap length may be too small)")
     return sights, eps, notes

@@ -129,3 +129,17 @@ def test_report_command_with_nothing_to_report_on_says_what_to_pass():
     import sys
     run = subprocess.run([sys.executable, "-m", "acxelin_readiness", "report"], capture_output=True, text=True)
     assert run.returncode == 1 and "--certs" in run.stderr
+
+
+def test_another_tools_cbom_without_priorities_is_rated_from_its_algorithms(tmp_path):
+    comp = lambda name: {"type": "cryptographic-asset", "name": name, "cryptoProperties": {"assetType": "algorithm"},
+                         "evidence": {"occurrences": [{"location": f"vendor://{name}"}]}}
+    bom = {"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": {"component": {"name": "vendor link"}},
+           "components": [comp(n) for n in ("ML-KEM-1024", "ML-DSA-87", "AES-256-GCM", "RSA-2048", "MD5", "Frobnicate-9")]}
+    (tmp_path / "vendor.cbom.json").write_text(json.dumps(bom))
+    rows = {r["name"]: r for r in evidence.code(tmp_path / "vendor.cbom.json")}
+    assert {n: rows[n]["status"] for n in rows} == {"ML-KEM-1024": "ready", "ML-DSA-87": "ready", "AES-256-GCM": "ready", "RSA-2048": "action", "MD5": "action"}
+    assert [rows[n]["cnsa2"] for n in ("ML-KEM-1024", "ML-DSA-87", "AES-256-GCM")] == ["compliant"] * 3 and rows["RSA-2048"]["cnsa2"] != "compliant"
+    assert all(r["evidence"]["estimated"] for r in rows.values()) and "vendor://RSA-2048" in rows["RSA-2048"]["detail"]
+    assert "not classified" not in (rows["ML-KEM-1024"]["nist_ir_8547"], rows["RSA-2048"]["nist_ir_8547"])
+    assert rows["AES-256-GCM"]["nist_ir_8547"] == "Quantum-safe" and "2035" in rows["RSA-2048"]["nist_ir_8547"]

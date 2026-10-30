@@ -9,6 +9,7 @@ import datetime as dt
 import html
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -112,6 +113,7 @@ def endpoints(results):
 
 def code(path):
     """Rows from a scan or any other tool's CBOM: an output folder (cbom.json, plus findings.json for security patterns) or a cbom.json file. Each row cites where the asset was seen and, when known, which functions reach it.
+    A component without Readiness's priority gets one estimated from its algorithm; a name the catalogue does not know is left out.
     The priority decides `action`; otherwise the NIST status decides between quantum-safe and quantum-vulnerable. Certificate
     components are left out: their key and signature algorithms are rows of their own."""
     path = Path(path)
@@ -130,8 +132,16 @@ def code(path):
             warned = print(f"acxelin-readiness: {path}: read through the old wolfpack:* property names; scan again to write acxelin:* names", file=sys.stderr) or True
         props |= old  # old prefix, read through 1.x
         tier, name = props.get("acxelin:tier"), str(c.get("name", "?"))
-        if tier is None:
-            continue
+        estimated = tier is None
+        if estimated:  # another tool's CBOM: a priority from the algorithm alone, as merge and the console's import do
+            from .catalog import nist_status
+            from .inventory import algo_of, estimate
+            algo = algo_of(name)
+            tier = estimate(algo, name)
+            if tier is None:
+                continue
+            size = re.search(r"(?<![\w.])(\d{3,5})(?![\w.])", name)  # 256 of AES-256-GCM, 2048 of RSA-2048
+            props.setdefault("acxelin:nist-status", nist_status(algo, {"key_size": int(size.group(1))} if size else {}))
         nist = props.get("acxelin:nist-status")
         safe = nist.startswith(("Quantum-safe", "Acceptable")) if nist else tier in ("ok", "low")
         status = "note" if "(declared non-security)" in name else "action" if tier in ("critical", "high") else "ready" if safe else "plan"
@@ -148,7 +158,7 @@ def code(path):
         detail += f"; next: {props['acxelin:recommendation']}" if props.get("acxelin:recommendation") else ""
         cnsa = any(name.startswith(a) and not name[len(a):].startswith("/") for a in CNSA2_ALGORITHMS)  # SHA-512/224 is not SHA-512
         out.append(_row("code", name, detail, status, nist, "compliant" if cnsa else "not a CNSA 2.0 algorithm",
-                        {"project": project, "tier": tier, "locations": seen[:20], "callers": callers[:20]}))
+                        {"project": project, "tier": tier, "estimated": estimated, "locations": seen[:20], "callers": callers[:20]}))
     report = _load(findings) if findings.is_file() else {}
     for p in report.get("patterns", []) if isinstance(report, dict) else []:
         if isinstance(p, dict) and p.get("severity") in ("critical", "high"):

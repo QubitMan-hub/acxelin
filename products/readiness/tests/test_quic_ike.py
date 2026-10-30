@@ -101,3 +101,12 @@ def test_two_sites_on_one_address_stay_apart_by_server_name_and_a_dhe_prime_size
     assert sorted(e["target"] for e in eps) == ["pcap://two.pcap/dh1024.example:443", "pcap://two.pcap/pq.example:443"]
     assert any(s.algo == "DH" and s.params.get("key_size") == 1024 and "dh1024" in s.file for s in sights)
     assert not any(s.algo == "X25519MLKEM768" and "dh1024" in s.file for s in sights)
+
+
+def test_conversations_in_a_protocol_not_recognised_are_named_not_passed_over(tmp_path):
+    a, b = bytes([10, 0, 0, 1]), bytes([10, 0, 0, 2])
+    frames = [pcapgen._eth_ip_udp(a, b, 40000, 29029, b"S29" + bytes(range(200)))] * 3 + [pcapgen._eth_ip_tcp(a, b, 41000, 7000, 1, b"\x01proprietary")]
+    (tmp_path / "vendor.pcap").write_bytes(pcapgen.pcap(frames))
+    sights, eps, notes = capture.scan(tmp_path / "vendor.pcap")
+    assert not sights and not eps
+    assert any("2 other conversation(s)" in n and "udp 10.0.0.2:29029" in n and "tcp 10.0.0.2:7000" in n for n in notes), notes

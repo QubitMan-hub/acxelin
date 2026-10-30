@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `report --cbom` rates another tool's CBOM: a component without Readiness's own priority gets one estimated from its algorithm,
+  with its NIST IR 8547 status, as `merge` and the console already did. It gave an empty report before.
+- A packet capture's notes name the conversations that were not TLS, DTLS, QUIC, SSH or IKE, so a capture of a protocol the
+  reader does not know no longer reads as "0 handshakes" alone.
 - Scheduled scans: `acxelin-readiness watch` scans again every few hours (or once, from cron, a systemd timer or Windows
   Task Scheduler), writes `changes.json` with the findings that appeared and disappeared, and can run a command when anything
   changed. The console says what is new since the last scan.
