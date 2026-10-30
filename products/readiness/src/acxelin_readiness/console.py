@@ -322,7 +322,9 @@ class Readiness:
         """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
         with self.lock:
             projects, scan_all = list(enumerate(self.projects)), dict(self.all)
-        saved, rows, services, libraries = self.store.read()["projects"], [], {}, {}
+        saved, rows, services, libraries, actions = self.store.read()["projects"], [], {}, {}, {}
+        board = {"projects": len(projects), "scanned": 0, "critical": 0, "high": 0, "recordable": 0, "deadline_findings": 0, "to_fix": 0, "done": 0,
+                 "effort": Counter(), "scores": [], "previous": [], "coverage": []}
         for i, path in projects:
             record = saved.get(self.store.key(path))
             if not record:
@@ -341,6 +343,7 @@ class Readiness:
                     s[a["tier"]] += 1
                     s["projects"].add(self.label(path))
                     s["importance"] = max(s["importance"], hint.get("importance", ""), key=lambda x: IMPORTANCE[x] if x else 0)
+            self.tally(board, actions, v, live, self.label(path))
             for x in v.get("libraries", []):
                 lib = libraries.setdefault((x["ecosystem"], x["name"]), {**x, "projects": set()})
                 lib["projects"].add(self.label(path))
@@ -349,7 +352,38 @@ class Readiness:
         ranked = sorted(({**s, "projects": sorted(s["projects"])} for s in services.values()),
                         key=lambda s: (-s["risk"], -s["critical"], -s["high"], s["service"]))
         libs = sorted(({**x, "projects": sorted(x["projects"])} for x in libraries.values()), key=lambda x: (x["pq"], -len(x["projects"]), x["name"]))
-        return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home)}
+        return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home),
+                     "board": summary(board, actions, ranked, libs)}
+
+    @staticmethod
+    def tally(board, actions, v, live, name):
+        """Add one project's latest scan to the board summary."""
+        from .catalog import CATALOG, SHOR
+        shor = [a for a in live if a["tier"] != "ok" and a["algorithm"] in CATALOG and CATALOG[a["algorithm"]].threat == SHOR]
+        board["scanned"] += 1
+        board["critical"] += sum(a["tier"] == "critical" for a in live)
+        board["high"] += sum(a["tier"] == "high" for a in live)
+        board["deadline_findings"] += len(shor)
+        board["recordable"] += sum(CATALOG[a["algorithm"]].primitive != "signature" for a in shor)
+        for a in live:
+            t = a.get("tracking") or {}
+            if a["tier"] != "ok" or t.get("status", "open") != "open":
+                board["to_fix"] += 1
+                board["done"] += t.get("status") == "exception" or t.get("status") == "fixed" and not t.get("still_found")
+            if a.get("effort"):
+                board["effort"][a["effort"]["level"]] += 1
+        s = v["summary"]
+        if s.get("score") is not None:
+            board["scores"].append(s["score"])
+            before = [h["summary"].get("score") for h in v.get("history", []) if h.get("finished", 0) < v["finished"] and h["summary"].get("score") is not None]
+            if before:
+                board["previous"].append(before[-1])
+        board["coverage"].append(s.get("coverage"))
+        for rank, x in enumerate((v.get("outlook") or {}).get("actions", [])):
+            act = actions.setdefault(x["text"], {"text": x["text"], "rank": rank, "projects": set(), "names": set()})
+            act["names"].update(x.get("targets", []))
+            act["rank"] = min(act["rank"], rank)
+            act["projects"].add(name)
 
     def select(self, body):
         i, path = self.selected(body)
@@ -465,6 +499,20 @@ class Readiness:
             r = pipeline.run(Path(empty), "endpoints", tls_targets=[t for t in targets if not t.startswith("ssh://")],
                              ssh_targets=[t.removeprefix("ssh://") for t in targets if t.startswith("ssh://")])
         return 200, {"cbom": cbom.build("endpoints", r.assets, r.artifacts, r.libraries, r.endpoints)}
+
+
+def summary(board, actions, services, libraries):
+    """One page for a board: the level and its trend, what is at risk, what to do first, and whether it rests on enough evidence."""
+    mean = lambda xs: round(sum(xs) / len(xs)) if xs else None
+    known = [c for c in board.pop("coverage") if c is not None]
+    gaps = [f"{board['scanned']} of {board['projects']} projects scanned"] if board["scanned"] < board["projects"] else []
+    if known and min(known) < 80:
+        gaps.append(f"coverage under 80% in {sum(c < 80 for c in known)} of them")
+    top = sorted(actions.values(), key=lambda a: (a["rank"], -len(a["projects"]), a["text"]))[:5]
+    return {**board, "score": mean(board.pop("scores")), "previous": mean(board["previous"]) if board["previous"] else None,
+            "coverage": min(known) if known else None, "provisional": "; ".join(gaps), "effort": dict(board["effort"]),
+            "actions": [{"text": a["text"], "names": sorted(a["names"])[:4], "projects": sorted(a["projects"])} for a in top],
+            "services": [s["service"] for s in services[:3]], "libraries_without_pq": sum(not x["pq"] for x in libraries)}
 
 
 def watch_runs(home):

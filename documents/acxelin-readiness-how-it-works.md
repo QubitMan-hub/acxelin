@@ -57,7 +57,7 @@ The scanner reads everything on the left without changing it, decides how weak e
 | Network recordings | Our own reader for Wireshark files | Sees what was really agreed on the wire, without installing Wireshark |
 | Console | One web page, served from your own computer | Nothing extra to install, nothing loaded from the internet |
 | Outputs | Standard file formats (CycloneDX, SARIF, CSV, PDF) | Auditors and other tools can read them without our software |
-| Tests | 581 automatic tests (32 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
+| Tests | 585 automatic tests (33 of them drive the console in a real browser), plus a set of sample files that must always be found exactly right | Every change is checked against real code, real recordings and real servers |
 | Cloud keys (optional) | boto3, Amazon's own library | Only for reading AWS KMS keys and ACM certificates; it comes with the aws extra, which the release folder and the Docker image include |
 
 ### The code is split in two packages
@@ -178,7 +178,7 @@ Above the sections, four cards show the numbers that matter: how many findings n
 
 **What each change takes.** Every finding says whether fixing it means changing a setting, reissuing a key or certificate, upgrading a library, changing code (and in how many files) or replacing a vendor's component. A small chart counts them, so a team can see how much is quick work and how much needs a project. Where the code is Python, Java, Go, JavaScript, TypeScript or nginx, a link shows a short before and after in that language.
 
-**Every project at once.** The Overview tab puts every project side by side with its score and what changed, scans them all with one button, adds every repository of a GitHub organisation, ranks the business services most at risk, lists the third-party cryptography libraries and whether they support post-quantum algorithms, and shows the results of scheduled scans.
+**Every project at once.** The Overview tab puts every project side by side with its score and what changed, scans them all with one button, adds every repository of a GitHub organisation, ranks the business services most at risk, lists the third-party cryptography libraries and whether they support post-quantum algorithms, and shows the results of scheduled scans. **Board summary** prints all of it as one page for directors, marked provisional when projects are unscanned or coverage is under 80%.
 
 ### Keeping track of the fixes
 

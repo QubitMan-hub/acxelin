@@ -28,6 +28,9 @@
   explained before the first check.
 - Console Overview: every project side by side, one button to scan them all, every repository of a GitHub organisation added at
   once, business services ranked across projects, and the results of scheduled scans (`watch --home`).
+- Board summary: one printable page for directors from every project's latest scan (level and trend, findings that need action,
+  harvest-now and 2030 exposure, progress, the first five actions, the services most at risk), marked provisional when projects
+  are unscanned or coverage is under 80%.
 - Before and after: a rescan lists the findings no longer found and the new ones, by name and priority.
 - Fix examples: findings in Python, Java, Go, JavaScript, TypeScript and nginx show a short before and after in that language.
 - Console polish: a search box for findings (`/`), confirmation before removing a token or an owner list, a message when

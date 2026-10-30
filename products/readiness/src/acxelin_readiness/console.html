@@ -83,6 +83,11 @@ td.num,th.num{text-align:right}#ov h2{margin-top:34px}.note{margin:0 0 14px;colo
 .meter{display:inline-block;width:56px;height:6px;margin-left:8px;border-radius:3px;background:var(--sunken);vertical-align:middle;overflow:hidden}
 .meter i{display:block;height:100%;background:var(--ink)}.find{max-width:340px;margin:14px 0 4px}.find input{min-height:36px;padding:6px 10px}
 details.add{margin-top:22px;padding-top:14px;border-top:1px solid var(--rule)}details.add>summary{cursor:pointer;font-weight:500;color:var(--ink)}
+#board{margin:8px 0 30px;padding:22px 24px;border:1px solid var(--rule);border-radius:8px;background:var(--pane);max-width:880px}
+#board h2{margin:0 0 2px}#board .cards{margin:14px 0}#board h3{font-size:14px;margin:18px 0 6px}#board ol,#board ul{margin:0;padding-left:20px}
+#board li small{color:var(--muted)}#board ul.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;list-style:none;padding:0}.provisional{margin:8px 0 0;padding:8px 12px;border-radius:6px;background:var(--exposed-ground);color:var(--ink);font-size:13.5px}
+@media print{body.board-print #panel>*:not(#board),body.board-print .tabs,body.board-print .brandbar small{display:none!important}
+body.board-print #board{border:0;padding:0;margin:0;background:none}}
 kbd{font:12px var(--mono);padding:0 5px;border:1px solid var(--rule-strong);border-radius:4px;color:var(--muted)}
 </style>
 </head>
@@ -462,7 +467,9 @@ function overviewView() {
   org.addEventListener("keydown", (e) => { if (e.key === "Enter") addOrg(); });
   const all = h("button", {class: "btn", id: "scan-all"}, "Scan every project");
   all.addEventListener("click", async () => { try { await call("projects/scan-all", {}); refreshOverview(); } catch (e) {} });
-  $("#panel").replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, "All projects"), h("div", {class: "row"}, all)),
+  const board = h("button", {class: "btn quiet", id: "board-btn", "aria-expanded": "false"}, "Board summary");
+  board.addEventListener("click", () => { const open = !$("#board"); board.setAttribute("aria-expanded", String(open)); open ? showBoard() : $("#board").remove(); });
+  $("#panel").replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, "All projects"), h("div", {class: "row"}, board, all)),
     h("p", {class: "lede"}, "Every project side by side, the business services most at risk, and the scheduled scans."),
     h("p", {class: "state", id: "ov-state", role: "status"}), h("div", {id: "ov"}),
     h("details", {class: "add", style: "margin-top:34px"}, h("summary", {}, "Add every repository of a GitHub organisation"),
@@ -470,6 +477,31 @@ function overviewView() {
       h("label", {for: "org"}, "Organisation or user"), org, h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: addOrg}, "Add its repositories"))));
   refreshOverview();
 }
+const EFFORT_SHORT = {setting: "a setting", reissue: "a new key or certificate", upgrade: "a library upgrade", code: "a code change", replace: "a vendor component"};
+async function showBoard() {
+  let o;
+  try { o = await call("overview"); } catch (e) { return; }
+  const b = o.board, trend = b.previous == null || b.score == null ? "first assessment" : b.score === b.previous ? "unchanged since the scans before" : (b.score > b.previous ? "up " : "down ") + Math.abs(b.score - b.previous) + " since the scans before";
+  const effort = Object.entries(b.effort).sort((x, y) => y[1] - x[1]).map(([k, n]) => n + " need " + EFFORT_SHORT[k]).join(", ");
+  const section = h("section", {id: "board", "aria-labelledby": "board-h", tabindex: "-1"},
+    h("h2", {id: "board-h"}, "Post-quantum readiness: board summary"),
+    h("p", {class: "state", style: "margin:0"}, when(Date.now() / 1000).slice(0, 10) + " · " + b.scanned + " of " + b.projects + (b.projects === 1 ? " project" : " projects") + " scanned" + (b.coverage != null ? " · lowest coverage " + b.coverage + "%" : "")),
+    b.provisional ? h("p", {class: "provisional"}, h("strong", {}, "Provisional: "), b.provisional + ". Scan the rest before relying on these numbers.") : "",
+    h("ul", {class: "cards"},
+      h("li", {}, h("strong", {}, b.score == null ? "–" : b.score + " of 100"), h("span", {}, "readiness"), h("small", {}, trend)),
+      h("li", {class: b.critical ? "bad" : "ok"}, h("strong", {}, String(b.critical + b.high)), h("span", {}, "need action now"), h("small", {}, b.critical + " critical, " + b.high + " high")),
+      h("li", {class: b.recordable ? "exposed" : ""}, h("strong", {}, String(b.recordable)), h("span", {}, "recordable now, readable later"), h("small", {}, "harvest now, decrypt later")),
+      h("li", {}, h("strong", {}, String(b.deadline_findings)), h("span", {}, "to replace by 2030–2035"), h("small", {}, "NIST IR 8547 (draft)"))),
+    h("p", {}, h("strong", {}, b.done + " of " + b.to_fix), " findings that need work are fixed or accepted." + (effort ? " Of what is left to change, " + effort + "." : "")),
+    b.actions.length ? [h("h3", {}, "First five actions"), h("ol", {}, b.actions.map((a) => h("li", {}, a.text, " ", h("small", {}, [a.names.join(", "), a.projects.join(", ")].filter(Boolean).join(" · ")))))] : "",
+    b.services.length ? [h("h3", {}, "Services most at risk"), h("p", {style: "margin:0"}, b.services.join(" · "))] : "",
+    b.libraries_without_pq ? h("p", {class: "legend"}, b.libraries_without_pq + (b.libraries_without_pq === 1 ? " third-party library has" : " third-party libraries have") + " no post-quantum support yet: ask those suppliers for their dates.") : "",
+    h("p", {class: "legend"}, "From Acxelin Readiness scans of the code, configuration and keys on this computer. It shows what the systems use, not the programme around them: owners, budget and vendor commitments are for the board to confirm."),
+    h("div", {class: "row", style: "margin-top:14px"}, h("button", {class: "btn", onclick: () => { document.body.classList.add("board-print"); print(); }}, "Print or save as PDF")));
+  $("#panel").insertBefore(section, $("#ov-state"));
+  section.focus();
+}
+addEventListener("afterprint", () => document.body.classList.remove("board-print"));
 async function refreshOverview() {
   const out = $("#ov");
   if (!out) return;

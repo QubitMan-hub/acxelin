@@ -290,6 +290,12 @@ organisation** takes a name such as `acme` (or its link) and adds each repositor
 private ones need the token saved under Projects. Services are ranked across all projects by their critical, then high,
 findings.
 
+**Board summary** turns the same data into one printable page for directors: the average readiness score and how it moved since
+the scans before, how many findings need action now, how many protect data that can be recorded now and read later, how many
+NIST IR 8547 (draft) wants replaced by 2030 to 2035, how much of the work is done, what the rest takes, the first five actions
+with the projects they apply to, and the services most at risk. It is marked **provisional** when some projects are not scanned
+or a project's coverage is under 80%, and it says that owners, budget and vendor commitments are for the board to confirm.
+
 ### Before and after
 
 After a rescan, a project shows what is no longer found and what is new, side by side, each with its priority. "No longer

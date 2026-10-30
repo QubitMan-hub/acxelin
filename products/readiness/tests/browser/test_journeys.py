@@ -583,3 +583,20 @@ def test_findings_with_nothing_to_change_fold_away_and_progress_fills_as_fixes_l
     page.locator("#pj-progress", has_text="1 of 2").wait_for()
     assert page.locator("#pj-progress .seg.s-ok").count() == 1
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+def test_the_board_summary_prints_alone_and_says_when_it_is_provisional(page, console, repos):
+    open_console(page, console)
+    fill_setup(page, repos)
+    scan_shop(page)
+    page.get_by_role("tab", name="Overview").click()
+    page.get_by_role("button", name="Board summary").click()
+    board = page.locator("#board")
+    board.get_by_text("First five actions").wait_for()
+    assert "readiness" in board.inner_text() and "Provisional" not in board.inner_text()
+    page.evaluate("document.body.classList.add('board-print')")
+    page.emulate_media(media="print")
+    assert board.is_visible() and not page.locator("#ov").is_visible() and not page.get_by_role("tab", name="Projects").is_visible()
+    page.emulate_media(media="screen")
+    page.evaluate("document.body.classList.remove('board-print')")
+    assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
