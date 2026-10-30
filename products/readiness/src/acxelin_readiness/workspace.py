@@ -9,6 +9,8 @@ from pathlib import Path
 from acxelin_core.files import locked, write
 
 from . import owners
+from .examples import example
+from .rank import TIERS
 from .detectors import is_test
 
 
@@ -17,6 +19,7 @@ class ScanStopped(ValueError):
 
 
 STATUSES = ('open', 'planned', 'in_progress', 'fixed', 'exception')
+TIER_ORDER = {t: i for i, t in enumerate(TIERS)}
 
 
 POINTS = {"ok": 100, "low": 75, "medium": 50, "high": 25, "critical": 0}
@@ -293,22 +296,26 @@ class ProjectStore:
             keep = self.FINDINGS - len(ids)  # findings no longer observed are retired oldest first, with their tracking
             missing = dict(list(missing.items())[-keep:]) if keep else {}
             tracking = {k: v for k, v in tracking.items() if k in ids or k in missing}
+            brief = lambda a: {'id': a['id'], 'name': a['name'], 'tier': a['tier']}
+            order = lambda a: (TIER_ORDER.get(a['tier'], 9), a['name'])
             current['comparison'] = {'baseline': bool(previous), 'new': len(ids - old.keys()), 'persisting': len(ids & old.keys()),
-                                     'not_observed': len(old.keys() - ids), 'previous_finished': previous.get('assessment', {}).get('finished')}
+                                     'not_observed': len(old.keys() - ids), 'previous_finished': previous.get('assessment', {}).get('finished'),
+                                     'new_findings': [brief(a) for a in sorted((a for a in current['assets'] if a['id'] not in old and not a['test_only']), key=order)][:50] if previous else [],
+                                     'gone_findings': [brief(a) for a in sorted((a for k, a in old.items() if k not in ids and not a.get('test_only')), key=order)][:50]}
             history = previous.get('history', [])[-29:] + [{k: current[k] for k in ('project', 'finished', 'summary', 'comparison')}]
             graph = json.dumps(current.pop('relationships', {}), separators=(',', ':')).encode()
             if len(graph) > self.GRAPH_LIMIT:
                 raise ValueError('Relationship graph exceeds 64 MB; narrow the repository scope')
             packed = base64.b64encode(zlib.compress(graph)).decode('ascii')
-            data['projects'][key] = {'graph_zlib': packed, 'assessment': current, 'tracking': tracking, 'missing': list(missing.values()), 'history': history}
+            data['projects'][key] = {'graph_zlib': packed, 'assessment': current, 'tracking': tracking, 'missing': list(missing.values()), 'history': history, 'owners': previous.get('owners', [])}
             return self.view(data['projects'][key])
         return self.update(change)
 
     @staticmethod
-    def view(project):
+    def view(project, graph=True):
         import copy
         result = copy.deepcopy(project['assessment'])
-        if 'graph_zlib' in project:
+        if graph and 'graph_zlib' in project:
             try:
                 decoder = zlib.decompressobj()
                 raw = decoder.decompress(base64.b64decode(project['graph_zlib'], validate=True), ProjectStore.GRAPH_LIMIT + 1)
@@ -326,6 +333,7 @@ class ProjectStore:
         result['owner_rules'] = len(cmdb)
         for asset in result['assets'] + result['not_observed']:
             asset['owner_hint'] = owners.suggest(cmdb, repo, sorted({f for f, _ in asset['locations']}))
+            asset['example'] = example(asset)
         for asset in result['assets'] + result['not_observed']:
             asset['tracking'] = copy.deepcopy(project.get('tracking', {}).get(asset['id'], {'owner': '', 'due': '', 'status': 'open', 'reason': '', 'until': ''}))
             tracking = asset['tracking']

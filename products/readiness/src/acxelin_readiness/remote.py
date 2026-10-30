@@ -1,4 +1,5 @@
 """GitHub repositories by link: download the archive through the API and unpack it for scanning. Nothing in it is run."""
+import json
 import re
 import secrets
 import shutil
@@ -128,3 +129,36 @@ def fetch(url, dest, token=None, api=API):
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return dest
+
+
+def organisation(name, token=None, api=API, limit=200):
+    """Links to an organisation's (or a user's) repositories, archived ones and forks left out, at most `limit`."""
+    owner = name.strip().removeprefix("https://github.com/").strip("/") if isinstance(name, str) else ""
+    if not OWNER.fullmatch(owner):
+        raise ValueError("Enter a GitHub organisation or user name, such as acme or https://github.com/acme")
+    links = []
+    for kind in ("orgs", "users"):
+        for page in range(1, 11):
+            req = urllib.request.Request(f"{api}/{kind}/{owner}/repos?per_page=100&page={page}",
+                                         headers={"Accept": "application/vnd.github+json", "User-Agent": "acxelin-readiness", "X-GitHub-Api-Version": "2022-11-28"})
+            if token:
+                req.add_unredirected_header("Authorization", f"Bearer {token}")
+            try:
+                with opener().open(req, timeout=30) as r:
+                    repos = json.loads(r.read(8_000_001)[:8_000_000])
+            except urllib.error.HTTPError as e:
+                if e.code == 404 and kind == "orgs" and page == 1:
+                    break  # not an organisation: try it as a user
+                raise Refused("GitHub refused the list: the rate limit is reached, or the token cannot read it." if e.code in (401, 403, 429)
+                              else "No such organisation or user on GitHub." if e.code == 404 else f"GitHub answered {e.code}; try again later.") from None
+            except (urllib.error.URLError, OSError, ValueError):
+                raise Refused("Could not read the repository list from GitHub; check the network and try again") from None
+            if not isinstance(repos, list):
+                raise Refused("GitHub sent something other than a repository list")
+            links += [f"https://github.com/{owner}/{r['name']}" for r in repos if isinstance(r, dict) and isinstance(r.get("name"), str)
+                      and NAME.fullmatch(r["name"]) and not r.get("archived") and not r.get("fork")]
+            if len(repos) < 100 or len(links) >= limit:
+                return links[:limit]
+        else:
+            return links[:limit]
+    return links[:limit]

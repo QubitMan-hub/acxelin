@@ -357,7 +357,12 @@ def test_a_private_repository_token_is_saved_without_ever_showing_it(page, conso
     page.get_by_role("button", name="Save token").click()
     page.get_by_text("Private repositories: token saved").wait_for()
     assert secret not in page.content() and secret not in page.url
+    page.get_by_text("Token saved.").wait_for()
     page.get_by_text("Private repositories: token saved").click()
+    page.once("dialog", lambda d: d.dismiss())
+    page.get_by_role("button", name="Remove token").click()
+    assert page.get_by_text("Private repositories: token saved").is_visible()
+    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Remove token").click()
     page.get_by_text("Private repositories", exact=True).wait_for()
 
@@ -413,10 +418,13 @@ def test_services_from_a_cmdb_export_filter_the_findings_and_tickets_download_fo
     page.get_by_text("Owners from a CMDB export").click()
     page.get_by_label("CSV file").set_input_files(str(tmp_path / "owners.csv"))
     page.get_by_role("button", name="Use these owners").click()
-    page.get_by_text("Owner: Payments team · Card payments (from CMDB export)").first.wait_for()
+    page.get_by_text("Owner: Payments team · Card payments", exact=True).first.wait_for()
+    assert page.get_by_text("Owner: Payments team · Card payments", exact=True).first.get_attribute("title") == "Suggested owner, from CMDB export"
     page.get_by_role("button", name="Show only Ledger").click()
-    table = page.locator("#pj-result table")
+    table = page.get_by_role("region", name="Findings, scrolls sideways")
     assert "MD5" in table.inner_text() and "RSA-2048" not in table.inner_text()
+    services = page.get_by_role("region", name="Services, scrolls sideways").inner_text()
+    assert services.index("Ledger") < services.index("Card payments")
     with page.expect_download() as d:
         page.get_by_role("button", name="Tickets for Jira").click()
     assert d.value.suggested_filename == "shop-jira-tickets.csv" and Path(d.value.path()).read_text().startswith("Summary,Description,Priority")
@@ -426,6 +434,8 @@ def test_services_from_a_cmdb_export_filter_the_findings_and_tickets_download_fo
 def test_the_tabs_follow_the_arrow_key_pattern_and_grades_are_read_out_in_words(page, console):
     open_console(page, console)
     page.get_by_role("tab", name="Projects").focus()
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("document.activeElement.id") == "tab-overview"
     page.keyboard.press("ArrowRight")
     assert page.evaluate("document.activeElement.id") == "tab-endpoints" and page.get_by_role("tab", name="Endpoints").get_attribute("aria-selected") == "true"
     assert page.get_by_role("tab", name="Projects").get_attribute("tabindex") == "-1"
@@ -505,13 +515,15 @@ def test_owners_come_from_codeowners_and_a_cmdb_export_and_unowned_findings_ask_
     open_console(page, console)
     fill_setup(page, repos)
     scan_shop(page)
-    page.get_by_text("Owner: @payments-team (from CODEOWNERS)").first.wait_for()
+    page.get_by_text("Owner: @payments-team", exact=True).first.wait_for()
+    assert page.get_by_text("Owner: @payments-team", exact=True).first.get_attribute("title") == "Suggested owner, from CODEOWNERS"
     assert page.get_by_text("Assign an owner").count() >= 1
     (tmp_path / "owners.csv").write_text("path,owner\n*.py,Platform Security\n")
     page.get_by_text("Owners from a CMDB export").click()
     page.get_by_label("CSV file").set_input_files(str(tmp_path / "owners.csv"))
     page.get_by_role("button", name="Use these owners").click()
-    page.get_by_text("Owner: Platform Security (from CMDB export)").first.wait_for()
+    page.get_by_text("Owner: Platform Security", exact=True).first.wait_for()
+    assert page.get_by_text("Owner: Platform Security", exact=True).first.get_attribute("title") == "Suggested owner, from CMDB export"
     assert page.get_by_text("Assign an owner").count() == 0
 
 

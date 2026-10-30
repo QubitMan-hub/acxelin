@@ -99,3 +99,12 @@ def test_findings_carry_their_service_into_the_console_and_its_csv(scanned):
     assert hints(r)["RSA-2048"] == {"owner": "Payments team", "source": "CMDB export", "service": "Card payments"}
     head, *rows = r("POST", "/api/projects/csv", {"project": 0})["csv"].splitlines()
     assert "Service" in head.split(",") and any(row.startswith("RSA-2048") and "Card payments" in row for row in rows)
+
+
+def test_owners_from_a_cmdb_export_survive_the_next_scan(scanned):
+    app, r = scanned
+    r("POST", "/api/projects/owners", {"project": 0, "csv": "path,owner,service\nsrc/,Payments team,Card payments\n"})
+    r("POST", "/api/projects/scan", {"project": 0})
+    while r("GET", "/api/projects/status")["running"]:
+        pass
+    assert hints(r)["RSA-2048"]["service"] == "Card payments"

@@ -9,6 +9,7 @@ import re
 import tempfile
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 from acxelin_core import console as core
@@ -34,6 +35,8 @@ class Readiness:
         self.projects = []
         self.cache = None
         self.job = {"running": False, "stage": "", "error": None, "selected": 0, "last": None}
+        self.all = {"running": False, "done": 0, "total": 0, "current": "", "failed": []}
+        self.github_api = remote.API
         self.ep_history = self.home / "endpoints-history.json"
         self.ep = {"running": False, "error": None, "last": None, "history": []}
         try:
@@ -217,6 +220,18 @@ class Readiness:
 
     def scan(self, body):
         i, path = self.selected(body)
+        self.begin(i)
+
+        def work():
+            try:
+                self.scan_one(path)
+            finally:
+                with self.lock:
+                    self.job["running"] = False
+        threading.Thread(target=work, daemon=True, name="project-scan").start()
+        return 200, {"started": i}
+
+    def begin(self, i):
         with self.lock:
             if self.job["running"]:
                 raise ValueError("A project scan is already running")
@@ -226,41 +241,104 @@ class Readiness:
             self.cancel.clear()
             self.job.update(running=True, stage="Preparing project", error=None, selected=i)
 
+    def scan_one(self, path):
+        """Scan or re-read one project and save it; a failure is kept in job["error"], never raised."""
         def progress(stage):
             with self.lock:
                 self.job["stage"] = stage
+        try:
+            name = None
+            if path.parent == self.remote_dir:
+                progress("Downloading from GitHub")
+                url = self.remotes()[path.name]
+                remote.fetch(url, path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
+                name = remote.label(url)
+            if path.parent == self.import_dir:
+                progress("Reading the imported CBOM")
+                result = workspace.imported(path, self.imports()[path.name])
+            else:
+                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
+            result["project_key"] = self.store.key(path)
+            try:
+                result = self.store.save(path, result)
+            except (OSError, ValueError):
+                result["notes"].append("The workspace could not be saved; this result is kept until the console closes. Check the folder's permissions and size.")
+            with self.lock:
+                self.job["last"] = result
+        except (workspace.ScanStopped, remote.Refused) as error:
+            with self.lock:
+                self.job["error"] = str(error)
+        except Exception:  # source-sensitive failures are never echoed or logged with their contents
+            with self.lock:
+                self.job["error"] = "The project scan failed. Check the folder's permissions and the source's syntax, then try again; `acxelin-readiness scan` shows details."
+
+    # --- every project at once
+
+    def scan_all(self, body):
+        """Add every repository in the chosen folder, then scan all projects one after another."""
+        if self.folder:
+            for name in self.status({})[1]["available"]:
+                try:
+                    self.register({"name": name})
+                except (OSError, ValueError):
+                    pass
+        with self.lock:
+            targets = list(enumerate(self.projects))
+        if not targets:
+            raise ValueError("Add a repository first: choose a folder, a GitHub link or an organisation")
+        self.begin(targets[0][0])
+        self.all = {"running": True, "done": 0, "total": len(targets), "current": "", "failed": []}
 
         def work():
             try:
-                name = None
-                if path.parent == self.remote_dir:
-                    progress("Downloading from GitHub")
-                    url = self.remotes()[path.name]
-                    remote.fetch(url, path, token=self.token_file.read_text().strip() if self.token_file.exists() else None)
-                    name = remote.label(url)
-                if path.parent == self.import_dir:
-                    progress("Reading the imported CBOM")
-                    result = workspace.imported(path, self.imports()[path.name])
-                else:
-                    result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name)
-                result["project_key"] = self.store.key(path)
-                try:
-                    result = self.store.save(path, result)
-                except (OSError, ValueError):
-                    result["notes"].append("The workspace could not be saved; this result is kept until the console closes. Check the folder's permissions and size.")
-                with self.lock:
-                    self.job["last"] = result
-            except (workspace.ScanStopped, remote.Refused) as error:
-                with self.lock:
-                    self.job["error"] = str(error)
-            except Exception:  # source-sensitive failures are never echoed or logged with their contents
-                with self.lock:
-                    self.job["error"] = "The project scan failed. Check the folder's permissions and the source's syntax, then try again; `acxelin-readiness scan` shows details."
+                for i, path in targets:
+                    if self.cancel.is_set():
+                        break
+                    with self.lock:
+                        self.all["current"], self.job["selected"], self.job["error"] = self.label(path), i, None
+                    self.scan_one(path)
+                    with self.lock:
+                        if self.job["error"]:
+                            self.all["failed"].append({"name": self.label(path), "error": self.job["error"]})
+                        self.all["done"] += 1
             finally:
                 with self.lock:
-                    self.job["running"] = False
-        threading.Thread(target=work, daemon=True, name="project-scan").start()
-        return 200, {"started": i}
+                    self.job["running"] = self.all["running"] = False
+                    self.all["current"] = ""
+        threading.Thread(target=work, daemon=True, name="scan-all").start()
+        return 200, {"started": len(targets)}
+
+    def github_org(self, body):
+        token = self.token_file.read_text().strip() if self.token_file.exists() else None
+        links = remote.organisation(body.get("org"), token=token, api=self.github_api)
+        added = [self.github({"url": u})[1]["project"] for u in links]
+        return 200, {"added": len(added), "projects": added}
+
+    def overview(self, body):
+        """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
+        with self.lock:
+            projects, scan_all = list(enumerate(self.projects)), dict(self.all)
+        saved, rows, services = self.store.read()["projects"], [], {}
+        for i, path in projects:
+            record = saved.get(self.store.key(path))
+            if not record:
+                rows.append({"id": i, "name": self.label(path), "scanned": False})
+                continue
+            v = workspace.ProjectStore.view(record, graph=False)
+            live = [a for a in v["assets"] if not a["test_only"]]
+            cmp = v.get("comparison") or {}
+            rows.append({"id": i, "name": self.label(path), "scanned": True, "finished": v["finished"], "score": v["summary"].get("score"),
+                         "tiers": dict(Counter(a["tier"] for a in live)), "new": cmp.get("new") if cmp.get("baseline") else None,
+                         "gone": cmp.get("not_observed") if cmp.get("baseline") else None})
+            for a in live:
+                name = (a.get("owner_hint") or {}).get("service")
+                if name and a["tier"] != "ok":
+                    s = services.setdefault(name, {"service": name, "critical": 0, "high": 0, "medium": 0, "low": 0, "projects": set()})
+                    s[a["tier"]] += 1
+                    s["projects"].add(self.label(path))
+        ranked = sorted(({**s, "projects": sorted(s["projects"])} for s in services.values()),
+                        key=lambda s: (-s["critical"], -s["high"], -s["medium"], -s["low"], s["service"]))
+        return 200, {"projects": rows, "services": ranked, "scan_all": scan_all, "watch": watch_runs(self.home)}
 
     def select(self, body):
         i, path = self.selected(body)
@@ -388,6 +466,15 @@ class Readiness:
         return 200, {"cbom": cbom.build("endpoints", r.assets, r.artifacts, r.libraries, r.endpoints)}
 
 
+def watch_runs(home):
+    """The scheduled scans `acxelin-readiness watch` recorded for this console, newest first."""
+    try:
+        runs = json.loads((Path(home) / "watch.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in runs if isinstance(r, dict)][::-1][:50] if isinstance(runs, list) else []
+
+
 def page():
     return shell.render((Path(__file__).parent / "console.html").read_text(encoding="utf-8"))
 
@@ -398,7 +485,8 @@ def build(home):
               ("POST", "/api/projects/register"): r.register, ("POST", "/api/projects/github"): r.github, ("POST", "/api/projects/import"): r.import_cbom, ("POST", "/api/projects/owners"): r.owners, ("POST", "/api/github/token"): r.token, ("GET", "/api/projects/status"): r.project_status,
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
-              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/projects/tickets"): r.project_tickets, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
+              ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv, ("POST", "/api/projects/tickets"): r.project_tickets,
+              ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
     return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000, ("POST", "/api/projects/owners"): 2_000_000})  # a CBOM can be large; read only after sign-in
 
 

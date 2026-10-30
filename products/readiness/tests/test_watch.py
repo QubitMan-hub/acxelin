@@ -8,7 +8,7 @@ RSA = "from cryptography.hazmat.primitives.asymmetric import rsa\nrsa.generate_p
 
 
 def watch(repo, out, *more):
-    assert cli.main(["watch", str(repo), "-o", str(out), "--once", *more]) == 0
+    assert cli.main(["watch", str(repo), "-o", str(out), "--once", "--home", str(out.parent / "home"), *more]) == 0
     return json.loads((out / "changes.json").read_text())
 
 

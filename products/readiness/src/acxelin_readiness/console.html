@@ -69,13 +69,27 @@ details.names summary{cursor:pointer;list-style:none}details.names summary::-web
 .import{margin-top:22px}input[type=file]::file-selector-button{font:500 13.5px var(--display);min-height:34px;padding:0 12px;margin-right:10px;border:1px solid var(--rule-strong);border-radius:6px;background:var(--pane);color:var(--ink);cursor:pointer}
 input[type=file]::file-selector-button:hover{border-color:var(--ink)}
 .share{margin-top:30px;padding-top:20px;border-top:1px solid var(--rule)}.share .state{margin:0 0 12px}
+details.fix{margin-top:6px}details.fix summary{cursor:pointer;font-size:12.5px;color:var(--muted);text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
+.fixpair{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:8px}.fixpair figure{margin:0;min-width:0}
+.fixpair figcaption{font-size:12px;color:var(--muted);margin-bottom:3px}.fixpair pre{margin:0;padding:8px 10px;border-radius:6px;background:var(--sunken);overflow-x:auto;font:12px/1.5 var(--mono);color:var(--ink)}
+.changes{margin:12px 0}.changes .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.change{padding:10px 14px;border:1px solid var(--rule);border-radius:8px;background:var(--pane)}.change h3{margin:0 0 6px;font-size:13.5px}
+.change.gone{border-color:color-mix(in srgb,var(--ok) 45%,transparent)}.change ul{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:13px}
+button.linkish{all:unset;cursor:pointer;color:var(--ink);font-weight:500;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
+button.linkish:focus-visible{outline:2px solid var(--ink);outline-offset:2px}ul.runs{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+ul.runs summary{cursor:pointer;font-size:13.5px}ul.runs p{margin:6px 0 0;font-size:13px;color:var(--body);overflow-wrap:anywhere}
 .counts button:focus-visible{outline:2px solid var(--ink)}.counts button[aria-pressed="true"]{background:var(--select)}
+td.num,th.num{text-align:right}#ov h2{margin-top:34px}.note{margin:0 0 14px;color:var(--ok)}.note:empty,.msg:empty{display:none}
+.meter{display:inline-block;width:56px;height:6px;margin-left:8px;border-radius:3px;background:var(--sunken);vertical-align:middle;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ink)}.find{max-width:340px;margin:14px 0 4px}.find input{min-height:36px;padding:6px 10px}
+details.add{margin-top:22px;padding-top:14px;border-top:1px solid var(--rule)}details.add>summary{cursor:pointer;font-weight:500;color:var(--ink)}
+kbd{font:12px var(--mono);padding:0 5px;border:1px solid var(--rule-strong);border-radius:4px;color:var(--muted)}
 </style>
 </head>
 <body>
 <main>
 <header class="brandbar"><div class="logo"><!--LOGO--></div><span class="product">Acxelin Readiness</span><small>Local console. Only this computer can open it.</small></header>
-<p class="msg" id="msg" role="alert"></p>
+<p class="msg" id="msg" role="alert"></p><p class="note" id="note" role="status"></p>
 <div id="app"><p class="lede">Opening the console…</p></div>
 </main>
 <script>
@@ -91,9 +105,12 @@ const h = (tag, props = {}, ...kids) => {
 };
 const calm = matchMedia("(prefers-reduced-motion: reduce)");
 const say = (text) => { const m = $("#msg"); m.replaceChildren(...acxText(text || "")); if (text) m.scrollIntoView({block: "center", behavior: calm.matches ? "auto" : "smooth"}); };
-const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null, service: null, showOk: false};
+let noteTimer;
+const notify = (text) => { $("#note").textContent = text; clearTimeout(noteTimer); noteTimer = setTimeout(() => { $("#note").textContent = ""; }, 6000); };
+const sure = (text) => confirm(text);
+const state = {tab: "projects", status: null, projects: null, endpoints: null, selected: 0, timer: null, targets: "", filter: null, service: null, showOk: false, query: ""};
 const when = (t) => t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never";
-const call = async (path, body) => { try { say(""); return await acx.api(path, body); } catch (e) { say(e.status === 401 ? "This session has ended. Run the console command again to open a new one." : e.message); throw e; } };
+const call = async (path, body) => { try { say(""); if (body) $("#note").textContent = ""; return await acx.api(path, body); } catch (e) { say(e.status === 401 ? "This session has ended. Run the console command again to open a new one." : e.message); throw e; } };
 
 function signedOut() {
   $("#app").replaceChildren(h("div", {class: "narrow"}, h("h1", {}, "This link has expired"),
@@ -128,7 +145,10 @@ function githubForm(label = "Add from GitHub") {
   const add = async () => { try { const r = await call("projects/github", {url: url.value}); await addAndScan(r.project); } catch (e) {} };
   url.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
   const token = h("input", {type: "password", id: "ghtoken", autocomplete: "off"});
-  const saveToken = async (value) => { try { await call("github/token", {token: value}); token.value = ""; await load(); } catch (e) {} };
+  const saveToken = async (value) => {
+    if (!value && !sure("Remove the saved GitHub token? Private repositories can't be downloaded until you add one again.")) return;
+    try { await call("github/token", {token: value}); token.value = ""; await load(); notify(value ? "Token saved." : "Token removed."); } catch (e) {}
+  };
   const saved = state.status.github_token;
   return h("div", {}, h("label", {for: "gh", style: "margin-top:0"}, label), url,
     h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Download and scan")),
@@ -139,7 +159,7 @@ function githubForm(label = "Add from GitHub") {
         saved ? h("button", {class: "btn quiet", onclick: () => saveToken("")}, "Remove token") : "")));
 }
 
-const TABS = ["projects", "endpoints"];
+const TABS = ["projects", "overview", "endpoints"];
 function importForm() {
   const file = h("input", {type: "file", id: "cbomfile", accept: ".json,application/json"});
   const go = async () => {
@@ -164,9 +184,9 @@ function shell() {
   };
   const tab = (id, label) => h("button", {role: "tab", id: "tab-" + id, "aria-selected": String(state.tab === id), tabindex: state.tab === id ? "0" : "-1", "aria-controls": "panel",
     onclick: () => open(id), onkeydown: keys}, label);
-  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist", "aria-label": "Console"}, tab("projects", "Projects"), tab("endpoints", "Endpoints")),
+  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist", "aria-label": "Console"}, tab("projects", "Projects"), tab("overview", "Overview"), tab("endpoints", "Endpoints")),
     h("div", {id: "panel", role: "tabpanel", "aria-labelledby": "tab-" + state.tab}));
-  (state.tab === "projects" ? projectsView : endpointsView)();
+  ({projects: projectsView, overview: overviewView, endpoints: endpointsView})[state.tab]();
 }
 
 // ---- the readiness score and its trend
@@ -195,7 +215,7 @@ function scoreView(score, rows, definition, cover) {
   out.push(...coverage, h("figure", {class: "trend"}, box.firstChild, h("div", {class: "axis", "aria-hidden": "true"}, axis(rows[0]), axis(rows[rows.length - 1])),
     h("figcaption", {}, "Readiness over the last " + rows.length + " scans, on a scale from 0 to 100. " + definition)),
     h("details", {class: "more"}, h("summary", {}, "Score history as a table"),
-    h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Score history"}, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Scanned"), h("th", {}, "Score"), h("th", {}, "Coverage"))),
+    h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Score history"}, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Scanned"), h("th", {class: "num"}, "Score"), h("th", {class: "num"}, "Coverage"))),
       h("tbody", {}, rows.slice().reverse().map((r) => h("tr", {}, h("td", {}, when(r.finished)), h("td", {class: "num"}, String(r.score)),
         h("td", {class: "num"}, typeof r.coverage === "number" ? r.coverage + "%" : "–"))))))));
   return out;
@@ -252,7 +272,7 @@ function progress(assets) {
   return h("div", {id: "pj-progress", class: "progress"},
     h("p", {}, h("strong", {}, done + " of " + total), done === total ? " findings that needed work are fixed or accepted. The next scan confirms each fix." : " findings that need work are done."),
     distribution(["fixed", "exception", "in_progress", "planned", "open"].map((k) => ({n: n[k] || 0, cls: "s-" + tone[k], name: STATUS[k].toLowerCase()})), "Migration progress"),
-    h("p", {class: "state"}, parts.join(" · ") + (still ? " (" + still + " still found)" : "") + "."));
+    !(parts.length === 1 && n.open) || still ? h("p", {class: "state"}, parts.join(" · ") + (still ? " (" + still + " still found)" : "") + ".") : "");
 }
 function trackForm(asset) {
   const t = asset.tracking || {}, id = asset.id.slice(0, 8);
@@ -265,17 +285,56 @@ function trackForm(asset) {
   const until = h("input", {type: "date", value: t.until || "", id: "u" + id});
   const accept = h("div", {hidden: status.value !== "exception"}, h("label", {for: reason.id}, "Why it is accepted"), reason, h("label", {for: until.id}, "Accepted until"), until);
   status.addEventListener("change", () => { accept.hidden = status.value !== "exception"; });
-  const save = async (ev) => { ev.preventDefault(); try { await call("projects/track", {project: state.selected, finding: asset.id, owner: owner.value, due: due.value, status: status.value, reason: reason.value, until: until.value}); await refreshProject(); } catch (e) {} };
+  const save = async (ev) => { ev.preventDefault(); try { await call("projects/track", {project: state.selected, finding: asset.id, owner: owner.value, due: due.value, status: status.value, reason: reason.value, until: until.value}); await refreshProject(); notify("Saved: " + asset.name + " is " + STATUS[status.value].toLowerCase() + "."); } catch (e) {} };
   const label = t.still_found ? "Fixed, still found" : t.status === "exception" ? "Accepted risk until " + t.until
     : t.status && t.status !== "open" ? STATUS[t.status] + (t.owner ? ": " + t.owner : "") : t.owner ? "Owner: " + t.owner
-    : hint ? "Owner: " + hint.owner + (hint.service ? " · " + hint.service : "") + " (from " + hint.source + ")" : "Assign an owner";
+    : hint ? "Owner: " + hint.owner + (hint.service ? " · " + hint.service : "") : "Assign an owner";
   const log = (t.log || []).slice().reverse().map((e) => h("li", {}, when(e.at) + " · " + STATUS[e.status] + (e.owner ? " · " + e.owner : "") + (e.due ? " · due " + e.due : "")));
-  return h("details", {class: "track"}, h("summary", {style: t.still_found ? "color:var(--bad)" : ""}, label),
+  return h("details", {class: "track"}, h("summary", {style: t.still_found ? "color:var(--bad)" : "", title: hint && !t.owner ? "Suggested owner, from " + hint.source : null}, label),
     h("form", {onsubmit: save}, h("label", {for: owner.id}, "Owner"), owner, h("label", {for: due.id}, "Due date"), due, h("label", {for: status.id}, "Status"), status, accept,
       h("button", {class: "btn quiet", type: "submit"}, "Save")),
     t.still_found ? h("p", {class: "legend", style: "color:var(--bad)"}, "Marked fixed, but the scan after that still found it.") : "",
     log.length ? h("details", {class: "more"}, h("summary", {}, "History"), h("ul", {class: "history"}, log)) : "");
 }
+function fixExample(a) {
+  const e = a.example;
+  if (!e) return "";
+  const pane = (label, code) => h("figure", {}, h("figcaption", {}, label), h("pre", {tabindex: "0"}, h("code", {}, code)));
+  return h("details", {class: "fix"}, h("summary", {}, "See the change in " + e.language),
+    h("div", {class: "fixpair"}, pane("Before", e.before), pane("After", e.after)), e.note ? h("p", {class: "legend"}, e.note) : "");
+}
+function changesView(cmp) {
+  if (!cmp || !cmp.baseline || !((cmp.new_findings || []).length || (cmp.gone_findings || []).length)) return "";
+  const list = (items, title, cls) => h("div", {class: "change " + cls}, h("h3", {}, title),
+    items.length ? h("ul", {}, items.map((f) => h("li", {}, tier(f.tier), " ", f.name))) : h("p", {class: "state"}, "None."));
+  return h("section", {class: "changes", "aria-label": "Since the scan on " + when(cmp.previous_finished)},
+    h("div", {class: "pair"}, list(cmp.gone_findings || [], "No longer found", "gone"), list(cmp.new_findings || [], "New", "new")));
+}
+function serviceTable(assets) {
+  const rank = {};
+  for (const a of assets) {
+    const s = (a.owner_hint || {}).service;
+    if (!s || a.tier === "ok") continue;
+    rank[s] = rank[s] || {critical: 0, high: 0, medium: 0, low: 0};
+    rank[s][a.tier]++;
+  }
+  const rows = Object.entries(rank).sort(([an, a], [bn, b]) => b.critical - a.critical || b.high - a.high || b.medium - a.medium || b.low - a.low || an.localeCompare(bn));
+  if (!rows.length) return "";
+  return [h("h3", {}, "Services most at risk"), h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Services, scrolls sideways"},
+    h("table", {}, h("thead", {}, h("tr", {}, ["Service", "Critical", "High", "Medium", "Low"].map((c, i) => h("th", {class: i ? "num" : null}, c)))),
+      h("tbody", {}, rows.map(([s, n]) => h("tr", {}, h("td", {}, s), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(n[k]))))))))];
+}
+function findBox() {
+  const box = h("input", {type: "search", id: "find", value: state.query, autocomplete: "off", spellcheck: "false", placeholder: "Algorithm, file, owner or service"});
+  let t;
+  box.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { state.query = box.value; results(state.projects); $("#find").focus(); }, 200); });
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape" && box.value) { box.value = ""; state.query = ""; results(state.projects); $("#find").focus(); } });
+  return h("div", {class: "find"}, h("label", {for: "find", style: "margin-top:0"}, "Search findings ", h("kbd", {"aria-hidden": "true"}, "/")), box);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || e.ctrlKey || e.metaKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || !$("#find")) return;
+  e.preventDefault(); $("#find").focus();
+});
 function where(a) {
   const shown = a.locations.slice(0, 50);
   return h("details", {class: "where"}, h("summary", {}, a.name),
@@ -289,7 +348,7 @@ function results(p) {
   if (!out) return;
   const last = p.last;
   if (!last) { out.replaceChildren(h("p", {class: "empty"}, p.running ? "The first scan of this repository is running. Results appear here when it finishes." : "Not scanned yet. Choose Scan repository to see which cryptography this project uses and what to migrate first.")); return; }
-  const shown = JSON.stringify([last.finished, state.filter, state.service, state.showOk, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
+  const shown = JSON.stringify([last.finished, state.filter, state.service, state.showOk, state.query, last.owner_rules, last.assets.map((a) => [a.tracking, a.owner_hint])]);
   if (out.dataset.shown === shown) return;  // polling during a scan must not close what the reader opened
   out.dataset.shown = shown;
   const shownAssets = last.assets.filter((a) => !a.test_only), tests = last.assets.length - shownAssets.length, pri = {};
@@ -302,9 +361,10 @@ function results(p) {
   const pickService = (k) => { state.service = state.service === k ? null : k; results(state.projects); };
   const byService = Object.keys(services).length ? h("div", {class: "counts", "aria-label": "Services"}, Object.keys(services).sort().map((k) =>
     h("button", {"aria-pressed": String(state.service === k), "aria-label": state.service === k ? "Show every service" : "Show only " + k, onclick: () => pickService(k)}, k + " " + services[k]))) : "";
-  const assets = shownAssets.filter((a) => (!state.service || service(a) === state.service) && (state.filter ? a.tier === state.filter : state.showOk || a.tier !== "ok"));
-  const hiddenOk = state.filter ? 0 : shownAssets.filter((a) => !state.service || service(a) === state.service).length - assets.length;
-  const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
+  const q = state.query.trim().toLowerCase(), matches = (a) => !q || [a.name, a.action, a.why, (a.tracking || {}).owner, (a.owner_hint || {}).owner, service(a), ...a.locations.map(([f]) => f)].join(" ").toLowerCase().includes(q);
+  const assets = shownAssets.filter((a) => matches(a) && (!state.service || service(a) === state.service) && (state.filter ? a.tier === state.filter : state.showOk || a.tier !== "ok"));
+  const hiddenOk = state.filter ? 0 : shownAssets.filter((a) => matches(a) && (!state.service || service(a) === state.service)).length - assets.length;
+  const rows = assets.map((a) => h("tr", {}, h("td", {class: "asset"}, where(a)), h("td", {}, tier(a.tier)), h("td", {}, a.action || a.why || "", basis(a), fixExample(a)), h("td", {class: "num"}, String(a.locations.length)), h("td", {}, trackForm(a))));
   const cd = last.summary.coverage_detail || {}, gaps = Object.entries(cd.not_read || {}).map(([k, n]) => n + " " + k).join(", ");
   const cause = (a) => a.tier === "critical" || a.threat === "legacy" ? "broken" : a.threat === "shor" && a.tier !== "ok" ? "shor" : a.threat === "grover" && a.tier === "low" ? "grover" : "safe";
   const causes = {broken: 0, shor: 0, grover: 0, safe: 0}, seen = {};
@@ -317,20 +377,22 @@ function results(p) {
     last.summary.score != null ? {card: [last.summary.score + " of 100", "readiness score", last.summary.coverage != null ? "from " + last.summary.coverage + "% of the files" : ""]} : "",
     {card: [String(causes.shor), "breakable by a quantum computer", causes.broken + " broken today, " + causes.grover + " weakened", causes.shor ? "exposed" : ""]},
     {card: [String(unowned), unowned === 1 ? "finding without an owner" : "findings without an owner", unowned ? "assign them in the table" : "every finding has one"]},
-    cmp.baseline ? ["Since the last scan: ", h("strong", {}, String(cmp.new)), " new, ", h("strong", {}, String(cmp.not_observed)), " no longer found."] : "",
+    cmp.baseline ? ["Since the scan on " + when(cmp.previous_finished) + ": ", h("strong", {}, String(cmp.not_observed)), " fixed or gone, ", h("strong", {}, String(cmp.new)), " new."] : "",
     shownAssets.length ? "" : ["No cryptography was found."],
   ];
   out.replaceChildren(
     atGlance(glance, "pj"),
     section("pj", "descriptive", "What we found",
       h("p", {class: "state"}, "Scanned " + when(last.finished) + ". " + shownAssets.length + (shownAssets.length === 1 ? " cryptographic asset found" : " cryptographic assets found") + (tests ? ", and " + tests + " only in tests (not listed)." : ".")),
-      distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, byService, prog,
-      assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Findings, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, "No cryptography was found in this repository."),
+      changesView(last.comparison), distribution(TIERS.map((k) => ({n: pri[k] || 0, cls: k, name: k})), "Findings by priority"), counts, byService, prog,
+      shownAssets.length > 5 ? findBox() : "",
+      assets.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Findings, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Asset", "Priority", "What to do", "Places", "Owner"].map((c) => h("th", {class: c === "Places" ? "num" : null}, c)))), h("tbody", {}, rows))) : h("p", {class: "empty"}, q || state.filter || state.service ? "Nothing matches. Clear the search or the filters above to see every finding." : shownAssets.length ? "Every finding here needs no change." : "No cryptography was found in this repository."),
       hiddenOk || (state.showOk && !state.filter && pri.ok) ? h("button", {class: "btn quiet small more-rows", "aria-expanded": String(!!state.showOk),
         onclick: () => { state.showOk = !state.showOk; results(state.projects); }}, state.showOk ? "Hide the findings with nothing to change" : "Show the " + hiddenOk + (hiddenOk === 1 ? " finding" : " findings") + " with nothing to change") : "",
       last.notes && last.notes.length ? h("p", {class: "legend"}, last.notes.join(" ")) : ""),
     section("pj", "diagnostic", "Why it matters",
       h("dl", {class: "key"}, TIERS.filter((k) => pri[k]).flatMap((k) => [h("dt", {}, tier(k)), h("dd", {}, TIER_MEANING[k])])),
+      serviceTable(shownAssets),
       shownAssets.length ? h("h3", {}, "What puts them at risk") : "",
       bars([["Broken today", causes.broken, "bad"], ["Breakable by a quantum computer", causes.shor, "exposed"], ["Weakened by quantum search", causes.grover, "low"], ["No known quantum break", causes.safe, "ok"]]),
       Object.keys(seen).length ? h("h3", {}, "How they were seen") : "",
@@ -352,12 +414,13 @@ function projectsView() {
   const names = new Set(s.projects.map((p) => p.name)), addable = s.available.filter((n) => !names.has(n));
   const pick = h("select", {id: "add"}, addable.map((n) => h("option", {value: n}, n)));
   const add = async () => { try { const r = await call("projects/register", {name: pick.value}); await addAndScan(r.project); } catch (e) {} };
-  const choose = async (id) => { try { await call("projects/select", {project: id}); state.selected = id; state.filter = null; projectsView(); } catch (e) {} };
+  const choose = async (id) => { try { await call("projects/select", {project: id}); state.selected = id; state.filter = null; state.service = null; state.query = ""; projectsView(); } catch (e) {} };
   const side = h("div", {}, h("h2", {}, "Repositories"),
     s.projects.length ? h("ul", {class: "list"}, s.projects.map((p) => h("li", {}, h("button", {"aria-current": String(p.id === state.selected), onclick: () => choose(p.id)}, p.name)))) : h("p", {class: "state"}, "None added yet."),
     addable.length ? h("div", {}, h("label", {for: "add", style: "margin-top:0"}, "Add a repository"), pick, h("div", {style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: add}, "Add and scan")))
       : !s.configured ? "" : h("p", {class: "state"}, s.available.length ? "Every repository in " + s.directory + " is added." : "No repositories found in " + s.directory + ". Put one there, then reload."),
-    h("div", {style: "margin-top:22px"}, githubForm()), importForm());
+    h("details", {class: "add", open: !s.projects.length}, h("summary", {}, "More ways to add a project"),
+      h("div", {style: "margin-top:12px"}, githubForm()), importForm()));
   const main = h("div", {id: "pj-main"});
   panel.replaceChildren(h("div", {class: "split"}, side, main));
   if (!s.projects.length) { main.replaceChildren(h("h1", {}, "Add your first repository"), h("p", {class: "empty"}, "Choose one under Add a repository. It is scanned straight away, to show which cryptography it uses and what to migrate first.")); return; }
@@ -382,6 +445,65 @@ function paint(p) {
 }
 async function refreshProject() { try { const p = await call("projects/status"); paint(p); return p; } catch (e) { return null; } }
 function pollProject() { clearInterval(state.timer); state.timer = setInterval(async () => { const p = await refreshProject(); if (!p || !p.running) clearInterval(state.timer); }, 600); refreshProject(); }
+
+// ---- overview: every project at once
+
+function overviewView() {
+  const org = h("input", {type: "text", id: "org", autocomplete: "off", spellcheck: "false", placeholder: "acme or https://github.com/acme"});
+  const addOrg = async () => { try { const r = await call("projects/github-org", {org: org.value}); org.value = ""; await load(); notify("Added " + r.added + (r.added === 1 ? " repository" : " repositories") + ". Choose Scan every project to scan them."); } catch (e) {} };
+  org.addEventListener("keydown", (e) => { if (e.key === "Enter") addOrg(); });
+  const all = h("button", {class: "btn", id: "scan-all"}, "Scan every project");
+  all.addEventListener("click", async () => { try { await call("projects/scan-all", {}); refreshOverview(); } catch (e) {} });
+  $("#panel").replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, "All projects"), h("div", {class: "row"}, all)),
+    h("p", {class: "lede"}, "Every project side by side, the business services most at risk, and the scheduled scans."),
+    h("p", {class: "state", id: "ov-state", role: "status"}), h("div", {id: "ov"}),
+    h("details", {class: "add", style: "margin-top:34px"}, h("summary", {}, "Add every repository of a GitHub organisation"),
+      h("p", {}, "Adds every repository of an organisation or user, leaving out archived ones and forks. Private ones need the token saved under Projects."),
+      h("label", {for: "org"}, "Organisation or user"), org, h("div", {class: "row", style: "margin-top:10px"}, h("button", {class: "btn quiet", onclick: addOrg}, "Add its repositories"))));
+  refreshOverview();
+}
+async function refreshOverview() {
+  const out = $("#ov");
+  if (!out) return;
+  let o;
+  try { o = await call("overview"); } catch (e) { return; }
+  const job = o.scan_all, st = $("#ov-state"), button = $("#scan-all");
+  st.textContent = job.running ? "Scanning " + Math.min(job.done + 1, job.total) + " of " + job.total + (job.current ? ": " + job.current : "") + "…"
+    : job.total ? "Last run: scanned " + (job.done - job.failed.length) + " of " + job.total + " projects." + (job.failed.length ? " " + job.failed.length + " could not be scanned." : "") : "";
+  button.disabled = job.running;
+  if (job.running) { clearTimeout(state.timer); state.timer = setTimeout(refreshOverview, 1000); }
+  const scanned = o.projects.filter((p) => p.scanned), sum = (k) => scanned.reduce((s, p) => s + ((p.tiers || {})[k] || 0), 0);
+  const scores = scanned.filter((p) => typeof p.score === "number");
+  const open = async (id) => { try { await call("projects/select", {project: id}); state.filter = null; state.service = null; state.tab = "projects"; await load(); $("#tab-projects").focus(); } catch (e) {} };
+  const order = [...o.projects].sort((a, b) => (b.scanned - a.scanned) || ((b.tiers || {}).critical || 0) - ((a.tiers || {}).critical || 0) || ((b.tiers || {}).high || 0) - ((a.tiers || {}).high || 0) || (a.score ?? 101) - (b.score ?? 101));
+  const since = (p) => p.new == null ? "first scan" : p.new || p.gone ? p.gone + " fixed · " + p.new + " new" : "no change";
+  const meter = (v) => h("span", {class: "meter", "aria-hidden": "true"}, h("i", {style: "width:" + v + "%"}));
+  out.replaceChildren(
+    h("section", {class: "glance", "aria-label": "At a glance"}, h("ul", {class: "cards"},
+      h("li", {}, h("strong", {}, scanned.length + " of " + o.projects.length), h("span", {}, "projects scanned")),
+      h("li", {}, h("strong", {}, scores.length ? Math.round(scores.reduce((s, p) => s + p.score, 0) / scores.length) + " of 100" : "–"), h("span", {}, "average readiness")),
+      h("li", {class: sum("critical") ? "bad" : "ok"}, h("strong", {}, String(sum("critical"))), h("span", {}, "critical findings")),
+      h("li", {class: sum("high") ? "exposed" : ""}, h("strong", {}, String(sum("high"))), h("span", {}, "high findings")))),
+    o.projects.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Projects, scrolls sideways"}, h("table", {},
+      h("thead", {}, h("tr", {}, ["Project", "Readiness", "Critical", "High", "Since the scan before", "Last scanned"].map((c, i) => h("th", {class: i && i < 4 ? "num" : null}, c)))),
+      h("tbody", {}, order.map((p) => h("tr", {}, h("td", {}, h("button", {class: "linkish", onclick: () => open(p.id)}, p.name)),
+        h("td", {class: "num"}, p.scanned && p.score != null ? [String(p.score), meter(p.score)] : "–"), h("td", {class: "num"}, String((p.tiers || {}).critical || 0)),
+        h("td", {class: "num"}, String((p.tiers || {}).high || 0)), h("td", {}, p.scanned ? since(p) : "not scanned"), h("td", {}, p.scanned ? when(p.finished) : "never"))))))
+      : h("p", {class: "empty"}, "No projects yet. Add a folder or a GitHub link under Projects, or a whole GitHub organisation below."),
+    job.failed.length ? h("p", {class: "legend", style: "color:var(--bad)"}, "Not scanned: " + job.failed.map((f) => f.name + " (" + f.error + ")").join("; ")) : "",
+    h("h2", {}, "Services most at risk"),
+    o.services.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Services, scrolls sideways"}, h("table", {},
+      h("thead", {}, h("tr", {}, ["Service", "Critical", "High", "Medium", "Low", "Projects"].map((c, i) => h("th", {class: i && i < 5 ? "num" : null}, c)))),
+      h("tbody", {}, o.services.map((s) => h("tr", {}, h("td", {}, s.service), ...["critical", "high", "medium", "low"].map((k) => h("td", {class: "num"}, String(s[k]))), h("td", {}, s.projects.join(", ")))))))
+      : h("p", {class: "state"}, "Services appear here once a project has an owners spreadsheet with a service column (Projects, Owners from a CMDB export)."),
+    h("h2", {}, "Scheduled scans"),
+    o.watch.length ? h("ul", {class: "runs"}, o.watch.map((w) => h("li", {}, h("details", {}, h("summary", {}, when(w.finished) + " · " + w.path + " · " +
+      (w.first ? "first scan" : w.new_count + " new, " + w.gone_count + " no longer found")),
+      (w.new || []).length ? h("p", {}, "New: " + w.new.map(([n, at]) => n + " at " + at).join("; ")) : "",
+      (w.gone || []).length ? h("p", {}, "No longer found: " + w.gone.map(([n, at]) => n + " at " + at).join("; ")) : "",
+      h("p", {class: "legend"}, "Results in " + w.out)))))
+      : h("p", {class: "state"}, ["None yet. To scan a repository every day, run ", h("code", {class: "cmd"}, "acxelin-readiness watch PATH --every 24"), " on this computer; each scan then appears here."]));
+}
 
 // ---- endpoints
 
@@ -462,7 +584,10 @@ const exports = (csv, ...more) => h("section", {class: "share", "aria-labelledby
   h("div", {class: "row"}, h("button", {class: "btn quiet", onclick: csv}, "Download CSV"), ...more, h("button", {class: "btn quiet", onclick: () => print()}, "Print or save as PDF")));
 function ownersForm(last) {
   const file = h("input", {type: "file", id: "ownersfile", accept: ".csv,text/csv"});
-  const send = async (csv) => { try { await call("projects/owners", {project: state.selected, csv}); await refreshProject(); } catch (e) {} };
+  const send = async (csv) => {
+    if (!csv && !sure("Remove the owners from the CMDB export? Owners you set on single findings stay.")) return;
+    try { await call("projects/owners", {project: state.selected, csv}); await refreshProject(); notify(csv ? "Owners updated." : "Owners from the export removed."); } catch (e) {}
+  };
   const use = async () => { const f = file.files[0]; if (!f) return say("Choose a CSV file first."); await send(await f.text()); };
   return h("details", {class: "more", style: "margin-top:18px"}, h("summary", {}, last.owner_rules ? "Owners from a CMDB export: " + last.owner_rules + " rules" : "Owners from a CMDB export"),
     h("p", {}, "A CSV with a path (or pattern) column and an owner (or team) column, written as CODEOWNERS patterns, and if you like a service column naming the business service; the last matching row wins. It comes before this repository's CODEOWNERS file, and an owner you set on a finding comes before both."),

@@ -257,7 +257,8 @@ acxelin-readiness watch PATH --every 24 --on-change "notify-team"
 `--on-change` runs a command when something changed, with `ACXELIN_READINESS_CHANGES` set to the path of `changes.json`.
 To let the system's scheduler start it instead, use `--once`: from cron, a systemd timer, or Windows Task Scheduler
 (`schtasks /create /sc daily /tn Readiness /tr "acxelin-readiness watch C:\code\shop --once"`). The first scan only sets the
-starting point.
+starting point. Each run is also added to `watch.json` in the console's home folder (`--home`, default
+`ACXELIN_READINESS_HOME` or `~/.acxelin-readiness`), so the console's Overview lists it.
 
 ## 7. The console
 
@@ -265,11 +266,12 @@ starting point.
 acxelin-readiness console
 ```
 
-Your browser opens, already signed in, with two parts:
+Your browser opens, already signed in, with three parts:
 
 | Part | What you do there |
 |---|---|
 | **Projects** | Add a folder or a GitHub link, scan it, cancel a running scan (the previous result is kept), and see priorities and history. |
+| **Overview** | Every project side by side, scan them all with one button, add every repository of a GitHub organisation, the business services most at risk, and the scheduled scans. |
 | **Endpoints** | Scan hosts, see what changed since the last scan, what can happen if nothing changes and what to do first, and export the CBOM. |
 
 The console listens only on this machine. From a remote server, forward a port and ask for a fresh link:
@@ -285,6 +287,33 @@ In Docker, start it with `--container` and publish the port on loopback only:
 docker run -d --name readiness -v readiness:/data -p 127.0.0.1:8900:8900 acxelin-readiness console --container
 docker exec -it readiness acxelin-readiness console link
 ```
+
+### Many repositories at once
+
+**Overview** lists every project with its score, critical and high findings, and what changed since the scan before
+("2 fixed · 1 new"). **Scan every project** first adds each repository in the chosen folder that is not yet a project, then
+scans them one after another; a repository that fails is named and the rest carry on. **Add every repository of a GitHub
+organisation** takes a name such as `acme` (or its link) and adds each repository except archived ones and forks, up to 200;
+private ones need the token saved under Projects. Services are ranked across all projects by their critical, then high,
+findings.
+
+### Before and after
+
+After a rescan, a project shows what is no longer found and what is new, side by side, each with its priority. "No longer
+found" means the scan did not see it, which is usually a fix but can also be a file that was not read.
+
+### The change in your language
+
+Findings in Python, Java, Go, JavaScript, TypeScript or nginx files show **See the change in …**: a short before and after
+for weak hashes, RSA and ECDSA signatures (ML-DSA), ECDH and X25519 (ML-KEM), old ciphers (AES-GCM) and old TLS versions.
+They show the shape of the change, not a patch for your code; ML-DSA and ML-KEM need a cryptography release that has them, Java 24 or
+later, or Go 1.24 or later.
+
+### Finding your way
+
+Projects with more than five findings have a search box (press `/`) that matches the algorithm, file, owner or service.
+Saving a status, an owner list or a token says so at the top of the page, and removing a saved token or an owner list asks
+first.
 
 ### Importing another tool's CBOM
 

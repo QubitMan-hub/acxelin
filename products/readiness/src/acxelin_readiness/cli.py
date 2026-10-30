@@ -69,6 +69,7 @@ def main(argv=None):
     w.add_argument("--once", action="store_true", help="scan once and stop, for cron, a systemd timer or Windows Task Scheduler")
     w.add_argument("--on-change", metavar="COMMAND", help="run this when something appeared or disappeared; ACXELIN_READINESS_CHANGES names changes.json")
     w.add_argument("--config", metavar="FILE", help="settings file for the scans")
+    w.add_argument("--home", metavar="DIR", help="the console's folder, where each run is recorded for its Overview (default: ~/.acxelin-readiness)")
     m = sub.add_parser("merge", help="merge the CBOMs of many systems into one organisation inventory and dashboard")
     m.add_argument("cboms", nargs="+", metavar="CBOM", help="cbom.json files, or folders searched for them (other tools' CBOMs work too)")
     m.add_argument("--name", default="Organisation", help="organisation name for the inventory")
@@ -247,7 +248,10 @@ def watch(a):
                     raise
             after = pipeline.load_baseline(bom)
             new, gone = (sorted(after - before), sorted(before - after)) if before is not None else ([], [])
-            changes.write_text(json.dumps({"finished": time.time(), "first": before is None, "new": new, "gone": gone}, indent=2), encoding="utf-8")
+            run = {"finished": time.time(), "first": before is None, "new": new, "gone": gone}
+            changes.write_text(json.dumps(run, indent=2), encoding="utf-8")
+            record(Path(a.home or os.environ.get("ACXELIN_READINESS_HOME") or Path.home() / ".acxelin-readiness"),
+                   run | {"path": a.path, "out": str(out.resolve()), "new": new[:20], "gone": gone[:20], "new_count": len(new), "gone_count": len(gone)})
             print(f"{time.strftime('%Y-%m-%d %H:%M')}: " + ("first scan; later scans report changes against it" if before is None else
                   f"{len(new)} new and {len(gone)} gone since the last scan" + "".join(f"\n  new: {n} at {p}" for n, p in new[:20])
                   + "".join(f"\n  gone: {n} at {p}" for n, p in gone[:20])))
@@ -258,6 +262,17 @@ def watch(a):
             time.sleep(a.every * 3600)
     except KeyboardInterrupt:
         return 0
+
+
+def record(home, run):
+    """Add a scheduled scan to the console's list (the last 100); a console folder that cannot be written is only reported."""
+    import json
+    from acxelin_core.files import write
+    try:
+        runs = json.loads((home / "watch.json").read_text(encoding="utf-8")) if (home / "watch.json").exists() else []
+        write(home / "watch.json", json.dumps((runs if isinstance(runs, list) else [])[-99:] + [run]).encode(), secret=True)
+    except (OSError, ValueError) as e:
+        print(f"acxelin-readiness: this run is not in the console's list ({home}: {e})", file=sys.stderr)
 
 
 def changed_files(root, ref):

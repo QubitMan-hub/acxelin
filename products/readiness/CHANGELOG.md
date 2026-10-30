@@ -21,6 +21,13 @@
 - Console: a start page with three clear choices, summary cards for the numbers that matter, sections named by the question they
   answer instead of "descriptive" and "prescriptive", a quieter owner prompt, the downloads grouped, and the endpoint grades
   explained before the first check.
+- Console Overview: every project side by side, one button to scan them all, every repository of a GitHub organisation added at
+  once, business services ranked across projects, and the results of scheduled scans (`watch --home`).
+- Before and after: a rescan lists the findings no longer found and the new ones, by name and priority.
+- Fix examples: findings in Python, Java, Go, JavaScript, TypeScript and nginx show a short before and after in that language.
+- Console polish: a search box for findings (`/`), confirmation before removing a token or an owner list, a message when
+  something is saved, numbers aligned in tables, and the GitHub and import forms tucked under one heading.
+- Owners loaded from a CMDB export are kept when the project is scanned again; they were dropped before.
 
 ## 1.1.0
 
