@@ -20,7 +20,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from acxelin_core.files import write
+from acxelin_core.files import protected_location, write
 
 
 FULL = ["0.0.0.0/0", "::/0"]
@@ -339,7 +339,28 @@ def service(argv, kind=None, name=SERVICE):
             [["systemctl", "disable", "--now", name]])
 
 
+def elevation_problem(interpreter=None):
+    """None, or why code started with administrator rights here could be changed by an ordinary user: the interpreter, and every
+    folder it imports from, must be where only administrators can write. A packaged app is one program, so only it is checked."""
+    exe = interpreter or sys.executable
+    if getattr(sys, "frozen", False):
+        return protected_location([exe])
+    return protected_location([exe, *(p for p in sys.path if p and os.path.isdir(p))])
+
+
+def require_protected_code(what, interpreter=None):
+    why = elevation_problem(interpreter)
+    if why:
+        raise ValueError(f"{what} would run code with administrator rights that an ordinary user can change ({why}). Anyone who can run "
+                         "programs as this user could use that to become the administrator. Use a copy of Acxelin VPN installed where only "
+                         "administrators can write: the Windows Setup or the Linux package from the release page, or a copy an administrator "
+                         "installed under /opt (the manual shows how), and run this again from there."
+                         + (" On a Mac, an app you copied to Applications belongs to you: run "
+                            "sudo chown -R root:wheel \"/Applications/Acxelin VPN.app\" once." if sys.platform == "darwin" else ""))
+
+
 def install(argv, runner=run):
+    require_protected_code("Starting the VPN when this computer starts", argv[0])
     path, text, start, _ = service(argv)
     write(path, text.encode())
     for cmd in start:

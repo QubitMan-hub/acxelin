@@ -48,11 +48,12 @@ class DesktopTest(unittest.TestCase):
             osa = self.desktop.elevated(command)
         literal = re.fullmatch(r'do shell script "(.*)" with administrator privileges', osa[2]).group(1)
         script = re.sub(r'\\(.)', r'\1', literal)
-        self.assertEqual(shlex.split(script.removesuffix(" >/dev/null 2>&1 &"))[2:], command)
+        isolated = [command[0], "-I", *command[1:]]  # -I: root ignores PYTHONPATH, the person's user-site folder and the current folder
+        self.assertEqual(shlex.split(script.removesuffix(" >/dev/null 2>&1 &")), isolated)
         with mock.patch.object(sys, "platform", "linux"), mock.patch("shutil.which", return_value="/usr/bin/pkexec"):
             linux = self.desktop.elevated(command)
-        self.assertEqual((linux[:2], linux[3:]), (["pkexec", "env"], command))
-        self.assertTrue(linux[2].startswith("PYTHONPATH="), "root finds a per-user or virtualenv install")
+        self.assertEqual(linux, ["pkexec", *isolated])
+        self.assertNotIn("PYTHONPATH", " ".join(linux), "nothing of the person's import path goes to root")
         with mock.patch.object(sys, "platform", "linux"), mock.patch("shutil.which", return_value=None), self.assertRaisesRegex(ValueError, "sudo acxelin-vpn app"):
             self.desktop.elevated(command)
 
@@ -181,13 +182,13 @@ class DesktopTest(unittest.TestCase):
         import ctypes
         shell = mock.Mock()
         with mock.patch.object(self.desktop.os, "name", "nt"), mock.patch.object(ctypes, "windll", mock.Mock(shell32=shell), create=True), \
-                mock.patch("acxelin_vpn.join.administrator", return_value=False):
+                mock.patch("acxelin_vpn.join.administrator", return_value=False), mock.patch.object(self.desktop.platforms, "require_protected_code"):
             shell.ShellExecuteW.return_value = 5
             with self.assertRaisesRegex(ValueError, "administrator rights were not given"):
                 self.desktop.start_service(["C:/py/pythonw.exe", "-m", "acxelin_vpn", "app"], True)
             shell.ShellExecuteW.return_value = 42
             self.assertIsNone(self.desktop.start_service(["C:/py/pythonw.exe", "-m", "acxelin_vpn"], True))
-        self.assertEqual(shell.ShellExecuteW.call_args.args[1:4], ("runas", "C:/py/pythonw.exe", "-m acxelin_vpn"))
+        self.assertEqual(shell.ShellExecuteW.call_args.args[1:4], ("runas", "C:/py/pythonw.exe", "-I -m acxelin_vpn"))
 
     def test_a_service_that_went_away_does_not_break_the_tray(self):
         tray = self.desktop.Tray(home=self.d, apply=False)

@@ -380,7 +380,7 @@ class ToolFailureTest(unittest.TestCase):
 
     def test_install_and_uninstall_the_service(self):
         unit = self.dir / "acxelin-vpn.service"
-        with mock.patch.object(platforms, "service", lambda argv, kind=None, name=platforms.SERVICE: (unit if name == platforms.SERVICE else self.dir / "none.service", "x".join(argv), [["start"]], [["stop"], ["disable"]])):
+        with mock.patch.object(platforms, "require_protected_code"), mock.patch.object(platforms, "service", lambda argv, kind=None, name=platforms.SERVICE: (unit if name == platforms.SERVICE else self.dir / "none.service", "x".join(argv), [["start"]], [["stop"], ["disable"]])):
             run = Recorder()
             self.assertEqual(platforms.install(["a", "b"], run), unit)
             self.assertEqual((unit.read_text(), run.commands()), ("axb", [["start"]]))

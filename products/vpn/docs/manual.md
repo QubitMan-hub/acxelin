@@ -309,7 +309,7 @@ Run the second command in that SSH session, then open the address it prints on y
 
 Connection details say when the key was last renewed. If renewals stop, the window says so in words: when the key is more than twice its renewal period old ("has not been renewed for 62 min"), and, when the gateway cannot be reached, how many tries in a row have failed and when the last good key was agreed. `acxelin-vpn status --details` prints the same.
 
-Only the background VPN service runs with administrator rights; the tray and the window run as you. The window is served only on 127.0.0.1 and opens only from a one-time address. It never offers to save your passphrase. On Linux, the tray menu needs a desktop with AppIndicator support (GNOME with its AppIndicator extension, KDE and most others); without it, clicking the shield opens the window, and Disconnect is in the window.
+Only the background VPN service runs with administrator rights; the tray and the window run as you. The tray starts that service only from a copy of Acxelin VPN that ordinary users cannot change (the Windows Setup and the Linux package are; on a Mac, run `sudo chown -R root:wheel "/Applications/Acxelin VPN.app"` once after copying it). From a copy installed for one user it refuses and says so, because otherwise anything running as that user could become the administrator. The window is served only on 127.0.0.1 and opens only from a one-time address. It never offers to save your passphrase. On Linux, the tray menu needs a desktop with AppIndicator support (GNOME with its AppIndicator extension, KDE and most others); without it, clicking the shield opens the window, and Disconnect is in the window.
 
 **Without the installer:** `acxelin-vpn app`, in an administrator terminal, serves the same window in your browser.
 
@@ -394,6 +394,7 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 | Every peer is refused after a week | The CRL has expired, and the VPN fails closed. | Run `acxelin-vpn ca maintain --dir pki` now, and schedule it daily. |
 | `The CA key is locked` in the console | The console restarted and forgot the passphrase. | Enter the passphrase again. |
 | `doctor` exits 2 | A check failed. | The line marked `FAIL` names the problem and the fix. |
+| `would run code with administrator rights that an ordinary user can change` | The tray or `acxelin-vpn install` was started from a copy installed for one user. | Use the Windows Setup, the Linux package, or a copy an administrator installed under `/opt` (section 3). |
 
 ### Exit codes
 

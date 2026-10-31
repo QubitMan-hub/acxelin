@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `files.protected_location` says whether code is where only administrators can write it, with `files.windows_protected` for the
+  Windows rule (Program Files and the Windows folder). Products use it before starting anything with administrator rights.
 - Security: a certificate is cleared only by a CRL from the CA that issued it. Before, a root's CRL also cleared a certificate
   an intermediate CA had revoked. `Revocation.check` and `check_revocation` take the certificate's issuer for this.
 - A CRL file may hold several CRLs (an intermediate's and the root's), so the root's list revokes an intermediate and every

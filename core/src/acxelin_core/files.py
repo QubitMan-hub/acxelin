@@ -1,8 +1,11 @@
 """Shared private file writes and process/thread locking, independent of cryptographic protocols."""
 import contextlib
 import errno
+import ntpath
 import os
 import secrets
+import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -103,3 +106,37 @@ def owner_only(path):
         raise OSError(f"cannot make {path} readable by its owner only: {(r.stderr or r.stdout).strip()}")
 
 
+
+
+def windows_protected(path, roots, ntp=ntpath):
+    """True when `path` sits inside one of `roots` (Program Files, the Windows folder), whose default permissions keep ordinary
+    users from changing what is there. `..` is resolved first, and a folder that merely starts with a root's name is not inside it."""
+    p = ntp.normcase(ntp.normpath(path))
+    return any(p.startswith(ntp.normcase(ntp.normpath(r)) + ntp.sep) for r in roots)
+
+
+def protected_location(paths, trusted_uids=(0,), trusted_gids=(80,) if sys.platform == "darwin" else (), below=None):
+    """None when every path, once links are followed, and every folder above it is owned by a trusted user and writable by nobody
+    else; otherwise a sentence saying which one is not. Code that runs with administrator rights must pass this: a file an ordinary
+    user can change is a way for that user to become the administrator. Windows has no owner and mode to read, so a path there
+    must be inside Program Files or the Windows folder. `below` stops the walk at a folder (tests use it)."""
+    ceiling = Path(below).resolve() if below else None
+    for path in paths:
+        if os.name == "nt":
+            roots = [r for r in (os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "SystemRoot")) if r]
+            if not windows_protected(os.path.realpath(path), roots):
+                return f"{path} is not inside Program Files or the Windows folder, so an ordinary user may be able to change it"
+            continue
+        try:
+            real = Path(path).resolve(strict=True)
+        except OSError:
+            return f"{path} was not found"
+        for p in (real, *real.parents):
+            if ceiling and (p == ceiling or p in ceiling.parents):
+                break
+            st = p.stat()
+            if st.st_uid not in trusted_uids:
+                return f"{p} is owned by user {st.st_uid}, who is not an administrator"
+            if st.st_mode & stat.S_IWOTH or (st.st_mode & stat.S_IWGRP and st.st_gid not in trusted_gids):
+                return f"{p}: users other than its owner can write to it"
+    return None

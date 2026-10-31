@@ -28,7 +28,7 @@ and CRLs.
 | Peer → keyring (port 7443) | TLS handshake, one JSON line each way | PQ-only TLS policy, ML-DSA mutual authentication against your CA, CRL, max connections, message size limit (4096 bytes) |
 | Gateway → strongSwan | VICI over a unix socket: connections and shared secrets | Local only; one request at a time; reconnect without replaying mutations |
 | Gateway/laptop → `wg` | Private key and PSK on stdin | Never on a command line |
-| Laptop → administrator rights | The app starts the service as root/administrator | See finding 1 |
+| Laptop → administrator rights | The app starts the service as root/administrator | Only from code ordinary users cannot change (finding 1, fixed) |
 | Browser or app window → local service | Loopback HTTP | Host/Origin checks, ticket exchanged once for a session key, lockout |
 | Invitation file → laptop | CA fingerprint and a one-time enrollment token | A channel you trust; whoever uses it first enrolls |
 | Site → key server (QKD) | ETSI GS QKD 014 over mutual TLS 1.3 | The QKD key only adds to the TLS-derived keys |
@@ -79,12 +79,12 @@ and CRLs.
 - **IKE fragmentation and MTU** with post-quantum payloads, and **dead-peer detection** against a real peer.
 - **Upgrading** a running gateway or laptop from the previous release; the kill switch on macOS is checked by the rules it
   writes, not on a live system.
-- The **desktop app**: `test_vpn_desktop` exercises the tray on Windows and macOS runners. Nothing tests the elevation path
-  below.
+- The **desktop app**: `test_vpn_desktop` exercises the tray on Windows and macOS runners. The elevation rule is unit tested
+  (`test_elevation`), not exercised through a real UAC, polkit or macOS prompt.
 
 ## Findings from reading the code
 
-1. **The tray app runs user-writable code as root or administrator.** `desktop.elevated()` and `start_service()` run
+1. **Fixed in stage 1b: the tray app ran user-writable code as root or administrator.** (`acxelin-vpn install` did the same for its boot service.) Both now refuse unless the code is where only administrators can write; tests are `test_elevation` and core's `test_protected_location`. The text below is the finding as first written. `desktop.elevated()` and `start_service()` run
    `pkexec env PYTHONPATH=<package folder> <python> -m acxelin_vpn app` (Linux), an `osascript … with administrator
    privileges` equivalent (macOS), or `ShellExecuteW … "runas"` (Windows). For a per-user install (the default of
    `install.sh`/`install.ps1`) that interpreter and package folder are writable by the person, so malware running as that

@@ -19,7 +19,7 @@ import webbrowser
 from pathlib import Path
 
 from acxelin_core.files import write
-from . import app
+from . import app, platforms
 
 NAME = "Acxelin VPN"
 TONES = {"protected": "#26734d", "connecting": "#c98a00", "agreed": "#c98a00", "not_protected": "#b3431f"}
@@ -116,12 +116,16 @@ def entry():
     return [sys.executable] if getattr(sys, "frozen", False) else [python(), "-m", "acxelin_vpn"]
 
 
+def isolated(command):
+    """The interpreter started with -I: it ignores PYTHONPATH and every other PYTHON* variable, the person's user-site folder and the
+    current folder. A packaged app is a single program and is left as it is."""
+    return command if getattr(sys, "frozen", False) else [command[0], "-I", *command[1:]]
+
+
 def elevated(command):
-    """How to run `command` (a list) with administrator rights on this system, as a list to start without waiting. The
-    prompt's clean environment keeps this interpreter's import path, so a per-user or virtualenv install still loads."""
-    if not getattr(sys, "frozen", False):  # only the folder this package was loaded from, never the person's whole path
-        here = str(Path(__file__).resolve().parents[1])
-        command = ["env", "PYTHONPATH=" + here, *command]
+    """How to run `command` (a list) with administrator rights on this system, as a list to start without waiting. Nothing of this
+    person's import path or environment goes with it: it loads only what the interpreter itself finds."""
+    command = isolated(command)
     if sys.platform == "darwin":
         script = shlex.join(command) + " >/dev/null 2>&1 &"
         return ["osascript", "-e", f'do shell script "{script.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}" with administrator privileges']
@@ -131,12 +135,15 @@ def elevated(command):
 
 
 def start_service(command, apply):
-    """Start `acxelin-vpn app` in the background, through the administrator prompt when it will change the network."""
+    """Start `acxelin-vpn app` in the background, through the administrator prompt when it will change the network. That prompt is
+    only used for code an ordinary user cannot change (`platforms.require_protected_code`), checked before any prompt appears."""
     from .join import administrator
     if not apply or administrator():
         return subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detached())
+    platforms.require_protected_code("Starting the VPN service from the tray", command[0])
     if os.name == "nt":
         import ctypes
+        command = isolated(command)
         r = ctypes.windll.shell32.ShellExecuteW(None, "runas", command[0], subprocess.list2cmdline(command[1:]), None, 0)
         if r <= 32:
             raise ValueError("administrator rights were not given, so the VPN cannot change this computer's network")

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Security fix: the tray app and `acxelin-vpn install` no longer run code that an ordinary user can change with administrator
+  rights. When the VPN was installed for one user (the default of `install.sh` and `install.ps1`, or `pip install --user`), the
+  tray started the VPN service as root or administrator from that user's own Python and folders, and passed it the user's
+  import path, and `acxelin-vpn install` made a boot service that ran them as root or SYSTEM. Anything running as that user
+  could change those files, then wait for the administrator prompt or the next boot, and become the administrator. Now both
+  refuse, and say why, unless the interpreter and every folder it imports from can be written only by administrators; the
+  elevated process starts with `-I`, so it ignores `PYTHONPATH`, the user-site folder and the current folder. Affected: the
+  command-line install used with the tray or `acxelin-vpn install`, in every earlier release that has the desktop app. The
+  Windows Setup (Program Files) and the Linux package (`/opt/acxelin-vpn`) install where users cannot write. On macOS an app
+  dragged into Applications belongs to the person, so it is refused too until `sudo chown -R root:wheel "/Applications/Acxelin
+  VPN.app"` is run once. `sudo acxelin-vpn app`, run by an administrator on purpose, is unchanged.
+
 - `acxelin-vpn setup NAME`: a remote-access gateway in one step: the CA (or the existing one), the gateway's certificate, the
   CRL and a checked `gateway.toml`, then the commands that start enrollment and the gateway and invite the first person.
 - Console, People: traffic, when each person's key was last renewed (and the last handshake), gateway uptime, and an access
@@ -17,7 +29,7 @@
 - Security: a gateway whose CRL cannot be used still removes laptops that stopped renewing their key. Before, they kept their
   last key until the CRL was fixed.
 - Security: one person can no longer take over another's WireGuard key, and the service log of the desktop app never follows
-  a link planted in its folder; the elevated service gets only the package's own folder on its import path.
+  a link planted in its folder.
 - A revoked laptop is told it was revoked (the app and `status` say so) instead of "key agreement message missing".
 - A gateway whose `name` differs from its certificate refuses to start: the laptops would derive a different key.
 - `acxelin-vpn disconnect` stops a running `join`, app or service instead of being undone at the next rotation.
