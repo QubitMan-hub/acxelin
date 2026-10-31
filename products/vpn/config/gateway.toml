@@ -3,7 +3,7 @@
 [wireguard]
 name = "vpn.acme.example"
 endpoint = "vpn.acme.example:51820"     # where clients send WireGuard UDP
-keyring_listen = "0.0.0.0:7443"         # post-quantum mutual TLS key agreement
+keyring_listen = "0.0.0.0:7444"         # post-quantum mutual TLS key agreement (7444: the HQ site already uses 7443)
 pool = "10.99.0.0/24"                   # the gateway is 10.99.0.1; each user keeps one address
 routes = ["192.168.10.0/24"]            # networks behind the gateway, routed through the tunnel
 # full_tunnel = true                    # instead: all of the laptops' traffic, forwarded with NAT; laptops get a kill switch
@@ -21,7 +21,7 @@ rotate_minutes = 2
 # outage_grace_minutes = 30            # off (0) by default. If key agreement stops (an outage), keep a silent laptop on its last keys for up to 30 minutes
 #                                      # past the normal limit (6.5 minutes), while the CRL is usable and does not list it. Hard cap, 0-1440; needs crl
 users = []                              # empty: any client certificate of the CA; or a list of common names
-metrics = "127.0.0.1:9101"
+metrics = "127.0.0.1:9102"                # the HQ site's status is on 9101
 
 [wireguard.sites]                       # clients that are branch sites, and the subnets behind them
 "branch.acme.example" = ["192.168.20.0/24"]

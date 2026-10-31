@@ -18,6 +18,12 @@ def gateway(folder, name, address=None, pool="10.99.0.0/24", routes=(), dns=(), 
         raise ValueError(f"{name!r} is not a host name: use the name laptops reach the gateway by, such as vpn.acme.example")
     if address:
         ipaddress.ip_address(address)
+    try:  # checked before anything is written, so a typo leaves no half-made folder behind
+        ipaddress.ip_network(pool)
+        [ipaddress.ip_network(r, strict=False) for r in routes]
+        [ipaddress.ip_address(d) for d in dns]
+    except ValueError as e:
+        raise ValueError(f"not a network or address: {e}") from None
     folder = Path(folder).resolve()
     conf = folder / "gateway.toml"
     if conf.exists() and not force:

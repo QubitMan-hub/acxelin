@@ -80,7 +80,10 @@ def _files(where, d, names):
         p = d.get(k)
         if not p:
             continue
-        if not Path(p).exists():
+        if not Path(p).exists() and k == "private_key":
+            ok = Path(p).parent.is_dir() and os.access(Path(p).parent, os.W_OK)
+            out.append(("ok", f"{where}: {k} = {p} is created on first start") if ok else ("fail", f"{where}: {k} = {p} cannot be created there"))
+        elif not Path(p).exists():
             out.append(("fail", f"{where}: {k} = {p} does not exist"))
         elif k in ("key", "private_key"):
             out += _private(p)

@@ -21,7 +21,7 @@ A key agreement that cannot meet the VPN's policy (TLS 1.3, hybrid ML-KEM, ML-DS
 - **Gateways:** Linux, with strongSwan 6.0.2 or newer built against OpenSSL 3.5, iproute2, and WireGuard's tools for remote access. The gateway Docker image has all of them.
 - **People's computers:** Windows 10 or 11 (x64), macOS on Apple silicon, or Ubuntu and Debian (x64), with WireGuard installed. The desktop installers carry everything else, OpenSSL 3.5 included.
 - **The command line** (for administrators): Python 3.11 to 3.14 and OpenSSL 3.5 or newer. Debian 13 and Ubuntu 25.04 have it. On macOS run `brew install openssl@3`; on Windows, `choco install openssl`.
-- **A network plan:** the gateways' public addresses, the subnets behind each site, the address pool for remote access, and firewall openings for UDP 500 and 4500 (IPsec), UDP 51820 (WireGuard), TCP 7443 (key agreement) and TCP 9443 (enrollment).
+- **A network plan:** the gateways' public addresses, the subnets behind each site, the address pool for remote access, and firewall openings for UDP 500 and 4500 (IPsec), UDP 51820 (WireGuard), TCP 7443 and 7444 (key agreement for the sites and for people) and TCP 9443 (enrollment).
 
 ## 3. Install
 
@@ -138,7 +138,7 @@ The rest of this section sets up two sites as well, step by step.
 
 ## 4b. Two sites and a laptop in fifteen minutes
 
-These steps connect headquarters (`hq.acme.example`, 203.0.113.10, subnet 10.1.0.2/16) to a branch (`branch1.acme.example`, 198.51.100.7, subnet 10.2.0.0/16), and give Alice's laptop access through a WireGuard gateway at headquarters (`vpn.acme.example`). Replace the names and addresses with yours. `config/` in the release folder has the three configurations used here, with every setting explained.
+These steps connect headquarters (`hq.acme.example`, 203.0.113.10, subnet 10.1.0.0/16) to a branch (`branch1.acme.example`, 198.51.100.7, subnet 10.2.0.0/16), and give Alice's laptop access through a WireGuard gateway at headquarters (`vpn.acme.example`). Replace the names and addresses with yours. `config/` in the release folder has the three configurations used here, with every setting explained.
 
 ### Step 1: create the certificate authority
 
@@ -194,7 +194,7 @@ The enrollment service is where invitations enroll, next to the CA:
 acxelin-vpn ca serve --dir pki --cert pki/issued/enroll/chain.pem --key pki/issued/enroll/key.pem
 ```
 
-On the headquarters gateway, put `config/gateway.toml` in `/etc/acxelin-vpn/gateway.toml` with your pool, routes and DNS, and start the WireGuard gateway:
+On the headquarters gateway, put `config/gateway.toml` in `/etc/acxelin-vpn/gateway.toml` with your pool, routes and DNS, and start the WireGuard gateway. It listens on 7444, with its status on 9102, so it can run beside the site's key agreement on 7443 and 9101:
 
 ```
 docker run -d --name wg --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/etc/acxelin-vpn \
@@ -204,11 +204,11 @@ docker run -d --name wg --network host --cap-add NET_ADMIN -v /etc/acxelin-vpn:/
 ### Step 5: invite Alice
 
 ```
-acxelin-vpn invite alice --dir pki --enroll https://ca.acme.example:9443 --gateway vpn.acme.example:7443
+acxelin-vpn invite alice --dir pki --enroll https://ca.acme.example:9443 --gateway vpn.acme.example:7444
 ```
 
 ```
-wrote alice.acxinvite: it lets alice enroll once before 2026-10-20T15:04:40+00:00 and then connect to vpn.acme.example:7443.
+wrote alice.acxinvite: it lets alice enroll once before 2026-10-20T15:04:40+00:00 and then connect to vpn.acme.example:7444.
 Send it through a channel you trust (it holds a one-time token and the CA fingerprint the device will trust).
 ```
 

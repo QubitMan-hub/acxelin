@@ -2,6 +2,15 @@
 
 ## 1.0.3
 
+- Fixed: a full-tunnel laptop renews its keys with DNS blocked by its kill switch; before, it used fresh name lookups and lost
+  the tunnel for good when its DNS server was unreachable.
+- Fixed: when the address pool is full, the address of someone not connected (revoked or gone) is reused, so people who left
+  cannot keep the pool full; a laptop refused for a full pool is told so.
+- Fixed: `config/gateway.toml` uses ports 7444 and 9102, so it runs beside the headquarters site (7443, 9101) as the manual
+  describes; the manual's invitation uses 7444.
+- Fixed: `doctor` no longer fails a gateway `setup` just made because its WireGuard key does not exist yet (it is created on
+  first start); `setup` checks the pool, routes and DNS before writing anything; `rotate_minutes` is limited to 1440, the
+  most a laptop accepts; a tunnel that stays silent after new keys is rebuilt instead of re-agreeing keys every 5 seconds.
 - The tray's app window is opened through the owner-only launch page too, so no launch ticket is on any command line.
 - Security: the console and `acxelin-vpn app` open the browser through an owner-only page, so the launch ticket is not on
   the browser's command line, where other users of the machine could read it.

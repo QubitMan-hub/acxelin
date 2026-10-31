@@ -160,8 +160,8 @@ class GatewayConfig:
             raise ValueError("crl_url needs crl = \"PATH\", where the copy is kept")
         if self.crl_every < 5:
             raise ValueError("crl_every must be at least 5 seconds")
-        if self.rotate_minutes < 0.25:
-            raise ValueError("rotate_minutes must be at least 0.25")
+        if not 0.25 <= self.rotate_minutes <= 1440:
+            raise ValueError("rotate_minutes must be from 0.25 to 1440 (a day)")
         check_minutes("", self.outage_grace_minutes, self.crl)
         return self
 
@@ -201,11 +201,17 @@ class Gateway:
         agreement.send(conn, {"ok": False} | ({"reason": reason} if reason else {}))
 
     def lease(self, cn):
+        """This person's address, kept across reconnects. When the pool is full, the address of someone not connected now
+        (revoked, or gone) is reused, so people who left cannot keep it full."""
         if cn not in self.leases:
             taken = set(self.leases.values()) | {str(self.cfg.address)}
             free = next((str(h) for h in self.cfg.network.hosts() if str(h) not in taken), None)
             if not free:
-                raise CAError("the address pool is full")
+                gone = next((name for name in self.leases if name not in self.clients), None)
+                if gone is None:
+                    raise CAError("the address pool is full")
+                free = self.leases.pop(gone)
+                log.info("%s: reusing %s, held by %s, who is not connected", cn, free, gone)
             self.leases[cn] = free
             write(Path(self.cfg.state), json.dumps(self.leases, indent=1).encode())
         return self.leases[cn]
@@ -234,7 +240,7 @@ class Gateway:
             try:
                 ip = self.lease(cn)
             except CAError as e:
-                return self.refuse(conn, cn, addr, str(e))
+                return self.refuse(conn, cn, addr, str(e), "pool")
             old = self.clients.get(cn)
             self.wg.set_peer(pub, b64(psk), [f"{ip}/32"] + self.cfg.sites.get(cn, []))
             if old and old["public"] != pub:
@@ -408,6 +414,8 @@ class Client:
             reply = read_line(conn)
             if reply.get("reason") == "revoked":
                 raise tls.TLSError("this computer's certificate has been revoked: ask your administrator for a new invitation")
+            if reply.get("reason") == "pool":
+                raise tls.TLSError("the gateway refused the key agreement: its address pool is full and everyone in it is connected; tell your administrator")
             if reply.get("reason") == "crl":
                 raise tls.TLSError("the gateway cannot read its revocation list, so it lets no one in: tell your administrator")
             if reply.get("ok") is not True or not valid_key(str(reply.get("gateway_public", ""))):
@@ -454,7 +462,8 @@ class Client:
                 self.tunnel.wg().set_psk(reply["gateway_public"], psk)
             if "0.0.0.0/0" in reply["routes"]:
                 host, port = hostport(reply["endpoint"])
-                self.kill_switch.on(self.tunnel.device(), (addresses(host), port), (addresses(self.host), self.port))
+                self.pin(host), self.pin(self.host)  # resolved before the kill switch blocked DNS, refreshed while it allows it
+                self.kill_switch.on(self.tunnel.device(), (self.pins[host], port), (self.pins[self.host], self.port))
                 self.killswitch(True)
             else:
                 self.kill_switch.off()
@@ -490,7 +499,10 @@ class Client:
             self.stop.set()
             return 0
         self.renew()
-        if time.time() >= self.due or self.quiet():
+        silent = time.time() < self.due and self.quiet()
+        if time.time() >= self.due or silent:
+            if silent:  # new keys alone did not help last time: rebuild the tunnel with them
+                self.applied = None
             try:
                 reply = self.once()
                 log.info("connected as %s through %s; next key in %ds", reply["address"], reply["endpoint"], reply["rotate_s"])
