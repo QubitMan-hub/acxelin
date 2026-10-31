@@ -20,7 +20,7 @@ console (loopback) keeps workspaces, history and imported CBOMs in owner-only fi
 | Boundary | Crosses | Held by |
 |---|---|---|
 | Scanned content → parsers | Hostile files, archives, images, captures | Size, count and time limits; path checks on unpacking; parser failures become notes |
-| Scanner → endpoints you name | TLS handshakes and an SSH key exchange | Handshake only: no application data, no credentials. **No rate limit; about 25 connections per TLS endpoint, 16 in parallel** (stage 2) |
+| Scanner → endpoints you name | TLS handshakes and an SSH key exchange | Handshake only: no application data, no credentials. About 19 connections per TLS endpoint, paced by default (2 a second per host and port, 4 workers); `--aggressive` removes the pacing |
 | Scanner → GitHub | Archive download with an optional token | The token goes to the API host only; HTTPS to HTTP downgrade refused; no path escapes the folder; size limits |
 | Output folder → readers | Snippets of scanned code in `findings.json` | The folder is as sensitive as the code |
 | Browser → console | Loopback HTTP | Core console rules |
@@ -55,7 +55,7 @@ the environment or the console and kept in an owner-only file when the console s
 
 ## Claims with no test found
 
-- **Running against production is safe**: no test counts connections per host, and nothing limits them (stage 2).
+- **Running against production is safe**: live probes are now paced (at most 2 new connections a second and one open at a time to any host and port, 4 workers; `--aggressive` restores the old burst), tested against a local server that records every accept (`test_pacing`). Whether a particular IDS tolerates even that is unknowable from tests.
 - The **whole-scan limits** (50,000 files, 512 MB, 300 s) stop a project scan with a clear message; the byte limit has a test
   (`test_volumes`), the file-count and time limits were not found.
 - Reports "never include the key itself" for **every** key format: tested per format, not by a sweep like the VPN CBOM's
