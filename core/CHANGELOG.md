@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1
 
 - `files.protected_location` says whether code is where only administrators can write it, with `files.windows_protected` for the
   Windows rule (Program Files and the Windows folder). Products use it before starting anything with administrator rights.

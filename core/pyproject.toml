@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-core"
-version = "1.1.0"
+version = "1.1.1"
 description = "Shared mechanisms for the Acxelin products: config, safe file writes, loopback HTTP and consoles, and the OpenSSL 3.5+ binding"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=49"]

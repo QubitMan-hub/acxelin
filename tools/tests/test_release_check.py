@@ -25,8 +25,12 @@ def test_the_tag_must_match_the_packaged_version_and_the_changelog():
 
 
 def test_a_product_needs_a_released_core_in_its_range():
-    assert check("tls", VERSION["tls"], tags=["core-v1.0.0"]) == "acxelin-core 1.0.0"
-    assert check("vpn", VERSION["vpn"], tags=["core-v1.0.0"]) == "acxelin-core 1.0.0"
+    assert check("tls", VERSION["tls"], tags=["core-v1.1.1"]) == "acxelin-core 1.1.1"
+    assert check("vpn", VERSION["vpn"], tags=["core-v1.1.1"]) == "acxelin-core 1.1.1"
+    with pytest.raises(ValueError, match="no released acxelin-core"):  # shadow mode and the elevation guard need core 1.1.1
+        check("tls", VERSION["tls"], tags=["core-v1.0.0", "core-v1.1.0"])
+    with pytest.raises(ValueError, match="no released acxelin-core"):
+        check("vpn", VERSION["vpn"], tags=["core-v1.0.0", "core-v1.1.0"])
     with pytest.raises(ValueError, match="no released acxelin-core"):
         check("tls", VERSION["tls"], tags=[])
     with pytest.raises(ValueError, match="no released acxelin-core"):

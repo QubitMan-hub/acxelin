@@ -29,9 +29,9 @@ A key agreement that cannot meet the VPN's policy (TLS 1.3, hybrid ML-KEM, ML-DS
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v1.0.2) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v1.0.3) and save them in one folder:
 
-- `acxelin-vpn-1.0.2-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
+- `acxelin-vpn-1.0.3-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
 - `SHA256SUMS`: a fingerprint of every file in the release
 
 The desktop installers for people's computers are on the same page; section "The desktop app, for people" below covers them.
@@ -51,24 +51,24 @@ You should see the file's name followed by `OK`.
 On macOS:
 
 ```
-shasum -a 256 acxelin-vpn-1.0.2-wheelhouse.tar.gz
+shasum -a 256 acxelin-vpn-1.0.3-wheelhouse.tar.gz
 ```
 
 On Windows:
 
 ```
-Get-FileHash .\acxelin-vpn-1.0.2-wheelhouse.tar.gz
+Get-FileHash .\acxelin-vpn-1.0.3-wheelhouse.tar.gz
 ```
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.0.2-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.0.3-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
 ```
-tar xzf acxelin-vpn-1.0.2-wheelhouse.tar.gz
-cd acxelin-vpn-1.0.2-wheelhouse
+tar xzf acxelin-vpn-1.0.3-wheelhouse.tar.gz
+cd acxelin-vpn-1.0.3-wheelhouse
 ```
 
 **Step 3: install.** Still in that folder:
@@ -83,7 +83,7 @@ On Windows, the first command tells Windows you trust this downloaded script, an
 The installer checks your Python, finds OpenSSL 3.5, puts `acxelin-vpn` on your PATH and runs a health check. A laptop prints:
 
 ```
-acxelin-vpn 1.0.2, Python 3.11.15
+acxelin-vpn 1.0.3, Python 3.11.15
 ok    OpenSSL 3.5.9 29 Sep 2026 can agree keys over post-quantum mutual TLS
 WARN  This machine is not set up as an IPsec gateway (fine for a laptop)
 ```
@@ -95,8 +95,8 @@ If OpenSSL 3.5 is in a folder of its own, run `ACXELIN_OPENSSL=/path/to/openssl-
 **With Docker (recommended):** each release publishes a gateway image with strongSwan 6.1, OpenSSL 3.5 and WireGuard's tools. IPsec and WireGuard live in the host's kernel, so the container shares the host's network:
 
 ```
-docker pull ghcr.io/acxelinquantum/acxelin-vpn:1.0.2
-docker tag ghcr.io/acxelinquantum/acxelin-vpn:1.0.2 acxelin-vpn
+docker pull ghcr.io/acxelinquantum/acxelin-vpn:1.0.3
+docker tag ghcr.io/acxelinquantum/acxelin-vpn:1.0.3 acxelin-vpn
 docker run --rm acxelin-vpn doctor
 ```
 
@@ -114,9 +114,9 @@ Section 8 says which unit runs what.
 
 | System | File | How to install |
 |---|---|---|
-| Windows 10/11 (x64) | `Acxelin-VPN-1.0.2-Setup.exe` | Run it and follow the steps. Leave **Show Acxelin VPN in the tray when I log in** ticked to start it at login. Install [WireGuard for Windows](https://www.wireguard.com/install/) too; the installer reminds you if it is missing. |
-| macOS (Apple silicon) | `Acxelin-VPN-1.0.2.dmg` | Open it and drag Acxelin VPN to Applications. Install WireGuard's tools with `brew install wireguard-tools`. |
-| Ubuntu, Debian (x64) | `acxelin-vpn_1.0.2_amd64.deb` | `sudo apt install ./acxelin-vpn_1.0.2_amd64.deb`, which also installs WireGuard's tools. |
+| Windows 10/11 (x64) | `Acxelin-VPN-1.0.3-Setup.exe` | Run it and follow the steps. Leave **Show Acxelin VPN in the tray when I log in** ticked to start it at login. Install [WireGuard for Windows](https://www.wireguard.com/install/) too; the installer reminds you if it is missing. |
+| macOS (Apple silicon) | `Acxelin-VPN-1.0.3.dmg` | Open it and drag Acxelin VPN to Applications. Install WireGuard's tools with `brew install wireguard-tools`. |
+| Ubuntu, Debian (x64) | `acxelin-vpn_1.0.3_amd64.deb` | `sudo apt install ./acxelin-vpn_1.0.3_amd64.deb`, which also installs WireGuard's tools. |
 
 The installers are not code-signed yet, so the first launch shows a warning. Check the installer first, the same way as in Step 1 above, with its own file name. On Windows, SmartScreen says "Windows protected your PC": choose **More info**, then **Run anyway**. On macOS, open **System Settings > Privacy & Security** and choose **Open Anyway**.
 
@@ -454,6 +454,11 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 - Phones are not supported.
 - On Windows, the kill switch can lift for a moment while the tunnel is recreated.
 - The desktop installers are not code-signed yet.
+- **macOS: the tray cannot start the VPN service from the Applications folder.** An app you drag there belongs to you, and any
+  administrator account can rename or replace an app in that folder, so starting it with administrator rights would let other
+  software running as you become the administrator. The tray refuses and says so. On a Mac, start the service yourself in
+  Terminal with `sudo acxelin-vpn app`, which serves the same window in your browser (section 7). A proper fix needs a separately
+  installed, root-owned helper, which is not built yet.
 - The outage grace (section 8) keeps people and sites connected on their last keys for up to the time you set, at most 24 hours. It never outlasts the CRL, and a certificate revoked while the new CRL cannot reach the gateway stays connected until the CRL arrives or the cap ends. For remote access, the computer's own software still takes its tunnel down when its own key agreement fails.
 - A revoked site or person keeps access until their gateway has the new CRL: up to 15 seconds, plus `crl_every` when it is fetched.
 - The tunnels have been tested in Linux network namespaces and on GitHub's Windows and macOS runners, not on your network. Test on your own laptops and gateways before a wide rollout.

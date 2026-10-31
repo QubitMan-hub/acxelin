@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-readiness"
-version = "1.1.0"
+version = "1.1.1"
 description = "Acxelin Readiness: find the cryptography in code, configs, keys, binaries and live endpoints, write a CycloneDX 1.6 CBOM, and rank what to migrate first for post-quantum"
 readme = "README.md"
 requires-python = ">=3.11"

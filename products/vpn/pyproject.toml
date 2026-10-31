@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-vpn"
-version = "1.0.2"
+version = "1.0.3"
 description = "Acxelin VPN: post-quantum site-to-site IPsec and WireGuard remote access, with a desktop app"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=49", "acxelin-core>=1,<2"]
+dependencies = ["cryptography>=49", "acxelin-core>=1.1.1,<2"]
 authors = [{name = "Acxelin Quantum"}]
 license = {file = "LICENSE"}
 classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]

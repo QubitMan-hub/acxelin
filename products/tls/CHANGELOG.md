@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3
 
 - Shadow mode: `shadow = true` (or `--shadow`) on a `strict` or `cnsa2` route serves every client as `transition` would and logs which
   ones the policy would refuse, with their address and what they offered (key exchange groups and signature schemes), so you can

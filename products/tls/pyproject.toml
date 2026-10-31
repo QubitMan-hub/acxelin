@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-tls"
-version = "1.0.2"
+version = "1.0.3"
 description = "Acxelin TLS: post-quantum TLS 1.3 and mTLS in front of the services you already run, with its own certificate authority"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=49", "acxelin-core>=1,<2"]
+dependencies = ["cryptography>=49", "acxelin-core>=1.1.1,<2"]
 authors = [{name = "Acxelin Quantum"}]
 license = {file = "LICENSE"}
 classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]

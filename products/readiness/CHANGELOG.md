@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1
 
 - Security: a Python file with a line over 5,000 characters is split line by line instead of with the standard tokenizer. On
   Python 3.11 the tokenizer took 20 seconds for one 40,000-character line with an unterminated quote (twice that on a slower

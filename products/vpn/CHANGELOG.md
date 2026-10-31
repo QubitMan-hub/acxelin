@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3
 
 - Security fix: the tray app and `acxelin-vpn install` no longer run code that an ordinary user can change with administrator
   rights. When the VPN was installed for one user (the default of `install.sh` and `install.ps1`, or `pip install --user`), the
