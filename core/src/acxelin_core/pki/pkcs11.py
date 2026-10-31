@@ -23,7 +23,7 @@ CKM_ML_DSA_KEY_PAIR_GEN, CKM_ML_DSA = 0x1C, 0x1D
 CKF_RW_SESSION, CKF_SERIAL_SESSION, CKU_USER = 2, 4, 1
 PARAMETER_SETS = {1: "ML-DSA-44", 2: "ML-DSA-65", 3: "ML-DSA-87"}
 ULONG = ctypes.c_ulong  # CK_ULONG is the C unsigned long: 8 bytes on Linux and macOS, 4 on Windows
-PACK = 1 if os.name == "nt" else 0
+
 
 
 def algorithm_of(parameter_set):
@@ -38,12 +38,14 @@ def spki(algorithm, raw_public_key):
 
 
 class Attribute(ctypes.Structure):
-    _pack_ = PACK
+    if os.name == "nt":
+        _pack_ = 1  # PKCS#11 packs its structures on Windows; Python 3.14 rejects `_pack_` on the gcc layout, so it is not set elsewhere
     _fields_ = [("type", ULONG), ("value", ctypes.c_void_p), ("length", ULONG)]
 
 
 class Mechanism(ctypes.Structure):
-    _pack_ = PACK
+    if os.name == "nt":
+        _pack_ = 1  # PKCS#11 packs its structures on Windows; Python 3.14 rejects `_pack_` on the gcc layout, so it is not set elsewhere
     _fields_ = [("mechanism", ULONG), ("parameter", ctypes.c_void_p), ("length", ULONG)]
 
 

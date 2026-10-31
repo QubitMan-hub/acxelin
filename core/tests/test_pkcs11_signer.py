@@ -132,3 +132,9 @@ def test_a_ca_reopened_later_signs_with_the_same_key(tmp_path, token):
     out, _ = reopened.issue("later", "server", out=tmp_path / "later")
     root.public_key().verify(x509.load_pem_x509_certificate((out / "cert.pem").read_bytes()).signature,
                              x509.load_pem_x509_certificate((out / "cert.pem").read_bytes()).tbs_certificate_bytes)
+
+
+def test_the_structures_declare_packing_only_where_the_platform_needs_it():
+    """Python 3.14 refuses `_pack_` on the gcc layout (Linux, macOS) outright, even as 0; PKCS#11 asks for 1-byte packing on Windows only."""
+    for cls in (pkcs11.Attribute, pkcs11.Mechanism):
+        assert hasattr(cls, "_pack_") == (os.name == "nt")
