@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 from acxelin_core.config import build, read_toml
 
+from .grace import check_minutes
+
 NAME = "acxelin-vpn"
 __version__ = "1.0.2"
 
@@ -32,6 +34,7 @@ class Peer:
     keyring: str = ""
     profile: str = "standard"
     rotate_minutes: float = 60.0
+    outage_grace_minutes: float = 0.0  # keep a silent peer on its last keys this long past the normal limit, while the CRL clears it
     qkd_sae_id: str = ""  # the peer's SAE ID on the QKD network: its keys get a QKD key mixed in
 
 
@@ -85,6 +88,7 @@ def validate(site):
             raise ValueError(f"{p.name}: initiate = true needs keyring = \"host:port\" (the peer's key agreement service)")
         if p.rotate_minutes < 1:
             raise ValueError(f"{p.name}: rotate_minutes must be at least 1")
+        check_minutes(f"{p.name}: ", p.outage_grace_minutes, site.crl)
         for net in p.local_subnets + p.remote_subnets:
             ipaddress.ip_network(net)
     qkd = [site.qkd_kme, site.qkd_sae_id, site.qkd_cert, site.qkd_key, site.qkd_ca]

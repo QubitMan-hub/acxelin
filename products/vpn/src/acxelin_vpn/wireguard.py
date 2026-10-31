@@ -37,11 +37,12 @@ from acxelin_core.pki import CAError, algorithm_of, follow_crl
 from acxelin_core.server import Revocation
 
 from . import agreement, audit
+from .grace import Grace, check_minutes, crl_verdict
 from .agreement import TAG, common_name, read_line
 from .platforms import FULL, WG, WGError, addresses, this_machine
 
 log = logging.getLogger(__name__)
-LIVE = {"users", "routes", "dns", "sites", "rotate_minutes"}
+LIVE = {"users", "routes", "dns", "sites", "rotate_minutes", "outage_grace_minutes"}
 LABEL, context = agreement.WIREGUARD, agreement.wireguard_context
 RAW = (serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
@@ -132,6 +133,7 @@ class GatewayConfig:
     users: list = field(default_factory=list)
     sites: dict = field(default_factory=dict)
     rotate_minutes: float = 2.0
+    outage_grace_minutes: float = 0.0
     metrics: str = ""
     manage_interface: bool = True
     full_tunnel: bool = False
@@ -159,6 +161,7 @@ class GatewayConfig:
             raise ValueError("crl_every must be at least 5 seconds")
         if self.rotate_minutes < 0.25:
             raise ValueError("rotate_minutes must be at least 0.25")
+        check_minutes("", self.outage_grace_minutes, self.crl)
         return self
 
 
@@ -178,6 +181,7 @@ class Gateway:
         self.stop = threading.Event()
         self.clients = {}
         self.counts = Counter()
+        self.grace = Grace(log, self.counts)
         self.leases = json.loads(Path(cfg.state).read_text()) if Path(cfg.state).exists() else {}
         self.server = self.crl_follow = self.revocation = None
         self.started = time.time()
@@ -239,6 +243,7 @@ class Gateway:
             self.clients[cn] = {"public": pub, "serial": cert.serial_number, "issuer": cert.issuer, "agreed": now, "address": ip, "tag": tag,
                                 "since": old["since"] if old and old["public"] == pub else now}
         self.counts["key_agreements"] += 1
+        self.grace.end(cn, "it agreed new keys")
         log.info("%s: %s at %s, new PSK %s", cn, "rotated" if old else "connected", ip, tag)
         if not old or old["public"] != pub:
             self.event("new device" if old else "connected", cn, address=ip, source=addr[0])
@@ -248,21 +253,31 @@ class Gateway:
                  "rotate_s": int(self.cfg.rotate_minutes * 60)}
         agreement.send(conn, reply)
 
+    def limit(self):
+        """Seconds without a key agreement after which a client is removed, before any outage grace."""
+        return 3 * self.cfg.rotate_minutes * 60 + 30
+
     def expire(self, revocation=None):
-        """Remove clients whose certificate was revoked, and clients that stopped re-agreeing keys."""
-        stale = time.time() - 3 * self.cfg.rotate_minutes * 60 - 30
+        """Remove clients whose certificate was revoked, and clients that stopped re-agreeing keys. A silent client stays up to
+        outage_grace_minutes longer, but only while the CRL is usable and does not list it."""
+        now, limit, cap = time.time(), self.limit(), self.cfg.outage_grace_minutes * 60
         for cn, c in list(self.clients.items()):
             reason = None
-            if revocation:
-                try:
-                    revocation.check(c["serial"], (), c.get("issuer"))
-                except CAError as e:
-                    if "revoked" in str(e):
-                        reason, key = str(e), "revoked"
-                    else:  # an unusable CRL cannot clear anyone, but laptops that stopped renewing still go
-                        log.error("CRL problem: %s", e)
-            if not reason and c["agreed"] < stale:
+            verdict, why = crl_verdict(revocation, c["serial"], c.get("issuer"))
+            if verdict == "revoked":
+                reason, key = why, "revoked"
+            elif verdict == "unusable" and revocation:  # an unusable CRL cannot clear anyone, but laptops that stopped renewing still go
+                log.error("CRL problem: %s", why)
+            silent = now - c["agreed"]
+            if not reason and silent > limit:
+                if verdict == "ok" and silent <= limit + cap:
+                    self.grace.begin(cn, cap, silent)
+                    continue
                 reason, key = "stopped renewing its key", "expired"
+                if cap and silent > limit + cap:
+                    reason += f"; the outage grace of {self.cfg.outage_grace_minutes:g} minutes is over"
+                elif cap:
+                    reason += f"; the outage grace does not apply because the CRL cannot be used ({why})"
             if reason:
                 with self.lock:
                     if self.clients.get(cn) is not c:
@@ -272,6 +287,8 @@ class Gateway:
                     if key == "revoked" and self.leases.pop(cn, None):
                         write(Path(self.cfg.state), json.dumps(self.leases, indent=1).encode())
                 self.counts[key] += 1
+                if self.grace.end(cn) and "grace" not in reason:
+                    reason += " (it was in the outage grace)"
                 self.event("revoked, removed" if key == "revoked" else "disconnected", cn, reason=reason)
                 log.warning("%s: %s; removed", cn, reason)
 
@@ -333,16 +350,22 @@ class Gateway:
     def status(self):
         peers = self.wg.peers()
         return {cn: {"address": c["address"], "keys_age_s": int(time.time() - c["agreed"]), "since": int(c["since"]),
-                     "certificate": format(c["serial"], "x"), **peers.get(c["public"], {})}
+                     "certificate": format(c["serial"], "x"), **self.grace.state(cn, time.time() - c["agreed"], self.limit(), self.cfg.outage_grace_minutes * 60),
+                     **peers.get(c["public"], {})}
                 for cn, c in self.clients.items()} | {"_events": dict(self.counts),
                 "_gateway": {"started": int(self.started), "history": audit.recent(Path(self.cfg.state).parent, 50)}}
 
     def metrics(self):
         peers, now = self.wg.peers(), time.time()
         lines = ["# TYPE acxelin_vpn_wireguard_client_up gauge", "# TYPE acxelin_vpn_wireguard_bytes_total counter",
-                 "# TYPE acxelin_vpn_wireguard_events_total counter"]
+                 "# TYPE acxelin_vpn_wireguard_events_total counter", "# TYPE acxelin_vpn_wireguard_client_in_grace gauge",
+                 "# TYPE acxelin_vpn_wireguard_client_grace_remaining_seconds gauge"]
         for cn, c in self.clients.items():
             p = peers.get(c["public"], {})
+            g = self.grace.state(cn, now - c["agreed"], self.limit(), self.cfg.outage_grace_minutes * 60)
+            lines.append(f'acxelin_vpn_wireguard_client_in_grace{{user="{cn}"}} {int(g["in_grace"])}')
+            if g["in_grace"]:
+                lines.append(f'acxelin_vpn_wireguard_client_grace_remaining_seconds{{user="{cn}"}} {g["grace_remaining_s"]}')
             lines.append(f'acxelin_vpn_wireguard_client_up{{user="{cn}"}} {int(now - p.get("latest_handshake", 0) < 180)}')
             lines.append(f'acxelin_vpn_wireguard_bytes_total{{user="{cn}",direction="in"}} {p.get("rx_bytes", 0)}')
             lines.append(f'acxelin_vpn_wireguard_bytes_total{{user="{cn}",direction="out"}} {p.get("tx_bytes", 0)}')

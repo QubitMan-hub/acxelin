@@ -9,7 +9,9 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from acxelin_core import tls
 from acxelin_core.pki import CA
@@ -47,6 +49,28 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "full_tunnel = true"):
             self.config(routes=["0.0.0.0/0"]).validate()
         self.assertTrue(self.config(full_tunnel=True).validate().full_tunnel)
+
+    def test_outage_grace_defaults_to_off_and_is_limited_to_a_day(self):
+        self.assertEqual(self.config().validate().outage_grace_minutes, 0)
+        for ok in (0, 0.5, 30, 1440):
+            self.assertEqual(self.config(crl="crl.pem", outage_grace_minutes=ok).validate().outage_grace_minutes, ok)
+        for bad in (-1, -0.1, 1440.5, 100000, float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "outage_grace_minutes must be between 0 and 1440"):
+                self.config(crl="crl.pem", outage_grace_minutes=bad).validate()
+        with self.assertRaisesRegex(ValueError, "outage_grace_minutes needs crl"):
+            self.config(outage_grace_minutes=30).validate()
+
+    def test_outage_grace_must_be_a_number(self):
+        from acxelin_vpn.wireguard import load_gateway
+        base = Path(__file__).parent.parent / "config" / "gateway.toml"
+        with tempfile.TemporaryDirectory() as tmp:
+            for bad in ('"30"', "true", "[30]"):
+                conf = Path(tmp) / "gateway.toml"
+                conf.write_text(base.read_text().replace("rotate_minutes = 2\n", f"rotate_minutes = 2\noutage_grace_minutes = {bad}\n"), encoding="utf-8")
+                with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "outage_grace_minutes must be a number"):
+                    load_gateway(conf)
+            conf.write_text(base.read_text().replace("rotate_minutes = 2\n", "rotate_minutes = 2\noutage_grace_minutes = 30\n"), encoding="utf-8")
+            self.assertEqual(load_gateway(conf).outage_grace_minutes, 30)
 
 
 @unittest.skipIf(REASON, REASON)
@@ -423,6 +447,134 @@ class GatewayTest(unittest.TestCase):
         with self.assertRaisesRegex(tls.TLSError, "revocation list"):
             self.gw.revocation = Mock(check=Mock(side_effect=CAError("the CRL expired at 2026-01-01")))
             bob.agree()
+
+    LIMIT = 3 * 2 * 60 + 30  # a client silent for longer than this is removed (the default rotation is 2 minutes)
+
+    def silent(self, who, seconds, grace=30):
+        self.gw.cfg.outage_grace_minutes = grace
+        client = self.client(who)
+        client.agree()
+        self.gw.clients[who]["agreed"] -= seconds
+        return client
+
+    def test_a_silent_client_stays_inside_the_grace_window_and_goes_at_the_cap(self):
+        bob = self.silent("bob", self.LIMIT + 60)
+        self.gw.expire(self.gw.revocation)
+        self.assertEqual(list(self.wg.peers_), [bob.public], "silent past the normal limit but inside the grace: kept on its last keys")
+        self.gw.clients["bob"]["agreed"] -= 30 * 60
+        self.gw.expire(self.gw.revocation)
+        self.assertEqual(self.wg.peers_, {}, "past the limit plus the grace: removed")
+        self.assertEqual((self.gw.counts["expired"], self.gw.counts["grace_used"]), (1, 1))
+
+    def test_without_a_grace_a_silent_client_goes_at_the_normal_limit(self):
+        self.assertEqual(self.gw.cfg.outage_grace_minutes, 0)
+        self.silent("bob", self.LIMIT + 1, grace=0)
+        self.gw.expire(self.gw.revocation)
+        self.assertEqual((self.wg.peers_, self.gw.counts["grace_used"]), ({}, 0))
+
+    def test_a_client_revoked_inside_the_grace_window_is_removed_at_the_next_pass(self):
+        alice, bob = self.silent("alice", self.LIMIT + 60), self.client("bob")
+        bob.agree()
+        self.gw.expire(self.gw.revocation)
+        self.assertIn(alice.public, self.wg.peers_)
+        self.ca.revoke(self.recs["alice"].serial, "keyCompromise")
+        time.sleep(0.05)
+        self.gw.expire(self.gw.revocation)
+        self.assertEqual(list(self.wg.peers_), [bob.public], "revoked inside the grace: gone at once, the grace delays nothing")
+        self.assertEqual(self.gw.counts["revoked"], 1)
+        self.assertNotIn("alice", self.gw.status())
+        self.assertNotIn("alice", self.gw.leases)
+
+    def test_a_crl_that_cannot_be_used_cancels_the_grace(self):
+        crl = Path(self.cfg.crl)
+        good = crl.read_bytes()
+        later = mock.patch("acxelin_core.pki.now", return_value=datetime.now(timezone.utc) + timedelta(days=8))  # past the CRL's next update
+        breaks = {"expired": (later.start, later.stop), "damaged": (lambda: crl.write_bytes(b"not a CRL"), lambda: crl.write_bytes(good)),
+                  "missing": (crl.unlink, lambda: crl.write_bytes(good))}
+        for what, (ruin, restore) in breaks.items():
+            with self.subTest(what):
+                bob = self.silent("bob", self.LIMIT + 60)
+                self.gw.expire(self.gw.revocation)
+                self.assertIn(bob.public, self.wg.peers_)
+                ruin()
+                time.sleep(0.05)
+                self.gw.expire(self.gw.revocation)
+                self.assertEqual(self.wg.peers_, {}, f"{what} CRL: revocation cannot be shown to be absent, so no grace")
+                restore()
+
+    def test_without_a_crl_there_is_no_grace(self):
+        bob = self.silent("bob", self.LIMIT + 60)
+        self.gw.expire(None)
+        self.assertNotIn(bob.public, self.wg.peers_)
+
+    def test_the_cap_is_hard_however_long_the_control_plane_stays_away(self):
+        bob = self.silent("bob", 0, grace=10)
+        for age in range(5, 40 * 60, 30):
+            self.gw.clients["bob"]["agreed"] = time.time() - age
+            self.gw.expire(self.gw.revocation)
+            self.assertEqual(bob.public in self.wg.peers_, age <= self.LIMIT + 10 * 60, f"at {age}s")
+            if bob.public not in self.wg.peers_:
+                break
+        self.assertEqual(self.wg.peers_, {})
+        self.gw.expire(self.gw.revocation)
+        self.assertEqual(self.gw.counts["grace_used"], 1, "one grace window, not one per pass")
+
+    def test_a_client_that_re_agrees_during_the_grace_leaves_it_and_stays(self):
+        bob = self.silent("bob", self.LIMIT + 60)
+        with self.assertLogs("acxelin_vpn.wireguard", "WARNING") as logs:
+            self.gw.expire(self.gw.revocation)
+            self.assertTrue(self.gw.status()["bob"]["in_grace"])
+            bob.agree()
+            self.gw.expire(self.gw.revocation)
+        self.assertFalse(self.gw.status()["bob"]["in_grace"])
+        self.assertIn(bob.public, self.wg.peers_)
+        self.assertEqual(self.gw.counts["expired"], 0)
+        self.assertEqual(len([m for m in logs.output if "grace" in m]), 2, "one line on entering, one on leaving")
+
+    def test_the_grace_is_logged_when_it_starts_and_ends_not_on_every_pass(self):
+        self.silent("bob", self.LIMIT + 60, grace=10)
+        with self.assertLogs("acxelin_vpn.wireguard", "WARNING") as logs:
+            for _ in range(5):
+                self.gw.expire(self.gw.revocation)
+            self.gw.clients["bob"]["agreed"] -= 3600
+            for _ in range(3):
+                self.gw.expire(self.gw.revocation)
+        lines = [m for m in logs.output if "grace" in m]
+        self.assertEqual(len(lines), 2, lines)
+        self.assertIn("bob", lines[0])
+        self.assertIn("grace of 10 minutes is over", lines[1])
+
+    def test_status_and_metrics_show_who_runs_on_last_keys_and_for_how_long(self):
+        self.silent("bob", self.LIMIT + 12 * 60, grace=30)
+        self.client("alice").agree()
+        self.gw.expire(self.gw.revocation)
+        s = self.gw.status()
+        self.assertEqual(s["alice"]["in_grace"], False)
+        self.assertNotIn("grace_elapsed_s", s["alice"])
+        self.assertTrue(s["bob"]["in_grace"])
+        self.assertAlmostEqual(s["bob"]["grace_elapsed_s"], 12 * 60, delta=5)
+        self.assertAlmostEqual(s["bob"]["grace_remaining_s"], 18 * 60, delta=5)
+        self.assertEqual((s["bob"]["grace_cap_s"], s["_events"]["grace_used"]), (30 * 60, 1))
+        text = self.gw.metrics()
+        self.assertIn('acxelin_vpn_wireguard_client_in_grace{user="bob"} 1', text)
+        self.assertIn('acxelin_vpn_wireguard_client_in_grace{user="alice"} 0', text)
+        self.assertRegex(text, r'acxelin_vpn_wireguard_client_grace_remaining_seconds\{user="bob"\} \d+')
+        self.assertIn('acxelin_vpn_wireguard_events_total{event="grace_used"} 1', text)
+        self.assertNotIn('grace_remaining_seconds{user="alice"}', text)
+
+    def test_the_grace_can_be_changed_on_a_running_gateway(self):
+        from dataclasses import replace
+        bob = self.silent("bob", self.LIMIT + 60, grace=30)
+        self.gw.expire(self.gw.revocation)
+        self.assertTrue(self.gw.reconfigure(replace(self.cfg, outage_grace_minutes=0)), "outage_grace_minutes applies to a running gateway")
+        self.gw.expire(self.gw.revocation)
+        self.assertNotIn(bob.public, self.wg.peers_, "lowering the grace to 0 takes effect at the next pass")
+
+    def test_a_missing_crl_still_removes_laptops_that_stopped_renewing(self):
+        bob = self.silent("bob", self.LIMIT + 1, grace=0)
+        Path(self.cfg.crl).unlink()
+        self.gw.expire(self.gw.revocation)
+        self.assertNotIn(bob.public, self.wg.peers_)
 
     def test_one_person_cannot_take_over_anothers_wireguard_key(self):
         alice, bob = self.client("alice"), self.client("bob")

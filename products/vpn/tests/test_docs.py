@@ -8,7 +8,7 @@ import pytest
 
 from acxelin_vpn import cli
 
-DOCS = [Path(__file__).resolve().parents[1] / p for p in ("README.md", "docs/manual.md")]
+DOCS = [Path(__file__).resolve().parents[1] / p for p in ("README.md", "docs/manual.md", "docs/outage-drill.md")]
 
 
 def blocks(text):
@@ -48,3 +48,9 @@ def test_every_command_in_a_code_block_parses(doc):
 def test_every_command_named_in_the_text_exists(doc):
     spans = list(named(doc.read_text(encoding="utf-8")))
     assert (spans or doc.name == "README.md") and [s for s in spans if not known(s)] == []
+
+
+def test_every_test_the_threat_model_cites_exists():
+    tests = Path(__file__).parent
+    cited = re.findall(r"`(test_\w+)::(test_\w+)`", (tests.parent / "docs" / "threat-model.md").read_text(encoding="utf-8"))
+    assert cited and [c for c in cited if not (tests / f"{c[0]}.py").exists() or f"def {c[1]}(" not in (tests / f"{c[0]}.py").read_text(encoding="utf-8")] == []

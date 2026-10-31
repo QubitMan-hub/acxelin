@@ -18,6 +18,8 @@ listen_port = 51820
 private_key = "/etc/acxelin-vpn/vpn/wireguard.key"
 state = "/var/lib/acxelin-vpn/wireguard-state.json"
 rotate_minutes = 2
+# outage_grace_minutes = 30            # off (0) by default. If key agreement stops (an outage), keep a silent laptop on its last keys for up to 30 minutes
+#                                      # past the normal limit (6.5 minutes), while the CRL is usable and does not list it. Hard cap, 0-1440; needs crl
 users = []                              # empty: any client certificate of the CA; or a list of common names
 metrics = "127.0.0.1:9101"
 
