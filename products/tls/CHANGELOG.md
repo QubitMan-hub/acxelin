@@ -12,7 +12,7 @@
   configured, and the root's CRL can revoke the intermediate (concatenate both CRLs into the `crl` file).
 - A route with `crl` needs `ca` and `require_client_cert = true`; without them the CRL checked nothing. `idle_timeout`,
   `handshake_timeout`, `max_connections`, `max_per_client` and `max_rate_per_client` are range-checked.
-- Relative paths in a configuration file are read from the file's folder, so the systemd unit finds them.
+- **Behaviour change:** relative paths in a configuration file are read from the file's folder, so the systemd unit finds them. An edge that was started from another folder with relative paths used to look for the files in that folder; use absolute paths, or start it as before from the file's folder, to see no difference.
 - Renewing a certificate whose key is encrypted needs `--key-passphrase-env` (the console refuses it), so the new key stays
   encrypted.
 - `connect` reports a server that refused the client certificate instead of a successful handshake.
