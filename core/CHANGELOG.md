@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `Router`, `client_names` and `Server(bind=False)` / `Server.adopt`: several servers behind one listening address, chosen per connection by the server name and application protocol in the ClientHello (read without consuming it). Used by Acxelin TLS for routes that share a port. `Server.adopt` is the part of the accept loop that applies the connection limits and starts the handshake.
+
 ## 1.1.1
 
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level

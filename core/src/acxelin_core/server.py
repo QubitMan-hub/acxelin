@@ -1,5 +1,6 @@
 """A threaded PQC TLS 1.3 server: connection limits, handshake timeouts, CRL checks, certificate hot-reload and stats."""
 import ipaddress
+import fnmatch
 import logging
 import os
 import socket
@@ -150,6 +151,161 @@ def peek_client_hello(sock, timeout=3.0):
     return None
 
 
+def client_names(record):
+    """(server name in lower case or None, [application protocols]) from one TLS record holding a ClientHello; (None, []) for anything else or anything damaged."""
+    try:
+        if not record or len(record) < 9 or record[0] != 0x16 or int.from_bytes(record[3:5], "big") != len(record) - 5:
+            return None, []
+        hs = record[5:]
+        if hs[0] != 1 or int.from_bytes(hs[1:4], "big") != len(hs) - 4:
+            return None, []
+        body, pos = hs[4:], 34
+        pos += 1 + body[pos]
+        pos += 2 + int.from_bytes(body[pos:pos + 2], "big")
+        pos += 1 + body[pos]
+        total = int.from_bytes(body[pos:pos + 2], "big")
+        pos += 2
+        if pos + total != len(body):
+            return None, []
+        name, protocols, end = None, [], pos + total
+        while pos < end:
+            kind, length = int.from_bytes(body[pos:pos + 2], "big"), int.from_bytes(body[pos + 2:pos + 4], "big")
+            data = body[pos + 4:pos + 4 + length]
+            if len(data) != length:
+                return None, []
+            if kind == 0 and name is None and len(data) >= 5 and data[2] == 0:
+                size = int.from_bytes(data[3:5], "big")
+                text = data[5:5 + size]
+                if len(text) == size and 0 < size <= 253 and text.isascii() and all(33 <= b < 127 for b in text):
+                    name = text.decode().lower()
+            elif kind == 16 and len(data) >= 3 and not protocols:
+                i = 2
+                while i < len(data) and len(protocols) < 16:
+                    n = data[i]
+                    item = data[i + 1:i + 1 + n]
+                    if len(item) != n or not 0 < n <= 255 or not all(33 <= b < 127 for b in item):
+                        protocols = []
+                        break
+                    protocols.append(item.decode())
+                    i += 1 + n
+            pos += 4 + length
+        return name, protocols
+    except (IndexError, ValueError):
+        return None, []
+
+
+class Router:
+    """One listening address shared by several servers, chosen per connection by the server name (SNI) and application protocol (ALPN) in
+    the ClientHello, which is read without being consumed (the chosen server's handshake sees every byte). The most specific route wins: a
+    name beats a wildcard beats none, and a protocol adds to it; a connection nothing matches, or that sends no readable hello in time, is closed."""
+    shared = {}
+    shared_lock = threading.Lock()
+
+    def __init__(self, address, reuse_port=False, hello_timeout=3.0, max_routing=256, name="router"):
+        self.name, self.hello_timeout = name, hello_timeout
+        self.sock = listen(address, reuse_port=reuse_port)
+        self.sock.settimeout(1.0)
+        self.port = self.sock.getsockname()[1]
+        self.routes, self.lock, self.stats = [], threading.Lock(), Stats()
+        self.slots, self.stopping = threading.BoundedSemaphore(max_routing), threading.Event()
+
+    @classmethod
+    def at(cls, address, reuse_port=False):
+        """The router already listening on this address in this process, or a new one that serves in the background."""
+        with cls.shared_lock:
+            router = cls.shared.get(address)
+            if router is None or router.stopping.is_set():
+                router = cls.shared[address] = cls(address, reuse_port)
+                threading.Thread(target=router.serve_forever, daemon=True, name=f"router-{address[1]}").start()
+            return router
+
+    def add(self, server, sni=(), alpn=()):
+        with self.lock:
+            self.routes.append((server, tuple(n.lower() for n in sni), tuple(alpn)))
+
+    def remove(self, server):
+        with self.lock:
+            self.routes = [r for r in self.routes if r[0] is not server]
+            empty = not self.routes
+        if empty:
+            self.close()
+
+    def pick(self, name, protocols):
+        best, score = None, -1
+        with self.lock:
+            routes = list(self.routes)
+        for server, names, alpns in routes:
+            if names:
+                if name is None:
+                    continue
+                exact = name in names
+                if not exact and not any(fnmatch.fnmatchcase(name, n) for n in names):
+                    continue
+                points = 4 if exact else 2
+            else:
+                points = 0
+            if alpns:
+                if not set(alpns) & set(protocols):
+                    continue
+                points += 1
+            if points > score:
+                best, score = server, points
+        return best
+
+    def serve_forever(self):
+        while not self.stopping.is_set():
+            try:
+                sock, addr = self.sock.accept()
+            except (socket.timeout, TimeoutError):
+                continue
+            except OSError:
+                if self.stopping.is_set():
+                    break
+                time.sleep(0.2)
+                continue
+            if not self.slots.acquire(blocking=False):
+                self.stats.add("refused_busy")
+                sock.close()
+                continue
+            try:
+                threading.Thread(target=self._route, args=(sock, addr), daemon=True).start()
+            except RuntimeError:
+                self.slots.release()
+                self.stats.add("refused_busy")
+                sock.close()
+
+    def _route(self, sock, addr):
+        try:
+            record = peek_client_hello(sock, self.hello_timeout)
+            if record is None:
+                self.stats.add("unreadable")
+                sock.close()
+                return
+            server = self.pick(*client_names(record))
+            if server is None:
+                self.stats.add("unrouted")
+                log.info("%s: no route for a client at %s; closed", self.name, addr[0])
+                sock.close()
+                return
+            server.adopt(sock, addr)
+        except OSError:
+            sock.close()
+        finally:
+            self.slots.release()
+
+    def close(self):
+        self.stopping.set()
+        with self.shared_lock:
+            for key, value in list(self.shared.items()):
+                if value is self:
+                    del self.shared[key]
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.sock.close()
+
+
 class Server:
     """Accepts TCP connections, runs the PQC handshake, and hands each verified Connection to `handler(conn, address)`.
 
@@ -158,7 +314,7 @@ class Server:
     """
 
     def __init__(self, address, make_context, handler, watch=(), crl=None, ca=None, max_connections=512,
-                 handshake_timeout=10.0, name="tls", reuse_port=False, max_per_client=0, max_rate_per_client=50.0, hello=None):
+                 handshake_timeout=10.0, name="tls", reuse_port=False, max_per_client=0, max_rate_per_client=50.0, hello=None, bind=True):
         self.address, self.make_context, self.handler, self.name = address, make_context, handler, name
         self.ctx = make_context()
         self.watch = {p: file_stamp(p) for p in watch if p}
@@ -173,9 +329,10 @@ class Server:
         self.stopping = threading.Event()
         self.threads = set()
         self.live = {}  # connection -> (client certificate serial, chain above it), for closing revoked ones
-        self.sock = listen(address, reuse_port=reuse_port)
-        self.sock.settimeout(1.0)
-        self.port = self.sock.getsockname()[1]
+        self.sock = listen(address, reuse_port=reuse_port) if bind else None  # bind=False: a Router hands this server its connections (adopt)
+        if self.sock:
+            self.sock.settimeout(1.0)
+        self.port = self.sock.getsockname()[1] if self.sock else 0
 
     def reload_if_changed(self):
         """Rebuild the context when a watched file changed. A missing or broken file keeps the old context serving."""
@@ -196,6 +353,12 @@ class Server:
 
     def serve_forever(self):
         host = self.address[0] or "*"
+        if self.sock is None:  # behind a Router: no accepting here, only the upkeep an accept loop does
+            log.info("%s: serving the connections a router gives it on %s", self.name, host)
+            while not self.stopping.wait(1.0):
+                self.reload_if_changed()
+                self.close_revoked()
+            return
         log.info("%s: listening on %s:%d", self.name, f"[{host}]" if ":" in host else host, self.port)
         while not self.stopping.is_set():
             try:
@@ -224,29 +387,34 @@ class Server:
                 log.error("%s: accept failed, retrying: %s", self.name, e)
                 time.sleep(0.5)
                 continue
-            if not self.slots.acquire(blocking=False):
-                self.stats.add("refused_busy")
-                self._refuse(addr[0], "connection limit reached")
-                sock.close()
-                continue
-            refused = self._admit(addr[0])
-            if refused:
-                self.slots.release()
-                self.stats.add("refused_host")
-                self._refuse(addr[0], refused)
-                sock.close()
-                continue
-            t = threading.Thread(target=self._run, args=(sock, addr, self.ctx), daemon=True)
-            with self.lock:
-                self.threads.add(t)
-            try:
-                t.start()
-            except RuntimeError as e:  # out of threads: refuse this one and keep serving the rest
-                self.stats.add("refused_busy")
-                self._refuse(addr[0], f"no thread for it ({e})")
-                sock.close()
-                self._handshake_over(addr[0])
-                self._release(t, addr[0])
+            self.adopt(sock, addr)
+
+    def adopt(self, sock, addr):
+        """Take a connection that was accepted elsewhere (by this server's own accept loop, or by a Router) through the same limits and handshake."""
+        nodelay(sock)
+        if not self.slots.acquire(blocking=False):
+            self.stats.add("refused_busy")
+            self._refuse(addr[0], "connection limit reached")
+            sock.close()
+            return
+        refused = self._admit(addr[0])
+        if refused:
+            self.slots.release()
+            self.stats.add("refused_host")
+            self._refuse(addr[0], refused)
+            sock.close()
+            return
+        t = threading.Thread(target=self._run, args=(sock, addr, self.ctx), daemon=True)
+        with self.lock:
+            self.threads.add(t)
+        try:
+            t.start()
+        except RuntimeError as e:  # out of threads: refuse this one and keep serving the rest
+            self.stats.add("refused_busy")
+            self._refuse(addr[0], f"no thread for it ({e})")
+            sock.close()
+            self._handshake_over(addr[0])
+            self._release(t, addr[0])
 
     def close_revoked(self):
         """When the CRL changes, close open connections whose client certificate it now revokes: a stolen device holding a
@@ -388,11 +556,12 @@ class Server:
         """Stop accepting, then give open connections up to `grace` seconds to finish. Connections still open after that are
         checked against the CRL until they end, so a configuration reload does not exempt them from revocation."""
         self.stopping.set()
-        try:
-            self.sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self.sock.close()
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.sock.close()
         deadline = time.monotonic() + grace
         with self.lock:
             threads = list(self.threads)
