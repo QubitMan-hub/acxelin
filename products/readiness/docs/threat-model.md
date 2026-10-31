@@ -19,6 +19,12 @@ The scanned repository, image or capture may be hostile.
 
 - Endpoint probes send only handshakes: no application data, and no credentials.
 - Certificate checks during probes are not trust decisions. They record what the server presented.
+- Probes are paced so a scan does not look like an attack or load a production server. Grading one TLS endpoint takes about twenty
+  connections; by default each host and port gets at most 2 new connections in any second and one at a time, and four endpoints
+  are probed at once. `tests/test_pacing.py` runs a scan against a local server that records every connection and shows the peak
+  in any second, never more than one open, and that `--aggressive` reproduces the old burst. `--aggressive` removes the
+  pacing. The limit is per host and port, not per network: it does not stop a determined user from scanning hosts they have no right to scan,
+  and pacing is not an authorisation to scan.
 
 ## Secrets in outputs
 

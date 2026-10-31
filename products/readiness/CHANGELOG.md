@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Breaking: live probes (`scan --tls` and `--ssh`, `watch`, `grade`, `report --targets`, the console's endpoint scans) are paced by
+  default. Each host and port gets at most 2 new connections in any second and one at a time, and `grade`, `report` and the console
+  probe 4 endpoints at once (was 16, unpaced). Grading one TLS endpoint opens about twenty connections, so it now takes about ten
+  seconds, and many endpoints on one host take proportionally longer. Grades are unchanged. For the old behaviour pass
+  `--aggressive` (16 workers, no pacing; `aggressive = true` in the settings file; `"aggressive": true` in a console request), or
+  set `--rate N` (0 for no limit) and `--workers N`. A scan prints how it is pacing and, when it finishes, how many connections
+  it opened to each host and port. An endpoint that waits more than five minutes for its turn is graded F with that reason.
+- `grade` and `report` take `--config FILE`; `rate`, `workers` and `aggressive` are new settings.
+
 - The console follows the repository's `.acxelin-readiness.toml` (exclusions, years of secrecy, migration years, threshold),
   as `scan` does; a GitHub download's own file is not trusted.
 - Board summary: the trend compares the same projects then and now, and "nothing to change" is never listed as an action.

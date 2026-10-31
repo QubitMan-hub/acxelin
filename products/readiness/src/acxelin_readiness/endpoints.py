@@ -14,7 +14,7 @@ from acxelin_core.http import explain, hostport
 from acxelin_core.openssl import Context, OpenSSLUnavailable, TLSError
 from acxelin_core.pki import algorithm_of
 
-from . import __version__
+from . import __version__, pacing
 from .brand import page as _page
 from .detectors.probe import legacy_versions, tls_groups, weak_suites
 from .detectors.tls import scheme_port
@@ -77,7 +77,7 @@ def _legacy(host, port, server_name, timeout):
     ctx = _unverified()
     ctx.maximum_version = ssl.TLSVersion.TLSv1_2
     ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
-    with socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name) as s:
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name) as s:
         der = s.getpeercert(binary_form=True)
         return s.version(), x509.load_der_x509_certificate(der) if der else None
 
@@ -85,7 +85,7 @@ def _legacy(host, port, server_name, timeout):
 def _newest(host, port, server_name, timeout):
     """(version, certificate) when this machine's Python offers the newest TLS it has."""
     from cryptography import x509
-    with socket.create_connection((host, port), timeout=timeout) as raw, _unverified().wrap_socket(raw, server_hostname=server_name) as s:
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, _unverified().wrap_socket(raw, server_hostname=server_name) as s:
         der = s.getpeercert(binary_form=True)
         return s.version(), x509.load_der_x509_certificate(der) if der else None
 
@@ -114,7 +114,7 @@ def _trusted(host, port, server_name, timeout):
     try:
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name):
+        with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name):
             return True
     except ssl.SSLCertVerificationError:
         return False
@@ -173,7 +173,7 @@ def _hello(host, port, groups, server_name, timeout):
         groups = ":".join(PQ + CLASSICAL)
         ctx = Context(False, groups, None, CIPHERSUITES, verify=False)  # acxelin:ignore (as above)
     try:
-        with ctx.wrap(socket.create_connection((host, port), timeout=timeout), server_name, timeout) as conn:
+        with pacing.slot(host, port), ctx.wrap(socket.create_connection((host, port), timeout=timeout), server_name, timeout) as conn:
             return conn.group, conn.peer_certificate()
     finally:
         ctx.close()
@@ -187,7 +187,7 @@ SSH_META = ("ext-info-", "kex-strict-", "kex-guess")
 def ssh_kexinit(host, port, timeout):
     """The server's banner and algorithm lists, read from its KEXINIT (it sends one right after the banners)."""
     import struct
-    with socket.create_connection((host, port), timeout=timeout) as s:
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as s:
         f = s.makefile("rb")
         banner = b""
         for _ in range(20):
@@ -302,16 +302,29 @@ def _label(target):
     return ("ssh://" if kind == "ssh" else "") + _join(host, port)
 
 
-def scan(targets, workers=16, timeout=8.0):
-    """Every target gets a result: one server answering in a way nobody planned for is graded F, not the end of the scan."""
+def scan(targets, profile=None, timeout=8.0, pacer=None):
+    """Every target gets a result: one server answering in a way nobody planned for is graded F, not the end of the scan. `pacer.stop()`
+    ends the scan with pacing.Cancelled."""
+    profile = profile or pacing.GENTLE
+    pacer = pacer or pacing.Pacer(profile.rate)
+
     def one(t):
         try:
-            return probe(t, timeout=timeout)
+            with pacing.using(pacer):
+                return probe(t, timeout=timeout)
+        except pacing.Cancelled:
+            raise
+        except pacing.GaveUp as e:
+            return _result(_label(t), "ssh" if t.startswith("ssh://") else "tls", error=str(e), grade="F")
         except Exception as e:
             log.exception("readiness: probing %s failed", t)
             return _result(_label(t), "ssh" if t.startswith("ssh://") else "tls", error=f"unexpected answer: {e}", grade="F")
-    with ThreadPoolExecutor(workers) as pool:
-        return list(pool.map(one, targets))
+    with ThreadPoolExecutor(profile.workers) as pool:
+        try:
+            return list(pool.map(one, targets))
+        except BaseException:
+            pacer.stop()
+            raise
 
 
 def summary(results):

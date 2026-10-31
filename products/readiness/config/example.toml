@@ -8,6 +8,9 @@ shelf_life = 10                       # years the protected data must stay secre
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a cryptographically relevant quantum computer exists
 fail_on = "high"                      # exit 2 at this tier or worse
+rate = 2                              # live probes: new connections a second to one host:port (0 for no limit)
+workers = 4                           # live probes: endpoints probed at once (scan probes one at a time unless set)
+aggressive = false                    # true: no pacing and 16 workers, as before pacing was added
 
 [policy]
 profiles = ["nist-ir-8547", "cnsa-2.0"]

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from acxelin_core.files import locked, write
 
-from . import owners
+from . import owners, pacing
 from .examples import effort, example
 from .rank import TIERS
 from .detectors import is_test
@@ -57,7 +57,8 @@ def score(assets):
 
 
 SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
-            "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict}  # what .acxelin-readiness.toml may hold
+            "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict,
+            "rate": (int, float), "workers": int, "aggressive": bool}  # what .acxelin-readiness.toml may hold
 
 
 class SettingsError(ValueError):
@@ -76,6 +77,10 @@ def read_settings(f):
             raise SettingsError(f"{Path(f).name}: unknown setting {k!r} (known: {', '.join(SETTINGS)})")
         if not isinstance(v, SETTINGS[k]) or (SETTINGS[k] is list and not all(isinstance(x, str) for x in v)):
             raise SettingsError(f"{Path(f).name}: {k} has the wrong type")
+    try:
+        pacing.profile(cfg.get("rate"), cfg.get("workers"))
+    except ValueError as e:
+        raise SettingsError(f"{Path(f).name}: {e}") from None
     return cfg
 
 

@@ -26,7 +26,7 @@ For a virtual environment of your own: `pip install ./core ./products/readiness`
 |---|---|
 | Scan a repository | `acxelin-readiness scan PATH` (then open `readiness-out/report.html`) |
 | Include live endpoints | `acxelin-readiness scan PATH --tls api.example.com:443 --ssh bastion.example.com` |
-| Grade endpoints A to F | `acxelin-readiness grade hosts.txt --html grades.html` |
+| Grade endpoints A to F | `acxelin-readiness grade hosts.txt --html grades.html` (live probes are paced: `--rate N`, `--workers N`, `--aggressive`) |
 | Evidence for an audit | `acxelin-readiness report --certs certs/ --targets hosts.txt --cbom readiness-out` |
 | Check against standards | `acxelin-readiness scan PATH --policy nist-ir-8547 --policy cnsa-2.0 --fail-on-policy` |
 | Fail CI only on new cryptography | `acxelin-readiness scan . --baseline cbom.json --fail-on high` |
@@ -53,6 +53,7 @@ Grades, accepted groups and SSH algorithms need nothing extra. To read the certi
 ## Limits
 
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
+- Live probes are paced (2 new connections a second to a host and port, one at a time), so scanning many endpoints on one host is slow; `--aggressive` removes the pacing. Pacing is not an authorisation to scan hosts you do not own.
 - The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
 
 More: `docs/manual.md`, `docs/upgrade.md` (coming from Wolf Pack) and `docs/threat-model.md`.

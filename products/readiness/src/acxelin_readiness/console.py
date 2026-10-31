@@ -16,7 +16,7 @@ from acxelin_core import console as core
 from acxelin_core import shell
 from acxelin_core.files import write
 
-from . import cbom, compliance, endpoints, evidence, owners, pipeline, remote, workspace
+from . import cbom, compliance, endpoints, evidence, owners, pacing, pipeline, remote, workspace
 from .rank import Horizon
 
 MAX_TARGETS = 500
@@ -489,8 +489,17 @@ class Readiness:
         with self.lock:
             return 200, dict(self.ep)
 
+    @staticmethod
+    def pacing_of(body):
+        """Pacing asked for in the request; nothing when it asks for none, so the gentle default applies."""
+        if "aggressive" in body and not isinstance(body["aggressive"], bool):
+            raise ValueError("aggressive is true or false")
+        return pacing.profile(body.get("rate"), body.get("workers"), body.get("aggressive", False))
+
     def endpoint_scan(self, body):
         targets = self.targets(body)
+        asked = {k: body[k] for k in ("rate", "workers", "aggressive") if k in body}
+        options = {"profile": self.pacing_of(asked)} if asked else {}
         with self.lock:
             if self.ep["running"]:
                 raise ValueError("An endpoint scan is already running")
@@ -498,7 +507,7 @@ class Readiness:
 
         def work():
             try:
-                results = endpoints.scan(targets)
+                results = endpoints.scan(targets, **options)
                 with self.lock:
                     before = {e["target"]: e["grade"] for e in (self.ep["last"] or {}).get("endpoints", [])}
                     changes = [{"target": r["target"], "before": before[r["target"]], "after": r["grade"]}

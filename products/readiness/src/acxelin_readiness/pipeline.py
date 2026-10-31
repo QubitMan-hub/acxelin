@@ -4,12 +4,13 @@ import sys
 import time
 import warnings
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import verify, rank, remedy
+from . import pacing, verify, rank, remedy
 from .crawler import CodeCrawler
 from .detectors.lexer import LANGS
 from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns, aws as cloud
@@ -40,7 +41,28 @@ def coverage(root, scope, oversized_files, unparsed_python):
     return {"files": files, "read": read, "not_read": not_read, "percent": round(100 * read / files) if files else None}
 
 
-def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache=None, aws=(), aws_session=None):
+def live(jobs, pacer, workers):
+    """(detections, artifacts, notes, endpoint) of each live probe, in order; one that waited too long for its host is an endpoint with an error."""
+    def one(job):
+        fn, t = job
+        try:
+            with pacing.using(pacer):
+                return fn(t)
+        except pacing.GaveUp as e:
+            kind, port = ("ssh", 22) if fn is tls.probe_ssh else ("tls", 443)
+            host, port = tls._split(t, port)
+            return [], [], [f"{kind}://{host}:{port}: {e}"], {"target": f"{kind}://{host}:{port}", "kind": kind, "error": str(e)}
+    if workers < 2 or len(jobs) < 2:
+        return [one(j) for j in jobs]
+    with ThreadPoolExecutor(workers) as pool:
+        try:
+            return list(pool.map(one, jobs))
+        except BaseException:
+            pacer.stop()
+            raise
+
+
+def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache=None, aws=(), aws_session=None, pacer=None, workers=1):
     """Every detector reports everything it sees; nothing is filtered before verification."""
     h = Detected([], [], [], dict.fromkeys(DETECTORS, 0), crawler=CodeCrawler(cache))
     found = {}
@@ -83,15 +105,9 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
     s, h.libraries, h.files["binary"] = binary.scan(root, scope)
     h.detections += s
     h.libraries = deps.scan(root, scope) + h.libraries
-    for t in tls_targets:
-        s, a, n, ep = tls.probe(t)
+    for s, a, n, ep in live([(tls.probe, t) for t in tls_targets] + [(tls.probe_ssh, t) for t in ssh_targets], pacer or pacing.Pacer(), workers):
         h.detections += s
         h.artifacts += a
-        h.notes += n
-        h.endpoints.append(ep)
-    for t in ssh_targets:
-        s, _, n, ep = tls.probe_ssh(t)
-        h.detections += s
         h.notes += n
         h.endpoints.append(ep)
     for f in captures:
@@ -141,14 +157,15 @@ def load_baseline(path):
     return seen
 
 
-def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None, aws=(), aws_session=None):
+def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None, aws=(), aws_session=None,
+        pacer=None, workers=1):
     t0 = time.time()
     scope = snapshot(root, scope)
     horizon = horizon or rank.Horizon()
     with warnings.catch_warnings():  # other projects' code: Python's warnings about their escapes and cryptography's about odd certificates
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", CryptographyDeprecationWarning)
-        h = detect(root, scope, tls_targets, ssh_targets, captures, cache, aws, aws_session)
+        h = detect(root, scope, tls_targets, ssh_targets, captures, cache, aws, aws_session, pacer, workers)
     lines = verify.Lines(root)
     references = rank.follow_references(root, h.artifacts, h.detections, scope)
     detections = verify.verify(h.detections, threshold, lines)

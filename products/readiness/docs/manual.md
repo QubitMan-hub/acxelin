@@ -117,6 +117,15 @@ acxelin-readiness scan path/to/your/project --tls api.example.com:443 --ssh bast
 
 Live endpoints show what your servers actually negotiate, which configuration files alone cannot.
 
+Grading one TLS endpoint takes about twenty connections (a browser-style hello, one hello per key-exchange group, old-version and
+weak-suite checks, a trust check). So live probes are paced by default: at most 2 new connections a second to any one host and
+port, one at a time, and four endpoints at once. The scan prints a line saying so, and when it finishes, how many connections it
+opened to each host and port. A grade is the same either way; a paced scan is slower (one endpoint takes about ten seconds).
+`--rate N` sets the connections a second (0 for no limit), `--workers N` how many endpoints are probed at once, and
+`--aggressive` removes the pacing and probes 16 endpoints at once, as earlier versions did. Use it only on hosts you own and
+whose monitoring you have told: the burst looks like a scan to an intrusion detection system and adds load to a production
+server. `scan` and `watch` probe their endpoints one after another unless you give `--workers`.
+
 ### Step 4: keep the CBOM
 
 `readiness-out/cbom.json` is your inventory. Keep it: the next scan compares against it (section 6).
@@ -129,7 +138,7 @@ Live endpoints show what your servers actually negotiate, which configuration fi
 | Scan a GitHub repository | `acxelin-readiness scan https://github.com/OWNER/REPO` (a branch: `…/tree/BRANCH`) |
 | Scan this computer's keys and certificates | `acxelin-readiness scan ~/.ssh`, `scan /etc/ssl` or, on Windows, a folder of exported `.pfx` files |
 | Scan a container image | `docker save IMAGE -o image.tar`, then `acxelin-readiness scan image.tar` |
-| Include live endpoints | `acxelin-readiness scan PATH --tls HOST:443 --ssh HOST` |
+| Include live endpoints | `acxelin-readiness scan PATH --tls HOST:443 --ssh HOST` (paced; `--rate`, `--workers`, `--aggressive`) |
 | Read handshakes from a packet capture | `acxelin-readiness scan PATH --pcap traffic.pcapng` |
 | Read AWS KMS keys and ACM certificates | `acxelin-readiness scan PATH --aws eu-west-1` |
 | Scan again every day and report what changed | `acxelin-readiness watch PATH --every 24` |
@@ -153,7 +162,7 @@ The finding is kept as *suppressed* in `findings.json`, so the decision stays vi
 
 ### Grade endpoints
 
-`acxelin-readiness grade hosts.txt` grades each TLS and SSH endpoint in the file (one `host:port` per line). A TLS protocol
+`acxelin-readiness grade hosts.txt` grades each TLS and SSH endpoint in the file (one `host:port` per line), paced as described in step 3 (`--rate`, `--workers`, `--aggressive`). A TLS protocol
 can be written as its scheme, which gives its usual port: `mqtts://broker` (8883), `amqps://` (5671), `ldaps://` (636),
 `imaps://` (993), `pop3s://` (995), `smtps://` (465), `ftps://` (990), `sips://` (5061). CoAP over DTLS (`coaps://`) cannot be
 checked live: record its traffic and read it with `scan --pcap`.
@@ -170,7 +179,7 @@ checked live: record its traffic and read it with `scan --pcap`.
 `acxelin-readiness report` maps what you give it to NIST IR 8547 and CNSA 2.0 on one page, ordered by what to do first:
 
 - `--certs DIR`: every certificate in a folder of PEM files (algorithm, expiry, whether it needs ML-DSA-87)
-- `--targets HOST ...`: endpoints, graded now
+- `--targets HOST ...`: endpoints, graded now (paced like `grade`, with the same `--rate`, `--workers`, `--aggressive` and `--config`)
 - `--cbom PATH` (repeatable): a scan's output folder, or any CycloneDX CBOM, including the exported inventory of another system
 
 It writes `report.html`, `assessment.json` and `assessment.csv` to the folder given with `-o` (default `readiness-report`).
@@ -235,6 +244,9 @@ shelf_life = 10                       # years the protected data must stay secre
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a quantum computer can break today's keys
 fail_on = "high"
+rate = 2                              # live probes: new connections a second to one host:port (0 for no limit)
+workers = 4                           # live probes: endpoints probed at once
+aggressive = false                    # true: no pacing and 16 workers, as before pacing was added
 
 [policy]
 profiles = ["nist-ir-8547", "cnsa-2.0"]
@@ -243,7 +255,7 @@ min_bits = {RSA = 3072}
 require_hybrid = true
 ```
 
-`config/example.toml` lists every setting.
+`config/example.toml` lists every setting. `grade` and `report` read `rate`, `workers` and `aggressive` from a file given with `--config`; a command-line option wins over the file.
 
 ### Scheduled scans
 
@@ -501,3 +513,9 @@ set `india_deadline = 2033` under `[policy]`.
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
 - The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
 - An algorithm listed in configuration is offered, not necessarily used. Live endpoints and packet captures show what is actually negotiated.
+- Pacing is per host name and port as written, in one scan. Several ports on one host each get their own allowance, so the host
+  as a whole can see that many times the rate; two names for one address are not merged; two scans at once do not share a limit.
+  A paced scan of many endpoints on one host is slower: three endpoints on one host and port took 29 seconds against a local
+  server (one took 9.5), and ten would take about a minute and a half. A host that hangs makes it slower still. An endpoint that waits more than five minutes for its turn is graded F
+  with that reason. Pacing lowers the chance of tripping an intrusion detection system and the load on the host; it does not make
+  a scan unnoticeable, and it is not an authorisation: scan only hosts you own or have permission to test.
