@@ -113,8 +113,17 @@ jobs:
     container: python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: apt-get update && apt-get install -y --no-install-recommends golang-go nodejs curl ca-certificates
+      - run: apt-get update && apt-get install -y --no-install-recommends golang-go nodejs curl ca-certificates openssl nginx
       - run: pip install ./core ./products/tls && products/tls/tests/interop/run.sh
+      - name: The interop matrix (every peer against every policy, in both directions; fails if a cell differs from what the peer's library predicts)
+        env:
+          ACXELIN_INTEROP: "1"
+          ACXELIN_REQUIRE_OPENSSL: "3.5"
+        run: |
+          pip install pytest
+          python products/tls/tests/interop/matrix.py --write interop-matrix.md --json interop-matrix.json
+          cat interop-matrix.md >> "$GITHUB_STEP_SUMMARY"
+          python -m pytest -q products/tls/tests/test_interop_matrix.py
       - name: How fast the edge is
         run: python products/tls/tests/interop/bench.py 5
   lint:
