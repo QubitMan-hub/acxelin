@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- ACME dns-01 and wildcard names: `ca acme --dns-command ARG...` runs your command to read the TXT records of `_acme-challenge.NAME` (no shell, 15 seconds, 64 KB, no secrets in its environment). With it the service offers dns-01, and `*.` names, which only dns-01 can prove. Without it nothing changes. Names are now checked to be plain ASCII DNS names before an order is accepted. Authorizations made by 1.0.x and earlier get a dns-01 token the first time they are looked at.
+
 ## 1.0.3
 
 - Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
