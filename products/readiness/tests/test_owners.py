@@ -4,6 +4,11 @@ import pytest
 from acxelin_readiness import console as rc
 from acxelin_readiness import owners
 
+
+def owner_of(rules, path):
+    r = owners.match(rules, path)
+    return r[1] if r else None
+
 RULES = [("*", "@everyone"), ("*.py", "@python"), ("/src/", "@src"), ("docs/", "@docs"), ("**/keys/**", "@security"), ("Cargo.toml", "@rust"),
          ("/apps/*/config.yaml", "@ops")]
 
@@ -14,7 +19,7 @@ RULES = [("*", "@everyone"), ("*.py", "@python"), ("/src/", "@src"), ("docs/", "
     ("apps/web/config.yaml", "@ops"), ("apps/web/sub/config.yaml", "@everyone"), ("other/src/x.go", "@everyone"),
 ])
 def test_codeowners_patterns_match_as_github_reads_them_and_the_last_match_wins(path, owner):
-    assert owners.owner_of(RULES, path) == owner
+    assert owner_of(RULES, path) == owner
 
 
 def test_codeowners_is_read_from_github_root_or_docs_in_githubs_order(tmp_path):

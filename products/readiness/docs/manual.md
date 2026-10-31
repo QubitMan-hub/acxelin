@@ -310,6 +310,9 @@ organisation** takes a name such as `acme` (or its link) and adds each repositor
 private ones need the token saved under Projects. Services are ranked across all projects by their critical, then high,
 findings.
 
+To try it without your own code, choose the `products/readiness/examples` folder of the source download: it holds three
+small sample systems (`payments-api`, `customer-portal`, `batch-jobs`) with deliberate old cryptography.
+
 **Board summary** turns the same data into one printable page for directors: the average readiness score and how it moved since
 the scans before, how many findings need action now, how many protect data that can be recorded now and read later, how many
 NIST IR 8547 (draft) wants replaced by 2030 to 2035, how much of the work is done, what the rest takes, the first five actions

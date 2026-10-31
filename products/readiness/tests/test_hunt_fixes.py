@@ -14,6 +14,11 @@ from acxelin_readiness import console as rc, evidence, owners, workspace
 from acxelin_readiness.examples import effort
 from test_board import KX, MD5, build, scan_all
 
+
+def owner_of(rules, path):
+    r = owners.match(rules, path)
+    return r[1] if r else None
+
 RSA = "from cryptography.hazmat.primitives.asymmetric import rsa\nrsa.generate_private_key(public_exponent=65537, key_size=2048)\n"
 
 
@@ -79,13 +84,13 @@ def test_owners_spreadsheets_as_excel_and_servicenow_write_them():
     assert owners.from_csv(owners.decode(latin)) == [("src/", "José Müller")]
     snow = owners.from_csv("path,owner,business criticality\nsrc\\app\\,t,1 - most critical\n./web/,w,4 - not critical\n")
     assert snow == [("src/app/", "t", "", "", "critical"), ("web/", "w", "", "", "low")]
-    assert owners.owner_of(snow, "src/app/x.py") == "t" and owners.owner_of(snow, "web/index.js") == "w"
+    assert owner_of(snow, "src/app/x.py") == "t" and owner_of(snow, "web/index.js") == "w"
 
 
 def test_a_folder_star_rule_matches_only_that_folders_own_files():
     rules = [("docs/*", "@docs")]
-    assert owners.owner_of(rules, "docs/guide.md") == "@docs"
-    assert owners.owner_of(rules, "docs/build-app/troubleshooting.py") is None
+    assert owner_of(rules, "docs/guide.md") == "@docs"
+    assert owner_of(rules, "docs/build-app/troubleshooting.py") is None
 
 
 def test_findings_only_in_tests_are_not_counted_as_new(tmp_path):
