@@ -168,7 +168,13 @@ def test_the_action_does_not_expand_globs_in_its_args(tmp_path):
     path = os.pathsep.join([str(fake), os.environ["PATH"]]) if os.name == "nt" else f"{fake}:/usr/bin:/bin"
     env = ({k: v for k, v in os.environ.items() if k != "PATH"} if os.name == "nt" else {}) | {
         "PATH": path, "SCAN_PATH": ".", "OUT": "out", "ARGS": "--exclude *.min.js", "GITHUB_OUTPUT": str(tmp_path / "o"), "CAPTURE": str(tmp_path / "argv")}
-    subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, check=True)
+    bash = "bash"
+    if os.name == "nt":  # a bare "bash" is the WSL launcher in System32, which has no distribution on a runner; the Action runs under Git's bash
+        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+        if not git_bash.exists():
+            pytest.skip("needs Git for Windows' bash")
+        bash = str(git_bash)
+    subprocess.run([bash, "-c", script], cwd=tmp_path, env=env, check=True)
     assert (tmp_path / "argv").read_text().split("\n")[-3:-1] == ["--exclude", "*.min.js"]
 
 

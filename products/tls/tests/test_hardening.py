@@ -75,7 +75,7 @@ def test_originate_listens_on_this_machine_only_by_default():
     assert seen[0].listen == "127.0.0.1:8443"
 
 
-@pytest.mark.skipif(REASON, reason=REASON or "")
+@pytest.mark.skipif(bool(REASON), reason=REASON or "")
 def test_an_encrypted_key_is_not_renewed_into_an_unencrypted_one(tmp_path):
     env = os.environ | {"ACXELIN_TLS_CA_PASSPHRASE": "ca-pass", "KP": "key-pass"}
     assert run("ca", "init", "--dir", str(tmp_path / "pki"), "--name", "Root", env=env).returncode == 0
@@ -87,7 +87,7 @@ def test_an_encrypted_key_is_not_renewed_into_an_unencrypted_one(tmp_path):
     assert b"ENCRYPTED" in (tmp_path / "web" / "key.pem").read_bytes()
 
 
-@pytest.mark.skipif(REASON, reason=REASON or "")
+@pytest.mark.skipif(bool(REASON), reason=REASON or "")
 def test_connect_reports_a_refused_client_instead_of_success(tmp_path):
     from types import SimpleNamespace
     from acxelin_core import tls
