@@ -105,6 +105,9 @@ def evaluate(benchmark, layouts=LAYOUTS, categories=CATEGORIES):
             for group, names in groups.items():
                 c = confusion((expected[n][1], predicted[n]) for n in names)
                 block[group] = {"confusion": c, "rates": rates(c)}
+                if group == "overall":
+                    block[group]["missed"] = [n for n in names if expected[n][1] and not predicted[n]]  # named so a reader can open them; nothing is tuned from them
+                    block[group]["false_alarms"] = [n for n in names if not expected[n][1] and predicted[n]]
             out["results"][layout][rule] = block
     return out
 

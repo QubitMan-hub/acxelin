@@ -1,7 +1,6 @@
 """The held-out evaluation's arithmetic and plumbing, on a tiny synthetic stand-in (the real set is GPL-2.0 and is never copied into this repository)."""
 import json
 import math
-from pathlib import Path
 
 import pytest
 
