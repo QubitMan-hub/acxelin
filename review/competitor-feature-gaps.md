@@ -42,7 +42,18 @@ nothing is claimed without a stated limit.
 | Pre-commit hook | Common among scanners | Common knowledge | GitHub Action only | Small | |
 | Compliance views (CNSA 2.0, NIST IR 8547 dates) | AQtive Guard is described as US-centric compliance | Vendor comparison, marketing-influenced | Deadlines by country and sector exist | Small | Waiting for the CNSA 2.0 PDF you will send |
 
-## Proposed order (value to a bank reviewer over size, each one PR, tests first)
+## PARKED (owner decision, 2026-10-31): not started, no PR. Bank-readiness stages come first
+
+Order agreed: upgrade and rollback, supply chain (now including CBOM schema validation of every emitted shape and CBOMkit and Sonar import
+samples), interop matrix, SoftHSM key handling, performance harness, held-out Readiness evaluation. Then, in this order: short-lived
+certificate profile with an automatic renewal test; ACME dns-01 via a command hook; per-user VPN route sets; ALPN/SNI routing; OIDC enrolment;
+OCSP stapling last, and only if ML-DSA OCSP signing is confirmed working in OpenSSL 3.5.
+
+When this list is revisited, compare against what a bank evaluates: VPN: Palo Alto, Cisco, Fortinet, Zscaler, strongSwan. Readiness:
+Keyfactor, CyberArk/Venafi, Entrust, QuSecure. Primary sources only (vendor documentation, RFCs); anything unconfirmed is marked so.
+The tables below are the first scan with the wrong competitor set and secondary sources; treat them as a starting point only.
+
+## Earlier proposed order (superseded by the order above)
 
 1. Short-lived-certificate profile with an automatic-renewal test (TLS/CA). Small, and answers the revocation question without OCSP.
 2. CBOM checks: schema validation in CI, import tests with CBOMkit and Sonar samples (Readiness). Small, and removes a claim we cannot show.
