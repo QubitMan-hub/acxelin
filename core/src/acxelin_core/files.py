@@ -5,7 +5,6 @@ import ntpath
 import os
 import secrets
 import stat
-import sys
 import threading
 import time
 from pathlib import Path
@@ -115,12 +114,14 @@ def windows_protected(path, roots, ntp=ntpath):
     return any(p.startswith(ntp.normcase(ntp.normpath(r)) + ntp.sep) for r in roots)
 
 
-def protected_location(paths, trusted_uids=(0,), trusted_gids=(80,) if sys.platform == "darwin" else (), below=None):
+def protected_location(paths, trusted_uids=(0,), trusted_gids=(), _below=None):
     """None when every path, once links are followed, and every folder above it is owned by a trusted user and writable by nobody
     else; otherwise a sentence saying which one is not. Code that runs with administrator rights must pass this: a file an ordinary
     user can change is a way for that user to become the administrator. Windows has no owner and mode to read, so a path there
-    must be inside Program Files or the Windows folder. `below` stops the walk at a folder (tests use it)."""
-    ceiling = Path(below).resolve() if below else None
+    must be inside Program Files or the Windows folder, which is a rule about their default permissions, not a read of the real ones.
+    `_below` stops the walk at a folder (tests use it). Links, the owner and the mode bits are checked; ACLs, mount options and network
+    file systems are not."""
+    ceiling = Path(_below).resolve() if _below else None
     for path in paths:
         if os.name == "nt":
             roots = [r for r in (os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "SystemRoot")) if r]

@@ -218,7 +218,7 @@ def cmd_wireguard(a):
     if a.cmd == "install":
         if encrypted(Path(a.cert_dir) / 'key.pem'):
             raise ValueError('Built-in startup installation cannot unlock encrypted device keys; use interactive vpn connect or an administrator-managed service with --key-passphrase-env. Keep the key encrypted.')
-        argv = [sys.executable, "-m", "acxelin_vpn", "connect", a.keyring, "--cert-dir", str(Path(a.cert_dir).resolve()), "--interface", a.interface]
+        argv = platforms.isolated([sys.executable, "-m", "acxelin_vpn", "connect", a.keyring, "--cert-dir", str(Path(a.cert_dir).resolve()), "--interface", a.interface])
         argv += [*(["--ca", str(Path(a.ca).resolve())] if a.ca else []), *(["--server-name", a.server_name] if a.server_name else [])]
         wg.Client(a.keyring, a.cert_dir, a.interface, a.server_name, apply=False, ca=a.ca).agree()
         print(f"the gateway accepted this certificate; wrote {platforms.install(argv)}: the VPN now starts with this machine and restarts if it stops")

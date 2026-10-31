@@ -6,7 +6,7 @@ from pathlib import Path
 
 bundled = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "openssl"
 if bundled.is_dir():
-    os.environ.setdefault("ACXELIN_OPENSSL", str(bundled))
+    os.environ["ACXELIN_OPENSSL"] = str(bundled)  # assigned, not defaulted: a folder planted in the user's environment must not win
 
 from acxelin_vpn.cli import main  # noqa: E402
 

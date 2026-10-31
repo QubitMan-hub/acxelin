@@ -84,13 +84,13 @@ and CRLs.
 
 ## Findings from reading the code
 
-1. **Fixed in stage 1b: the tray app ran user-writable code as root or administrator.** (`acxelin-vpn install` did the same for its boot service.) Both now refuse unless the code is where only administrators can write; tests are `test_elevation` and core's `test_protected_location`. The text below is the finding as first written. `desktop.elevated()` and `start_service()` run
-   `pkexec env PYTHONPATH=<package folder> <python> -m acxelin_vpn app` (Linux), an `osascript … with administrator
-   privileges` equivalent (macOS), or `ShellExecuteW … "runas"` (Windows). For a per-user install (the default of
-   `install.sh`/`install.ps1`) that interpreter and package folder are writable by the person, so malware running as that
-   person can edit the code and wait for the administrator prompt. The packaged installers (`sys.frozen`) install under
-   protected folders and are not affected. The prompt does not tell the person what code will run. Not fixed; needs a
-   decision (refuse to elevate from a user-writable install, or elevate only a fixed helper).
+1. **Fixed in stage 1b: the tray app ran user-writable code as root or administrator.** The tray started the service through
+   pkexec, osascript or UAC from the user's own interpreter, forwarding the user's import path, and `acxelin-vpn install` made a
+   boot service doing the same. On Windows the elevated process also loaded OpenSSL from `ACXELIN_OPENSSL` or `PATH`. Both
+   paths now refuse unless the interpreter, its import folders and the OpenSSL folder are where only administrators can write
+   (`test_elevation`, `test_protected_location` in core); the process starts with `-I`; the Windows boot script moved to Program
+   Files. Found by the stage 1b review and fixed from it: the Windows OpenSSL folder, the ProgramData script folder, macOS
+   group trust. Not checked on a real system: UAC, polkit, the macOS prompt, and the Windows permission rule.
 2. **A control-plane outage disconnects people by design** after `3 × rotate_minutes + 30 s`: 6.5 minutes at the default.
    Stage 4 addresses this.
 3. Cleartext WireGuard private keys on the gateway and laptop are owner-only files, not encrypted.

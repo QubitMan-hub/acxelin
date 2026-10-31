@@ -314,7 +314,7 @@ def service(argv, kind=None, name=SERVICE):
     """(path, contents, commands to start it, commands to remove it) that keep `argv` running from boot, restarted if it stops."""
     kind = kind or system()
     if kind == "Windows":
-        base = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Acxelin" / "vpn"
+        base = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Acxelin" / "vpn"  # administrators only; ProgramData lets users make folders
         script = base / "connect.cmd"
         line = subprocess.list2cmdline(argv)
         return (script, f"@echo off\r\n:again\r\n{line}\r\ntimeout /t 10 /nobreak >nul\r\ngoto again\r\n",
@@ -339,13 +339,23 @@ def service(argv, kind=None, name=SERVICE):
             [["systemctl", "disable", "--now", name]])
 
 
+def isolated(command):
+    """The interpreter started with -I: it ignores PYTHONPATH and every other PYTHON* variable, the person's user-site folder and the
+    current folder. A packaged app is a single program and is left as it is."""
+    return command if getattr(sys, "frozen", False) else [command[0], "-I", *command[1:]]
+
+
 def elevation_problem(interpreter=None):
-    """None, or why code started with administrator rights here could be changed by an ordinary user: the interpreter, and every
-    folder it imports from, must be where only administrators can write. A packaged app is one program, so only it is checked."""
+    """None, or why code started with administrator rights here could be changed by an ordinary user: the interpreter, every folder
+    it imports from (checked as directories and their parents, not file by file) and the folder OpenSSL is loaded from must be where
+    only administrators can write. A packaged app is one program, so only it and its OpenSSL folder are checked. On Windows OpenSSL
+    must come from the folder ACXELIN_OPENSSL names, because the alternative is PATH."""
     exe = interpreter or sys.executable
-    if getattr(sys, "frozen", False):
-        return protected_location([exe])
-    return protected_location([exe, *(p for p in sys.path if p and os.path.isdir(p))])
+    openssl = os.environ.get("ACXELIN_OPENSSL")
+    if os.name == "nt" and not openssl:
+        return "OpenSSL would be searched for on PATH, which any user can change; set ACXELIN_OPENSSL to a folder only administrators can write"
+    code = [exe] if getattr(sys, "frozen", False) else [exe, *(p for p in sys.path if p and os.path.isdir(p))]
+    return protected_location([*code, *([openssl] if openssl else [])])
 
 
 def require_protected_code(what, interpreter=None):
@@ -355,8 +365,8 @@ def require_protected_code(what, interpreter=None):
                          "programs as this user could use that to become the administrator. Use a copy of Acxelin VPN installed where only "
                          "administrators can write: the Windows Setup or the Linux package from the release page, or a copy an administrator "
                          "installed under /opt (the manual shows how), and run this again from there."
-                         + (" On a Mac, an app you copied to Applications belongs to you: run "
-                            "sudo chown -R root:wheel \"/Applications/Acxelin VPN.app\" once." if sys.platform == "darwin" else ""))
+                         + (" On a Mac, Applications can be changed by any administrator account, so the tray cannot start the service "
+                            "from there: run sudo acxelin-vpn app in Terminal instead." if sys.platform == "darwin" else ""))
 
 
 def install(argv, runner=run):

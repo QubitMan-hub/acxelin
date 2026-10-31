@@ -7,13 +7,16 @@
   tray started the VPN service as root or administrator from that user's own Python and folders, and passed it the user's
   import path, and `acxelin-vpn install` made a boot service that ran them as root or SYSTEM. Anything running as that user
   could change those files, then wait for the administrator prompt or the next boot, and become the administrator. Now both
-  refuse, and say why, unless the interpreter and every folder it imports from can be written only by administrators; the
-  elevated process starts with `-I`, so it ignores `PYTHONPATH`, the user-site folder and the current folder. Affected: the
-  command-line install used with the tray or `acxelin-vpn install`, in every earlier release that has the desktop app. The
-  Windows Setup (Program Files) and the Linux package (`/opt/acxelin-vpn`) install where users cannot write. On macOS an app
-  dragged into Applications belongs to the person, so it is refused too until `sudo chown -R root:wheel "/Applications/Acxelin
-  VPN.app"` is run once. `sudo acxelin-vpn app`, run by an administrator on purpose, is unchanged.
-
+  refuse, and say why, unless the interpreter, every folder it imports from and the folder OpenSSL is loaded from can be
+  written only by administrators; the elevated process and the boot service start with `-I`, so they ignore `PYTHONPATH`, the
+  user-site folder and the current folder. Affected: every earlier release with the desktop app or `acxelin-vpn install`, when
+  installed for one user. Also fixed: on Windows the elevated process took OpenSSL from `ACXELIN_OPENSSL` or `PATH`, which the
+  user controls, so the Windows Setup was affected too (the packaged launcher now replaces `ACXELIN_OPENSSL` instead of keeping
+  a value already set, and elevation needs it set); the Windows boot script moved from `ProgramData`, where users can make
+  folders, to `Program Files` (run `acxelin-vpn install` again to move it). The Linux package (`/opt/acxelin-vpn`) installs
+  where users cannot write. On macOS the tray no longer starts the service from Applications, which any administrator account
+  can change: run `sudo acxelin-vpn app`. The Windows and macOS rules are checked by unit tests, not on those systems.
+  `sudo acxelin-vpn app`, run by an administrator on purpose, is unchanged.
 - `acxelin-vpn setup NAME`: a remote-access gateway in one step: the CA (or the existing one), the gateway's certificate, the
   CRL and a checked `gateway.toml`, then the commands that start enrollment and the gateway and invite the first person.
 - Console, People: traffic, when each person's key was last renewed (and the last handshake), gateway uptime, and an access

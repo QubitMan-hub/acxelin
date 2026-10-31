@@ -18,7 +18,7 @@ and against one who holds a certificate you have revoked.
 | Traffic leaking while a full tunnel is down | the kill switch blocks it, and on Linux it fails closed at every instant while its rules change: the new chain is in place before the old one goes (`test_vpn_platforms::test_linux_fails_closed_while_the_rules_change`). The macOS anchor is checked by what it writes, not on a live system; Windows can lift for a moment (below). No test installs a new release over a running one yet |
 | Secrets in an export | the CBOM records PSK and PPK type and size only; a test searches it for every key, token and passphrase as bytes, hex, base64 and PEM (`test_inventory`) |
 | A web page attacking the console or the app window | loopback host names and same-origin requests only, no cookies, one-time launch links, lockout after ten wrong attempts (`test_console`, core console tests) |
-| A user changing code that the VPN runs with administrator rights | the tray and `acxelin-vpn install` refuse to start anything as root or administrator unless the interpreter and every folder it imports from can be written only by administrators, and what they start ignores `PYTHONPATH`, the user-site folder and the current folder (`test_elevation`, `test_protected_location` in core) |
+| A user changing code that the VPN runs with administrator rights | the tray and `acxelin-vpn install` refuse to start anything as root or administrator unless the interpreter, every folder it imports from and the folder OpenSSL loads from can be written only by administrators, and what they start ignores `PYTHONPATH`, the user-site folder and the current folder; on Windows OpenSSL must come from a named folder, never `PATH` (`test_elevation`, `test_protected_location` in core) |
 | An old gateway during an upgrade | the exporter labels and contexts are pinned, and both ends of one session derive the same keys (`test_agreement::test_labels_and_contexts_are_pinned`, `test_agreement::test_one_session_gives_both_sides_the_same_keys`). This pins today's constants; no test runs a gateway from the previous release against this one yet |
 
 ## What is not covered
@@ -37,6 +37,7 @@ and against one who holds a certificate you have revoked.
   (the manual shows how), as the systemd units expect. The product's own elevation (the tray, the boot service) is the part
   that refuses.
 - **The elevation rules on Windows and macOS** are tested with their folder and ownership rules in unit tests, not on those
-  systems. On Windows the rule is "inside Program Files or the Windows folder"; the boot service's `connect.cmd` sits in
-  `ProgramData\Acxelin\vpn`, whose permissions have not been checked.
-
+  systems. On Windows the rule is "inside Program Files or the Windows folder", a rule about default permissions: some folders
+  there are writable by users, and a path that does not exist yet passes. On macOS the tray refuses to elevate at all from
+  Applications, because any administrator account can rename an app there. Posix ACLs, mount options and network file systems
+  are not checked. The check is made before the prompt, not again when the process starts.

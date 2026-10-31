@@ -1,5 +1,4 @@
 """Nothing the VPN starts with administrator rights loads code that an ordinary user can change."""
-import inspect
 import os
 import sys
 from unittest import mock
@@ -52,10 +51,15 @@ def test_the_same_refusal_covers_the_macos_prompt(user_writable):
     popen.assert_not_called()
 
 
-def test_the_check_comes_before_every_administrator_prompt():
-    source = inspect.getsource(desktop.start_service)
-    guard = source.index("require_protected_code")
-    assert all(guard < source.index(prompt) for prompt in ("ShellExecuteW", "elevated(", "Popen(elevated"))
+def test_the_windows_prompt_is_never_shown_for_code_that_users_can_change():
+    import ctypes
+    shell = mock.Mock()
+    with mock.patch.object(desktop.os, "name", "nt"), mock.patch.object(ctypes, "windll", mock.Mock(shell32=shell), create=True), \
+            mock.patch("acxelin_vpn.join.administrator", return_value=False), \
+            mock.patch.object(platforms, "elevation_problem", return_value="C:/Users/ada/py is not inside Program Files"):
+        with pytest.raises(ValueError, match="ordinary user"):
+            desktop.start_service(["C:/Users/ada/py/pythonw.exe", "-m", "acxelin_vpn", "app"], True)
+    shell.ShellExecuteW.assert_not_called()
 
 
 def test_a_person_who_is_already_an_administrator_is_not_asked_again_or_blocked():
@@ -115,7 +119,64 @@ def test_the_boot_units_that_run_as_root_start_programs_under_opt():
 
 
 @posix
-def test_on_a_mac_the_refusal_says_how_to_hand_the_app_to_root(user_writable):
+def test_on_a_mac_the_refusal_says_applications_is_not_safe_and_what_to_do(user_writable):
     with mock.patch.object(sys, "platform", "darwin"):
-        with pytest.raises(ValueError, match=r"sudo chown -R root:wheel"):
+        with pytest.raises(ValueError, match=r"Applications.*any administrator.*sudo acxelin-vpn app"):
             platforms.require_protected_code("Starting the VPN service from the tray")
+
+
+def fake_protection(paths, **k):
+    return next((f"{p} can be changed by users" for p in paths if "unsafe" in str(p)), None)
+
+
+def test_an_openssl_folder_that_users_can_write_is_refused_because_the_elevated_process_would_load_it(monkeypatch):
+    monkeypatch.setenv("ACXELIN_OPENSSL", "/home/ada/unsafe-openssl")
+    with mock.patch.object(platforms, "protected_location", fake_protection), mock.patch.object(sys, "frozen", False, create=True):
+        assert "unsafe-openssl" in platforms.elevation_problem("/usr/bin/python3")
+    monkeypatch.setenv("ACXELIN_OPENSSL", "/opt/openssl/lib")
+    with mock.patch.object(platforms, "protected_location", fake_protection), mock.patch.object(sys, "frozen", False, create=True):
+        assert platforms.elevation_problem("/usr/bin/python3") is None
+
+
+def test_on_windows_openssl_must_come_from_a_named_folder_not_from_path(monkeypatch):
+    monkeypatch.delenv("ACXELIN_OPENSSL", raising=False)
+    with mock.patch.object(platforms.os, "name", "nt"), mock.patch.object(platforms, "protected_location", fake_protection):
+        assert "PATH" in platforms.elevation_problem("C:/Program Files/Acxelin VPN/acxelin-vpn.exe")
+        monkeypatch.setenv("ACXELIN_OPENSSL", "C:/Program Files/Acxelin VPN/openssl")
+        assert platforms.elevation_problem("C:/Program Files/Acxelin VPN/acxelin-vpn.exe") is None
+
+
+def test_the_packaged_launcher_replaces_a_planted_openssl_folder_instead_of_keeping_it():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "packaging" / "launcher.py").read_text(encoding="utf-8")
+    assert 'os.environ["ACXELIN_OPENSSL"] = str(bundled)' in text and "setdefault" not in text
+
+
+def test_the_windows_boot_script_lives_in_program_files_not_in_program_data(monkeypatch):
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setenv("ProgramData", r"C:\ProgramData")
+    path = platforms.service([r"C:\Program Files\Acxelin VPN\acxelin-vpn.exe", "connect"], "Windows")[0]
+    assert path.parts[0] == r"C:\Program Files" and "ProgramData" not in str(path)
+
+
+def test_the_interpreter_of_the_boot_service_is_isolated_and_a_packaged_app_is_left_alone():
+    with mock.patch.object(sys, "frozen", False, create=True):
+        assert platforms.isolated(["/usr/bin/python3", "-m", "acxelin_vpn", "connect"]) == ["/usr/bin/python3", "-I", "-m", "acxelin_vpn", "connect"]
+    with mock.patch.object(sys, "frozen", True, create=True):
+        assert platforms.isolated(["/opt/acxelin-vpn/acxelin-vpn", "connect"]) == ["/opt/acxelin-vpn/acxelin-vpn", "connect"]
+
+
+def test_the_install_command_hands_the_boot_service_an_isolated_interpreter(tmp_path):
+    import contextlib
+    import io
+
+    from acxelin_vpn import cli
+    device = tmp_path / "device"
+    device.mkdir()
+    (device / "key.pem").write_text("not encrypted\n")
+    out = io.StringIO()
+    with mock.patch("acxelin_vpn.platforms.install", return_value=tmp_path / "unit") as install, mock.patch("acxelin_vpn.wireguard.Client"), \
+            mock.patch.object(sys, "frozen", False, create=True), contextlib.redirect_stdout(out), pytest.raises(SystemExit):
+        cli.main(["install", "gw.example:7443", "--cert-dir", str(device)])
+    argv = install.call_args.args[0]
+    assert argv[:3] == [sys.executable, "-I", "-m"]

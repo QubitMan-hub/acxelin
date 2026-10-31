@@ -116,16 +116,10 @@ def entry():
     return [sys.executable] if getattr(sys, "frozen", False) else [python(), "-m", "acxelin_vpn"]
 
 
-def isolated(command):
-    """The interpreter started with -I: it ignores PYTHONPATH and every other PYTHON* variable, the person's user-site folder and the
-    current folder. A packaged app is a single program and is left as it is."""
-    return command if getattr(sys, "frozen", False) else [command[0], "-I", *command[1:]]
-
-
 def elevated(command):
     """How to run `command` (a list) with administrator rights on this system, as a list to start without waiting. Nothing of this
     person's import path or environment goes with it: it loads only what the interpreter itself finds."""
-    command = isolated(command)
+    command = platforms.isolated(command)
     if sys.platform == "darwin":
         script = shlex.join(command) + " >/dev/null 2>&1 &"
         return ["osascript", "-e", f'do shell script "{script.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}" with administrator privileges']
@@ -143,7 +137,7 @@ def start_service(command, apply):
     platforms.require_protected_code("Starting the VPN service from the tray", command[0])
     if os.name == "nt":
         import ctypes
-        command = isolated(command)
+        command = platforms.isolated(command)
         r = ctypes.windll.shell32.ShellExecuteW(None, "runas", command[0], subprocess.list2cmdline(command[1:]), None, 0)
         if r <= 32:
             raise ValueError("administrator rights were not given, so the VPN cannot change this computer's network")
