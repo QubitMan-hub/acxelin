@@ -47,11 +47,19 @@ jobs:
           if [ "$PRODUCT" = core ]; then pip wheel --wheel-dir wheelhouse ./core; else python tools/wheelhouse.py "$PRODUCT" wheelhouse; fi
           python -m venv /tmp/check && /tmp/check/bin/pip install --no-index --find-links wheelhouse "acxelin-$PRODUCT"
           name="acxelin-$PRODUCT-$VERSION-wheelhouse"
-          mv wheelhouse "$name" && tar czf "$name.tar.gz" "$name"
-          sha256sum "$name.tar.gz" "$name"/*.whl > SHA256SUMS
+          mv wheelhouse "$name"
+          cp documents/verify-a-release.md "$name/VERIFY.md" && cp tools/verify_release.py "$name/"
+          python tools/sbom.py "$PRODUCT" "$VERSION" "$name" "acxelin-$PRODUCT-$VERSION.cdx.json"  # the bill of materials: every wheel with its SHA-256
+          cp "acxelin-$PRODUCT-$VERSION.cdx.json" "$name/"
+          tar czf "$name.tar.gz" "$name"
+          { sha256sum "$name.tar.gz" "acxelin-$PRODUCT-$VERSION.cdx.json"; find "$name" -type f | LC_ALL=C sort | xargs sha256sum; } > SHA256SUMS  # every file, so a customer can notice an extra one
+          python tools/verify_release.py SHA256SUMS .
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: "acxelin-*-wheelhouse.tar.gz"
+          subject-path: |
+            acxelin-*-wheelhouse.tar.gz
+            SHA256SUMS
+            acxelin-*.cdx.json
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -64,10 +72,10 @@ jobs:
           print(m.group(1).strip() if m else "")
           PY
           if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then  # the tag was moved: the release is rebuilt in place
-            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS --clobber
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS "acxelin-$PRODUCT-$VERSION.cdx.json" --clobber
             gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --notes-file notes.md
           else
-            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS --title "Acxelin $PRODUCT $VERSION" --notes-file notes.md
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" "acxelin-$PRODUCT-$VERSION-wheelhouse.tar.gz" SHA256SUMS "acxelin-$PRODUCT-$VERSION.cdx.json" --title "Acxelin $PRODUCT $VERSION" --notes-file notes.md
           fi
   image:
     needs: [gate, build]
