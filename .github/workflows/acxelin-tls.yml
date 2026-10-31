@@ -120,10 +120,11 @@ jobs:
           ACXELIN_INTEROP: "1"
           ACXELIN_REQUIRE_OPENSSL: "3.5"
         run: |
-          pip install pytest
+          pip install pytest ./products/vpn
           python products/tls/tests/interop/matrix.py --write interop-matrix.md --json interop-matrix.json
           cat interop-matrix.md >> "$GITHUB_STEP_SUMMARY"
           python -m pytest -q products/tls/tests/test_interop_matrix.py
+          ACXELIN_REQUIRE_INTEROP=1 python -m pytest -q products/vpn/tests/test_exporter_interop.py  # the VPN's keys against Go: a missing Go or OpenSSL is a failure here
       - name: How fast the edge is
         run: python products/tls/tests/interop/bench.py 5
   lint:

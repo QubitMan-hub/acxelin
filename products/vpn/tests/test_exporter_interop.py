@@ -21,6 +21,7 @@ from cryptography.x509.oid import NameOID
 
 from acxelin_core import tls
 from acxelin_vpn import agreement
+from support_vpn import REASON
 
 GO = shutil.which("go")
 SOURCE = Path(__file__).resolve().parent / "interop" / "export_server.go"
@@ -32,9 +33,9 @@ def go_version():
     return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
 
 
-if go_version() < (1, 24) and os.environ.get("ACXELIN_REQUIRE_INTEROP") == "1":
-    pytest.fail("ACXELIN_REQUIRE_INTEROP=1 but Go 1.24+ is not installed", pytrace=False)
-pytestmark = pytest.mark.skipif(go_version() < (1, 24), reason="needs Go 1.24+ (the other TLS implementation); ACXELIN_REQUIRE_INTEROP=1 makes this a failure")
+if (go_version() < (1, 24) or REASON) and os.environ.get("ACXELIN_REQUIRE_INTEROP") == "1":
+    pytest.fail(f"ACXELIN_REQUIRE_INTEROP=1 but this test cannot run: {REASON or 'Go 1.24+ is not installed'}", pytrace=False)
+pytestmark = pytest.mark.skipif(go_version() < (1, 24) or bool(REASON), reason=REASON or "needs Go 1.24+ (the other TLS implementation); ACXELIN_REQUIRE_INTEROP=1 makes this a failure")
 
 
 @pytest.fixture(scope="module")
