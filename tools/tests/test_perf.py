@@ -7,6 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import perf  # noqa: E402
+from acxelin_core import openssl  # noqa: E402
+
+needs_openssl = pytest.mark.skipif(openssl.available() is not None, reason="needs OpenSSL 3.5+ (set ACXELIN_OPENSSL); ACXELIN_REQUIRE_OPENSSL turns that into a failure in CI")
 
 
 def test_median_and_percentiles_are_the_textbook_ones():
@@ -56,6 +59,7 @@ def test_the_environment_block_names_what_a_reader_needs_to_judge_a_number():
         assert key in env
 
 
+@needs_openssl
 def test_the_ca_suite_runs_and_reports_only_what_it_measured():
     out = perf.run(["ca"], quick=True, runs=1)
     metrics = out["suites"]["ca"]["metrics"]
@@ -71,6 +75,7 @@ def test_an_unknown_suite_is_an_error_and_a_missing_product_is_reported_not_hidd
     assert "skipped" in perf.run([], quick=True, runs=1)
 
 
+@needs_openssl
 def test_the_markdown_lists_every_metric_with_its_samples_count_and_the_machine():
     out = perf.run(["ca"], quick=True, runs=1)
     text = perf.markdown(out)
