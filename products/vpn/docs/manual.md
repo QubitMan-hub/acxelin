@@ -246,6 +246,22 @@ acxelin-vpn ca revoke 763320879c3df003 --dir pki
 
 The CA re-signs `pki/crl.pem`. A gateway that reads that file cuts the revoked site's tunnel, or removes the revoked person from WireGuard, within 15 seconds. A gateway on another machine needs the new CRL: set `crl_url` in its configuration, and it fetches the list every `crl_every` seconds (60 by default).
 
+### Limit what a person can reach
+
+By default everyone in `users` is told every route in `routes`. To give a person only some of them, add a table to the gateway configuration:
+
+```
+[wireguard.access]
+"alice@acme.example" = ["192.168.10.0/24"]
+"bob@acme.example" = ["192.168.30.0/24", "192.168.40.0/24"]
+```
+
+Each network must lie inside `routes`, the person must be in `users` (if you use it), and IPv4 only. People with no entry get all routes, as before. Check the result with `acxelin-vpn access show --config gateway.toml`.
+
+Two things make it true. The person is told only her networks at her next key agreement. And on a Linux gateway that manages its interface, the gateway loads packet-filter rules (nftables) that drop everything from her tunnel address that is not going to one of her networks, including other people's addresses and the gateway itself. The rules are loaded before she is told her address; if they cannot be loaded she is refused, and the gateway will not start without `nft` when anyone is restricted. A change to the table takes effect at once, and a change whose rules cannot be loaded is not applied.
+
+Limits: the enforcement is Linux only. Where `manage_interface = false` (a gateway you run yourself, or on another platform) the gateway cannot load rules: run `acxelin-vpn access rules --config gateway.toml` and load the output into your own firewall, and re-run it when someone gets their first address. Without the rules the routes are advice, which anyone can bypass. The rules apply to traffic that crosses the gateway; they do not look inside it. Full-tunnel gateways cannot use `access`.
+
 ### Split tunnel or full tunnel
 
 By default only the gateway's `routes` go through the tunnel, and other internet traffic uses the normal network. With `full_tunnel = true` in the gateway's `[wireguard]`, all of the laptops' traffic goes through the gateway, which forwards it with NAT, and laptops get a kill switch. The kill switch blocks traffic outside the tunnel while protection is down: on Linux and macOS it stays in place while the app reconnects, while on Windows the block follows the tunnel and can lift for a moment while the tunnel is recreated.

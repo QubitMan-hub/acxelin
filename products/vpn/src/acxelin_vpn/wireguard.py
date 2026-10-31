@@ -37,13 +37,13 @@ from acxelin_core.http import explain, hostport
 from acxelin_core.pki import CAError, algorithm_of, follow_crl
 from acxelin_core.server import Revocation
 
-from . import agreement, audit
+from . import access, agreement, audit
 from .grace import Grace, check_minutes, crl_verdict
 from .agreement import TAG, common_name, read_line
 from .platforms import FULL, WG, WGError, addresses, this_machine
 
 log = logging.getLogger(__name__)
-LIVE = {"users", "routes", "dns", "sites", "rotate_minutes", "outage_grace_minutes"}
+LIVE = {"users", "routes", "dns", "sites", "access", "rotate_minutes", "outage_grace_minutes"}
 LABEL, context = agreement.WIREGUARD, agreement.wireguard_context
 RAW = (serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
@@ -133,6 +133,7 @@ class GatewayConfig:
     dns: list = field(default_factory=list)
     users: list = field(default_factory=list)
     sites: dict = field(default_factory=dict)
+    access: dict = field(default_factory=dict)
     rotate_minutes: float = 2.0
     outage_grace_minutes: float = 0.0
     metrics: str = ""
@@ -163,6 +164,7 @@ class GatewayConfig:
         if self.rotate_minutes < 0.25:
             raise ValueError("rotate_minutes must be at least 0.25")
         check_minutes("", self.outage_grace_minutes, self.crl)
+        access.validate(self)
         return self
 
 
@@ -174,9 +176,10 @@ def load_gateway(path):
 
 
 class Gateway:
-    def __init__(self, cfg, wg=None):
+    def __init__(self, cfg, wg=None, firewall=None):
         self.cfg = cfg
         self.wg = wg or WG(cfg.interface)
+        self.firewall = firewall if firewall is not None else (access.Nft() if cfg.access and cfg.manage_interface else None)
         self.private, self.public = private_key(cfg.private_key)
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -235,6 +238,12 @@ class Gateway:
                 ip = self.lease(cn)
             except CAError as e:
                 return self.refuse(conn, cn, addr, str(e))
+            if cn in self.cfg.access:  # her restriction must be in force before she hears her address
+                try:
+                    self.enforce(self.cfg)
+                except access.AccessError as e:
+                    log.error("%s: %s", cn, e)
+                    return self.refuse(conn, cn, addr, "the gateway could not apply your access rules; tell your administrator (see the gateway's log)")
             old = self.clients.get(cn)
             self.wg.set_peer(pub, b64(psk), [f"{ip}/32"] + self.cfg.sites.get(cn, []))
             if old and old["public"] != pub:
@@ -248,11 +257,19 @@ class Gateway:
         log.info("%s: %s at %s, new PSK %s", cn, "rotated" if old else "connected", ip, tag)
         if not old or old["public"] != pub:
             self.event("new device" if old else "connected", cn, address=ip, source=addr[0])
-        routes = FULL if self.cfg.full_tunnel else [str(self.cfg.network)] + self.cfg.routes
+        routes = FULL if self.cfg.full_tunnel else list(self.cfg.access[cn]) if cn in self.cfg.access else [str(self.cfg.network)] + self.cfg.routes
         reply = {"ok": True, "address": f"{ip}/{self.cfg.network.prefixlen}", "gateway": self.cfg.name, "gateway_public": self.public,
                  "endpoint": self.cfg.endpoint, "routes": routes, "dns": self.cfg.dns,
                  "rotate_s": int(self.cfg.rotate_minutes * 60)}
         agreement.send(conn, reply)
+
+    def restricted(self, cfg):
+        return {cn: (self.leases[cn], list(nets)) for cn, nets in cfg.access.items() if cn in self.leases}
+
+    def enforce(self, cfg):
+        """Load the packet filter for the people `cfg` restricts, atomically; a no-op where nothing manages the interface (see `access rules`)."""
+        if self.firewall is not None:
+            self.firewall.apply(access.ruleset(cfg.interface, self.restricted(cfg)))
 
     def limit(self):
         """Seconds without a key agreement after which a client is removed, before any outage grace."""
@@ -299,10 +316,18 @@ class Gateway:
         if held != c.name:
             raise ValueError(f"the gateway's name is {c.name!r} but its certificate is for {held!r}: laptops derive their key from the "
                              "certificate's name, so set name to it (or issue a certificate for the name)")
+        access.require(c)
         if c.manage_interface:
             ensure_interface(c.interface, f"{c.address}/{c.network.prefixlen}", [n for v in c.sites.values() for n in v])
             if c.full_tunnel:
                 forward(c.interface, c.pool)
+            if self.firewall is not None:
+                self.enforce(c)
+            elif shutil.which("nft"):
+                try:
+                    access.Nft().clear()  # rules left by an earlier configuration must not restrict addresses that are no longer restricted
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         self.wg.set_private_key(self.private, c.listen_port)
         for stale in self.wg.peers():
             self.wg.remove_peer(stale)
@@ -337,6 +362,14 @@ class Gateway:
             return False
         if new.sites != self.cfg.sites and new.manage_interface:  # routes to the subnets behind newly listed sites
             ensure_interface(new.interface, f"{new.address}/{new.network.prefixlen}", [n for v in new.sites.values() for n in v])
+        if new.access != self.cfg.access:
+            if self.firewall is None and new.access and new.manage_interface:
+                return False  # no packet filter was set up when this gateway started: restart so it is
+            try:
+                self.enforce(new)
+            except access.AccessError as e:
+                log.error("the new access rules could not be applied (%s); keeping the old configuration", e)
+                return False
         self.cfg = new
         for cn, c in list(self.clients.items()):
             if new.users and cn not in new.users:
@@ -411,7 +444,7 @@ class Client:
             if reply.get("reason") == "crl":
                 raise tls.TLSError("the gateway cannot read its revocation list, so it lets no one in: tell your administrator")
             if reply.get("ok") is not True or not valid_key(str(reply.get("gateway_public", ""))):
-                raise tls.TLSError("the gateway refused the key agreement (is this certificate allowed?)")
+                raise tls.TLSError("the gateway refused the key agreement. Ask your administrator to look in the gateway's log: usual reasons are that this certificate is not in the list of allowed users, that the address pool is full, or that the access rules could not be applied")
             checked_reply(reply)
             peer = conn.peer_certificate()
             psk = agreement.wireguard_psk(conn, common_name(peer), self.name, tag, self.public, reply["gateway_public"])
