@@ -149,6 +149,12 @@ def test_open_an_invitation_enroll_connect_disconnect(browser, window, invitatio
             w.client.agreed_at += 3600
             page.reload()
             expect(page.locator("#warn")).to_be_hidden()
+            w.client.error = "this computer's certificate has been revoked: ask your administrator for a new invitation"
+            page.reload()
+            expect(page.locator("#line")).to_contain_text("access was revoked")
+            expect(page.locator("#line")).not_to_contain_text("Trying again")
+            assert axe(page) == []
+            w.client.error = None
         assert axe(page) == []
         page.click("#disconnect")
         expect(page.locator("#word")).to_have_text("Disconnected")

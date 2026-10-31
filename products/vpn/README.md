@@ -24,9 +24,11 @@ Gateways use the gateway image or systemd, and people use the desktop app; the m
 
 ```
 acxelin-vpn doctor
-acxelin-vpn ca init --name "Acme VPN Root" --dir pki
-acxelin-vpn invite alice --dir pki --enroll https://ca.acme.example:9443 --gateway vpn.acme.example:7443
+acxelin-vpn setup vpn.acme.example --route 192.168.10.0/24
 ```
+
+`setup` creates the certificate authority, the gateway's certificate and a checked `gateway.toml`, then prints the commands
+that start enrollment and the gateway and invite the first person.
 
 The manual (`docs/manual.md`) covers two sites and a laptop in fifteen minutes, the console, the app and production.
 `docs/threat-model.md` says what is and is not protected.

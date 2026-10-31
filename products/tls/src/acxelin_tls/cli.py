@@ -76,7 +76,7 @@ def cmd_try(a):
     """A self-contained tour, nothing to set up: a CA, a plain web server, the post-quantum edge in front of it, a
     post-quantum client that gets through and a classical one that does not. Everything lives in a temporary folder."""
     tls.lib()  # say at once when this machine's OpenSSL cannot do post-quantum TLS, not halfway through the tour
-    quiet = {name: logging.getLogger(name).level for name in ("acxelin_tls", "acxelin_core")}  # the tour's own output only
+    quiet = {"acxelin_tls": logging.getLogger("acxelin_tls").level}  # the server's log lines are part of the tour, and the site shows them
     for name in quiet:
         logging.getLogger(name).setLevel(logging.ERROR)
     try:

@@ -205,9 +205,12 @@ class VPNConsole:
     @task
     def people(self, body):
         records = [r for r in (CA(self.ca_dir).records() if self._exists() else []) if r.kind == "client"]
-        seen = {}
+        seen, gateways, history = {}, [], []
         for g in self._services("gateway"):
-            data, _ = self._fetch(g["url"])
+            data, error = self._fetch(g["url"])
+            gw = (data or {}).get("_gateway") if isinstance((data or {}).get("_gateway"), dict) else {}
+            gateways.append({"name": g["name"], "error": error, "up_s": int(time.time() - gw["started"]) if isinstance(gw.get("started"), (int, float)) else None})
+            history += [e | {"gateway": g["name"]} for e in gw.get("history", []) if isinstance(e, dict)]
             for cn, c in (data or {}).items():
                 if not cn.startswith("_") and isinstance(c, dict):
                     seen[cn] = c | {"gateway": g["name"]}
@@ -217,8 +220,12 @@ class VPNConsole:
             c = seen.get(name)
             out.append({"name": name, "certificate": "valid" if any(r.status == "valid" for r in mine) else "revoked" if mine else "unknown",
                         "connected": bool(c and now - c.get("latest_handshake", 0) < 180), "agreed": bool(c),
-                        "since": c.get("since") if c else None, "address": c.get("address") if c else None, "gateway": c.get("gateway") if c else None})
-        return 200, {"people": out, "gateways": [g["name"] for g in self._services("gateway")], "activity": self.activity()}
+                        "since": c.get("since") if c else None, "address": c.get("address") if c else None, "gateway": c.get("gateway") if c else None,
+                        "bytes_in": c.get("rx_bytes") if c else None, "bytes_out": c.get("tx_bytes") if c else None,
+                        "key_age_s": c.get("keys_age_s") if c else None,
+                        "handshake_age_s": int(now - c["latest_handshake"]) if c and c.get("latest_handshake") else None})
+        activity = sorted(self.activity(30) + history, key=lambda e: str(e.get("time", "")), reverse=True)[:30]
+        return 200, {"people": out, "gateways": gateways, "activity": activity}
 
     @task
     def settings(self, body):

@@ -120,7 +120,23 @@ Section 8 says which unit runs what.
 
 The installers are not code-signed yet, so the first launch shows a warning. Check the installer first, the same way as in Step 1 above, with its own file name. On Windows, SmartScreen says "Windows protected your PC": choose **More info**, then **Run anyway**. On macOS, open **System Settings > Privacy & Security** and choose **Open Anyway**.
 
-## 4. Two sites and a laptop in fifteen minutes
+## 4. A gateway and a laptop in one step
+
+For remote access only, one command sets up the gateway on the machine laptops will connect to:
+
+```
+acxelin-vpn setup vpn.acme.example --route 192.168.10.0/24 --dns 192.168.10.53
+```
+
+It creates the certificate authority in `acxelin-vpn/pki` (asking for its passphrase, or reusing the one already there),
+issues the gateway's ML-DSA certificate, writes the CRL and a `gateway.toml` it has checked, and prints the three commands
+that follow: start the enrollment service, start the gateway, and invite the first person. `--full-tunnel` sends all of the
+laptops' traffic through the gateway; `--address` gives its public IP when laptops should not use the name. Running it again
+changes nothing unless you add `--force`, and never replaces the certificate authority.
+
+The rest of this section sets up two sites as well, step by step.
+
+## 4b. Two sites and a laptop in fifteen minutes
 
 These steps connect headquarters (`hq.acme.example`, 203.0.113.10, subnet 10.1.0.2/16) to a branch (`branch1.acme.example`, 198.51.100.7, subnet 10.2.0.0/16), and give Alice's laptop access through a WireGuard gateway at headquarters (`vpn.acme.example`). Replace the names and addresses with yours. `config/` in the release folder has the three configurations used here, with every setting explained.
 
@@ -265,10 +281,10 @@ Your browser opens, already signed in. If there is no certificate authority yet,
 | Tab | What you do there |
 |---|---|
 | **Sites** | Add each site gateway by its status address (`metrics` in its `[site]`) to see its tunnels: state, key exchange, encryption, whether the PPK is in use, the last key rotation, traffic and the peer's certificate. |
-| **People** | The first time, say where invitations point: the enrollment service and the gateway. Then invite a person and download their invitation file. Add the WireGuard gateway by its status address to see who is connected now and since when. Revoke a person in two clicks; their session ends at the gateway's next check. |
+| **People** | The first time, say where invitations point: the enrollment service and the gateway. Then invite a person and download their invitation file. Add the WireGuard gateway by its status address to see who is connected now and since when, their traffic, when their key was last renewed, and the gateway's uptime. Revoke a person in two clicks; their session ends at the gateway's next check. |
 | **Health** | Whether this computer can run Acxelin VPN, whether the CA, its CRL and its certificates are in good shape, and whether every site and gateway answers, each with what to do. |
 
-Invitations and revocations, from the console or the command line, are written to `audit.jsonl` in the CA folder, which only you can read. The People tab shows the latest of them together with enrollments, refused enrollments and renewals from the enrollment service's log beside it. No token, key or passphrase is written. Each laptop keeps its own `audit.jsonl` of kill-switch changes in its tunnel folder; the app's connection details and `acxelin-vpn status --details` show the last one.
+Invitations and revocations, from the console or the command line, are written to `audit.jsonl` in the CA folder, which only you can read. The People tab shows the latest of them together with enrollments, refused enrollments and renewals from the enrollment service's log beside it. Each gateway keeps its own access history in `audit.jsonl` next to its address leases (connected, new device, refused and why, cut off after a revocation, stopped renewing; not the renewals every few minutes), and the People tab merges it in. No token, key or passphrase is written. Each laptop keeps its own `audit.jsonl` of kill-switch changes in its tunnel folder; the app's connection details and `acxelin-vpn status --details` show the last one.
 
 The console listens only on the machine it runs on. For a remote server, forward a port and ask the running console for a fresh link:
 
@@ -339,6 +355,31 @@ With `metrics = "HOST:PORT"`, a site serves `/metrics` (Prometheus) and `/status
 2. **Keys from the session.** Both sides derive the same secrets from that TLS session (an RFC 5705 exporter): for IPsec the IKE PSK, the PPK and its id; for WireGuard the pre-shared key. Nothing secret crosses the network.
 3. **Rotation.** Sites agree new keys every `rotate_minutes` (60 by default), people's computers every two minutes. A side that stops re-agreeing is removed after three missed rotations.
 4. **Revocation.** A revoked certificate gets no new keys, and its tunnel is cut.
+
+### Keys from quantum key distribution (site-to-site)
+
+Sites joined by a QKD link can mix its keys into their IPsec keys. Each site names its key server (KME), its secure
+application entity (SAE) ID and the client certificate it uses there, and each peer names the other side's SAE ID:
+
+```
+[site]
+qkd_kme = "https://kme-hq.acme.example:8443"
+qkd_sae_id = "SAE_HQ"
+qkd_cert = "/etc/acxelin-vpn/qkd/chain.pem"
+qkd_key = "/etc/acxelin-vpn/qkd/key.pem"
+qkd_ca = "/etc/acxelin-vpn/qkd/kme-ca.crt"
+
+[[peer]]
+name = "branch1.acme.example"
+qkd_sae_id = "SAE_BRANCH1"
+```
+
+At every key agreement the initiating site asks its key server for a new 256-bit key for the peer (ETSI GS QKD 014, over
+mutual TLS 1.3) and sends only the key's ID; the peer asks its own key server for the key with that ID. Both mix it into the
+keys from the post-quantum TLS session with HKDF-SHA384. The QKD key adds to those keys and never replaces them, so a QKD link
+alone cannot set a tunnel's keys. If the key server cannot be reached, or a peer configured for QKD arrives without a QKD key,
+the agreement fails and the tunnel keeps its previous keys until it can renew. This has been tested against a simulated key
+server, not against real QKD hardware; key servers that offer only TLS 1.2 are not supported yet.
 
 ## 10. When something goes wrong
 

@@ -184,7 +184,14 @@ def test_who_is_connected_since_when_and_revoking_someone_ends_their_session(app
         gw.expire(Revocation(cfg.crl, cfg.ca))  # what the gateway's watch does every few seconds once it has the new CRL
         people = {p["name"]: p for p in app("people")[1]["people"]}
         assert not people["alice"]["connected"] and people["alice"]["certificate"] == "revoked" and people["bob"]["connected"]
-        assert app("people")[1]["activity"][0] | {"time": None} == {"time": None, "action": "revoke", "name": "alice", "certificates": 1}
+        d = app("people")[1]
+        acts = [{k: v for k, v in a.items() if k != "time"} for a in d["activity"]]
+        assert {"action": "revoke", "name": "alice", "certificates": 1} in acts, "the administrator's revoke"
+        assert any(a["action"] == "revoked, removed" and a["name"] == "alice" and a["gateway"] == "remote access" for a in acts), "the gateway cutting her off"
+        assert any(a["action"] == "connected" and a["name"] == "bob" for a in acts)
+        bob = next(p for p in d["people"] if p["name"] == "bob")
+        assert (bob["bytes_in"], bob["bytes_out"]) == (1, 1) and bob["key_age_s"] is not None and bob["handshake_age_s"] is not None
+        assert d["gateways"][0]["name"] == "remote access" and d["gateways"][0]["up_s"] is not None and not d["gateways"][0]["error"]
         assert app("people/revoke", {"name": "alice"})[0] == 400, "nobody valid by that name is left to revoke"
     finally:
         gw.shutdown()

@@ -180,10 +180,19 @@ class Gateway:
         self.counts = Counter()
         self.leases = json.loads(Path(cfg.state).read_text()) if Path(cfg.state).exists() else {}
         self.server = self.crl_follow = self.revocation = None
+        self.started = time.time()
+
+    def event(self, action, cn, **detail):
+        """The access history: connections, new devices, refusals and removals (not every key renewal), in the gateway's audit log."""
+        try:
+            audit.record(Path(self.cfg.state).parent, action, name=cn, **detail)
+        except OSError as e:
+            log.debug("access history not written: %s", e)
 
     def refuse(self, conn, cn, addr, why, reason=None):
         self.counts["refused"] += 1
         log.warning("keyring: refused %s from %s: %s", cn or "unknown", addr[0], why)
+        self.event("refused", cn or "unknown", source=addr[0], reason=why)
         agreement.send(conn, {"ok": False} | ({"reason": reason} if reason else {}))
 
     def lease(self, cn):
@@ -206,6 +215,7 @@ class Gateway:
                 revoked = "revoked" in str(e)
                 self.counts["revoked_refused" if revoked else "refused"] += 1
                 log.warning("keyring: refused %s from %s: %s", cn, addr[0], e)
+                self.event("refused", cn, source=addr[0], reason="revoked" if revoked else "revocation list unusable")
                 agreement.send(conn, {"ok": False, "reason": "revoked" if revoked else "crl"})
                 return
         msg = read_line(conn)
@@ -230,6 +240,8 @@ class Gateway:
                                 "since": old["since"] if old and old["public"] == pub else now}
         self.counts["key_agreements"] += 1
         log.info("%s: %s at %s, new PSK %s", cn, "rotated" if old else "connected", ip, tag)
+        if not old or old["public"] != pub:
+            self.event("new device" if old else "connected", cn, address=ip, source=addr[0])
         routes = FULL if self.cfg.full_tunnel else [str(self.cfg.network)] + self.cfg.routes
         reply = {"ok": True, "address": f"{ip}/{self.cfg.network.prefixlen}", "gateway": self.cfg.name, "gateway_public": self.public,
                  "endpoint": self.cfg.endpoint, "routes": routes, "dns": self.cfg.dns,
@@ -260,6 +272,7 @@ class Gateway:
                     if key == "revoked" and self.leases.pop(cn, None):
                         write(Path(self.cfg.state), json.dumps(self.leases, indent=1).encode())
                 self.counts[key] += 1
+                self.event("revoked, removed" if key == "revoked" else "disconnected", cn, reason=reason)
                 log.warning("%s: %s; removed", cn, reason)
 
     def start(self):
@@ -321,7 +334,8 @@ class Gateway:
         peers = self.wg.peers()
         return {cn: {"address": c["address"], "keys_age_s": int(time.time() - c["agreed"]), "since": int(c["since"]),
                      "certificate": format(c["serial"], "x"), **peers.get(c["public"], {})}
-                for cn, c in self.clients.items()} | {"_events": dict(self.counts)}
+                for cn, c in self.clients.items()} | {"_events": dict(self.counts),
+                "_gateway": {"started": int(self.started), "history": audit.recent(Path(self.cfg.state).parent, 50)}}
 
     def metrics(self):
         peers, now = self.wg.peers(), time.time()

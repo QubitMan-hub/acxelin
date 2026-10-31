@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- `acxelin-vpn setup NAME`: a remote-access gateway in one step: the CA (or the existing one), the gateway's certificate, the
+  CRL and a checked `gateway.toml`, then the commands that start enrollment and the gateway and invite the first person.
+- Console, People: traffic, when each person's key was last renewed (and the last handshake), gateway uptime, and an access
+  history from each gateway (connected, new device, refused and why, cut off, disconnected) beside the administrator's own
+  actions. Gateways keep that history in an owner-only `audit.jsonl` next to their leases; key renewals are not logged.
+- Site-to-site keys from quantum key distribution: with `qkd_kme` and the other `qkd_` settings in `[site]` and `qkd_sae_id`
+  on a peer, a key from the site's QKD key server (ETSI GS QKD 014, over mutual TLS) is mixed into the IPsec PSK and PPK with
+  HKDF-SHA384. It adds to the post-quantum keys and never replaces them; a missing QKD key stops the agreement instead of
+  weakening it. Tested against a simulated key server, not real QKD hardware.
+- A new invitation now replaces a revoked or expired device certificate, in `join` and in the app. Before, it was ignored once
+  the device had a certificate.
+- Laptops renew their own certificate within 30 days of its end, so they keep working past a year.
+- Security: a gateway whose CRL cannot be used still removes laptops that stopped renewing their key. Before, they kept their
+  last key until the CRL was fixed.
+- Security: one person can no longer take over another's WireGuard key, and the service log of the desktop app never follows
+  a link planted in its folder; the elevated service gets only the package's own folder on its import path.
+- A revoked laptop is told it was revoked (the app and `status` say so) instead of "key agreement message missing".
+- A gateway whose `name` differs from its certificate refuses to start: the laptops would derive a different key.
+- `acxelin-vpn disconnect` stops a running `join`, app or service instead of being undone at the next rotation.
+- Under the kill switch, reconnecting uses the gateway's addresses resolved before DNS was blocked.
+- Revoked people's addresses return to the pool; new `sites` subnets get routes on a live reload; the console uses `./pki`
+  when it exists; a container without forwarding says to add `--sysctl net.ipv4.ip_forward=1`.
+
 - A strict profile, `profile = "cnsa2"`: only the NSA's CNSA 2.0 suite. IKE and ESP use ML-KEM-1024 alone with AES-256-GCM
   and SHA-384, and the gateways' key agreement allows only ML-KEM-1024, ML-DSA-87 certificates and AES-256; a gateway whose
   certificate is not ML-DSA-87 refuses to start. Every peer of a site uses it or none. The CBOM lists the strict key agreement

@@ -434,6 +434,21 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(self.wg.peers_[alice.public]["psk"], psk)
         self.assertEqual(self.gw.clients["alice"]["address"], "10.99.0.2")
 
+    def test_the_access_history_records_connections_refusals_and_removals_but_not_renewals(self):
+        from acxelin_vpn import audit
+        alice = self.client("alice")
+        alice.agree()
+        alice.agree()  # a renewal: not an event
+        with self.assertRaises(tls.TLSError):
+            self.client("mallory").agree()
+        self.gw.clients["alice"]["agreed"] -= 3600
+        self.gw.expire(self.gw.revocation)
+        events = [(e["action"], e["name"]) for e in reversed(audit.recent(self.d, 20))]
+        self.assertEqual(events, [("connected", "alice"), ("refused", "mallory"), ("disconnected", "alice")])
+        status = self.gw.status()["_gateway"]
+        self.assertLessEqual(status["started"], time.time())
+        self.assertEqual(status["history"][0]["action"], "disconnected")
+
     def test_a_gateway_whose_name_differs_from_its_certificate_does_not_start(self):
         import dataclasses
         with self.assertRaisesRegex(ValueError, "vpn.acme.example.*localhost"):

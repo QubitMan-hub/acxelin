@@ -139,21 +139,29 @@ async function peopleView() {
     h("div", {id: "people-list"})));
   await paintPeople();
 }
-const ACTIONS = {create: "Created the certificate authority", invite: "Invited", revoke: "Revoked", enroll: "Enrolled", renew: "Renewed", "enrollment refused": "Refused an enrollment for"};
+const ACTIONS = {create: "Created the certificate authority", invite: "Invited", revoke: "Revoked", enroll: "Enrolled", renew: "Renewed", "enrollment refused": "Refused an enrollment for",
+  connected: "Connected:", "new device": "New device for", refused: "Refused", "revoked, removed": "Cut off (revoked):", disconnected: "Disconnected:"};
+const bytes = (n) => n == null ? "" : n < 1e3 ? n + " B" : n < 1e6 ? (n / 1e3).toFixed(1) + " kB" : n < 1e9 ? (n / 1e6).toFixed(1) + " MB" : (n / 1e9).toFixed(2) + " GB";
+const span = (s) => s == null ? "" : s < 120 ? s + " s" : s < 7200 ? Math.round(s / 60) + " min" : s < 172800 ? Math.round(s / 3600) + " h" : Math.round(s / 86400) + " days";
 async function paintPeople() {
   const out = $("#people-list");
   if (!out) return;
   let d; try { d = await call("people"); } catch (e) { return; }
   const rows = d.people.map((p) => h("tr", {}, h("td", {}, p.name),
     h("td", {}, p.connected ? pill("ok", "Connected") : p.agreed ? pill("warn", "Keys agreed, no handshake") : pill("mute", "Not connected")),
-    h("td", {class: "num"}, p.connected ? when(p.since) : ""), h("td", {}, p.address || ""),
+    h("td", {class: "num"}, p.connected ? when(p.since) : ""),
+    h("td", {class: "num"}, p.agreed ? "↓ " + bytes(p.bytes_in) + " ↑ " + bytes(p.bytes_out) : ""),
+    h("td", {class: "num", title: p.handshake_age_s == null ? "" : "last WireGuard handshake " + span(p.handshake_age_s) + " ago"}, p.key_age_s == null ? "" : span(p.key_age_s) + " ago"),
+    h("td", {}, p.address || ""),
     h("td", {}, p.certificate === "valid" ? pill("ok", "Valid") : p.certificate === "revoked" ? pill("bad", "Revoked") : pill("mute", "Unknown")),
     h("td", {}, p.certificate === "valid" ? revokeButton(p) : "")));
-  out.replaceChildren(d.gateways.length ? "" : h("p", {class: "legend", style: "margin:0 0 12px"}, "Who is connected now shows once you add a gateway."),
-    d.people.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "People, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Person", "Now", "Since", "Address", "Certificate", "Action"].map((c) => h("th", {}, c)))), h("tbody", {}, rows)))
+  out.replaceChildren(d.gateways.length ? h("p", {class: "legend", style: "margin:0 0 12px"}, d.gateways.map((g) => g.error ? g.name + ": not answering. " : g.name + (g.up_s == null ? "" : ": up " + span(g.up_s)) + ". "))
+      : h("p", {class: "legend", style: "margin:0 0 12px"}, "Who is connected now shows once you add a gateway."),
+    d.people.length ? h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "People, scrolls sideways"}, h("table", {}, h("thead", {}, h("tr", {}, ["Person", "Now", "Since", "Traffic", "Key renewed", "Address", "Certificate", "Action"].map((c) => h("th", {}, c)))), h("tbody", {}, rows)))
       : h("p", {class: "empty"}, "Nobody yet. Use Invite someone to add the first person."),
     h("h2", {style: "margin-top:26px"}, "Recent activity"),
-    d.activity.length ? h("ul", {class: "acts"}, d.activity.map((a) => h("li", {}, h("span", {class: "mute"}, (a.time || "").replace("T", " ").replace("Z", " UTC")), " ", (ACTIONS[a.action] || a.action) + " " + (a.name || ""))))
+    d.activity.length ? h("ul", {class: "acts"}, d.activity.map((a) => h("li", {}, h("span", {class: "mute"}, (a.time || "").replace("T", " ").replace("Z", " UTC")), " ",
+      (ACTIONS[a.action] || a.action) + " " + (a.name || "") + (a.reason ? " (" + a.reason + ")" : "") + (a.gateway ? " · " + a.gateway : ""))))
       : h("p", {class: "empty"}, "Nothing yet."));
 }
 function revokeButton(p) {

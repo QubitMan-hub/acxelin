@@ -271,7 +271,8 @@ The files in `/etc/acxelin-tls` must be readable by user 10001. Publish the cons
 ### Keeping the CA safe
 
 - The CA key is encrypted by default. Keep the passphrase in your password manager, not on the server.
-- Keep the root offline and issue from an intermediate: `acxelin-tls ca init --name "Example Issuing CA" --parent ROOT_DIR --dir issuing`. If the issuing CA is compromised, the root revokes it and makes a new one.
+- Keep the root offline and issue from an intermediate: `acxelin-tls ca init --name "Example Issuing CA" --parent ROOT_DIR --dir issuing`. If the issuing CA is compromised, the root revokes it and makes a new one. A certificate is only checked against the CRL of the CA that issued it, so give an edge the intermediate's CRL; to let the root's revocation of the intermediate count too, put both in one file: `cat issuing/crl.pem pki/crl.pem > crls.pem`, and use `issuing/chain.pem` as `ca`.
+- An `originate` edge listens on 127.0.0.1 unless you give `--listen`: anyone who can reach its port is tunnelled in with its client certificate, so keep it local or firewalled.
 - The CA key can stay in a hardware security module: `--kms KEY_ID` keeps it in AWS KMS (install the `kms` extra), and `--signer-command` hands each signature to your HSM's own tool. Neither has been run against a real HSM or cloud account here, so test it with yours first.
 
 ### Monitoring

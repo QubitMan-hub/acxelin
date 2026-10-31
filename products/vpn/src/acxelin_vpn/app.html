@@ -301,7 +301,9 @@ function render(s) {
     protected: scope,
     connecting: "Keys are agreed with the gateway. Waiting for the tunnel's first handshake.",
     agreed: "Keys were agreed, but no tunnel is configured (started with --no-apply), so this computer is not protected.",
-    not_protected: (st.error || "Not connected yet") + ". Trying again automatically" + (st.renewal_failures > 1 ? " (" + st.renewal_failures + " tries in a row" +
+    not_protected: /revoked/.test(st.error || "") ? "Your access was revoked, so this computer is not protected. Disconnect, then open the new invitation your administrator sends."
+      : /revocation list/.test(st.error || "") ? "The gateway cannot check revocations right now, so it lets no one in. Tell your administrator; this keeps trying meanwhile."
+      : (st.error || "Not connected yet") + ". Trying again automatically" + (st.renewal_failures > 1 ? " (" + st.renewal_failures + " tries in a row" +
       (st.last_key_s != null ? "; the last good key was agreed " + ago(st.last_key_s) : "") + ")" : "") + "." + (st.full_tunnel ? " Internet traffic stays blocked meanwhile." : ""),
     disconnected: s.enrolled ? "Enter your passphrase to connect." : "Choose a passphrase for this computer, then connect.",
   }[state] || "";

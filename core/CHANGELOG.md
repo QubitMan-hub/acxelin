@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Security: a certificate is cleared only by a CRL from the CA that issued it. Before, a root's CRL also cleared a certificate
+  an intermediate CA had revoked. `Revocation.check` and `check_revocation` take the certificate's issuer for this.
+- A CRL file may hold several CRLs (an intermediate's and the root's), so the root's list revokes an intermediate and every
+  certificate under it.
+- TLS sessions resumed without a verified chain are checked against the issuing CAs seen in earlier full handshakes, so
+  clients of an intermediate CA are no longer refused on resumption.
+- When a CRL comes from a CA that is not in the CA file, the error names it and says to give the chain.
+- Day and hour counts on the command line are limited to 36,500, so `inf` or a huge number is refused instead of crashing.
+
 ## 1.1.0
 
 - Consoles read a request's body only after its session is checked (sign-in excepted), so an unauthenticated request never

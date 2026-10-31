@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- The console follows the repository's `.acxelin-readiness.toml` (exclusions, years of secrecy, migration years, threshold),
+  as `scan` does; a GitHub download's own file is not trusted.
+- Board summary: the trend compares the same projects then and now, and "nothing to change" is never listed as an action.
+- Third-party libraries are listed per version, so an old version is not hidden behind a newer one.
+- A file whose name merely contains "test" (attestation.py, latest/) is not treated as a test.
+- `report --certs` names ECDSA, DSA and EdDSA keys correctly (DSA and RSA under 2048 bits need action now) and reads DER files.
+- Owners spreadsheets: a UTF-8 byte order mark, Windows-1252 text, ServiceNow criticality ("1 - most critical"),
+  backslashes and `./` in paths all work. A CODEOWNERS `dir/*` rule matches only that folder's own files.
+- Findings only in tests are not counted as new or gone after a rescan.
+- A damaged workspace is kept aside and the console starts with an empty one; a damaged settings file asks for the folder again.
+- Line numbers such as "12-14" in another tool's CBOM are read; a GitHub organisation import stops at 200 and says how many
+  it left out; a project with an RC2 finding no longer stops the console from opening.
+
 ## 1.1.0
 
 - IoT and industrial systems: OPC UA security policies (Basic128Rsa15 to ECC_curve448) are read from code, by their URI, and from

@@ -53,7 +53,7 @@
 <div class="split">
 <div>
 <h2 id="console">The console, for the administrator</h2>
-<p>Each site's tunnels with their key exchange, encryption and last rotation; who is connected and since when; invitations and revocations, each written to an owner-only audit log; and health checks that say what to do.</p>
+<p>Each site's tunnels with their key exchange, encryption and last rotation; who is connected, since when, their traffic and when their key was last renewed; an access history from each gateway (connections, refusals and why, people cut off) beside the invitations and revocations, each in an owner-only audit log; and health checks that say what to do.</p>
 </div>
 <div>
 <p>It runs on the administrator's machine and listens there only. Revoking someone takes two clicks, and their tunnel is cut at the gateway's next check.</p>
@@ -87,7 +87,7 @@
 <div class="close">
 <div>
 <h2 id="start">Connect two sites and a laptop</h2>
-<p>The set-up guide goes from the authority to a protected laptop, with the commands for each step.</p>
+<p>For remote access alone, <code>acxelin-vpn setup vpn.example.com</code> creates the authority, the gateway's certificate and a checked configuration in one step. The set-up guide goes from the authority to a protected laptop, with the commands for each step. Sites joined by quantum key distribution can mix its keys in (ETSI GS QKD 014).</p>
 </div>
 <div class="actions"><a class="btn primary" href="set-up.html">Check and install</a><a class="btn" href="https://acxelinquantum.com/">Talk to Acxelin Quantum</a></div>
 </div>

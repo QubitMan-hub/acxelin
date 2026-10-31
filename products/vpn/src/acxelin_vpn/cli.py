@@ -41,8 +41,8 @@ def cmd_vpn(a):
         path = platforms.folder() / f"{a.interface}.status.json"
         if path.exists():
             return laptop_status(path, a)
-    if a.cmd in ("invite", "join", "app", "desktop"):
-        return {"invite": cmd_invite, "join": cmd_join, "app": cmd_app, "desktop": cmd_desktop}[a.cmd](a)
+    if a.cmd in ("invite", "join", "app", "desktop", "setup"):
+        return {"invite": cmd_invite, "join": cmd_join, "app": cmd_app, "desktop": cmd_desktop, "setup": cmd_setup}[a.cmd](a)
     try:
         ch = Charon(load_config(a.config).vici if a.config else a.vici or "unix:///var/run/charon.vici")
     except CharonError:
@@ -74,6 +74,16 @@ def laptop_status(path, a):
         s |= {"state": "stopped", "last_seen": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(s.get("updated", 0)))}
     print(json.dumps(s, indent=1) if a.json else describe_vpn(s, a.details))
     return 0 if s["state"] == "protected" else 1
+
+
+def cmd_setup(a):
+    from . import setup
+    from .ca_commands import ca_passphrase
+    pki = Path(a.dir) / "pki"
+    passphrase = None if a.no_encrypt else ca_passphrase(pki, new=not (pki / "ca.crt").exists())
+    conf = setup.gateway(a.dir, a.name, a.address, a.pool, a.route, a.dns, a.full_tunnel, passphrase, a.force)
+    print(setup.next_steps(conf, a.name))
+    return 0
 
 
 def cmd_invite(a):
@@ -357,6 +367,16 @@ def parser():
         if name == "status":
             p.add_argument("--interface", default="wg0", help="the computer's tunnel to report on (default: wg0)")
             p.add_argument("--details", action="store_true", help="also show algorithms, handshake and key timing")
+    p = v.add_parser("setup", help="administrator: a remote-access gateway in one step (CA, certificate, checked gateway.toml, next commands)")
+    p.add_argument("name", help="the name laptops reach the gateway by, such as vpn.acme.example")
+    p.add_argument("--address", help="its public IP address, if laptops should use it rather than the name")
+    p.add_argument("--dir", default="acxelin-vpn", help="where to keep everything (default: ./acxelin-vpn)")
+    p.add_argument("--pool", default="10.99.0.0/24", help="addresses for laptops (default: 10.99.0.0/24)")
+    p.add_argument("--route", action="append", default=[], help="a network behind the gateway that laptops reach (repeatable)")
+    p.add_argument("--dns", action="append", default=[], help="a DNS server for laptops (repeatable)")
+    p.add_argument("--full-tunnel", action="store_true", help="send all of the laptops' traffic through the gateway, with a kill switch")
+    p.add_argument("--no-encrypt", action="store_true", help="leave a new CA key unencrypted (by default it is encrypted)")
+    p.add_argument("--force", action="store_true", help="replace an existing gateway.toml and gateway certificate (the CA is kept)")
     p = v.add_parser("invite", parents=[common], help="administrator: one file that lets a person enroll and connect with `join`")
     p.add_argument("name", help="the person's or device's certificate name (also add it to the gateway's users list, if it has one)")
     p.add_argument("--enroll", required=True, metavar="URL", help="the enrollment service, https://host:9443 (see `ca serve`)")
