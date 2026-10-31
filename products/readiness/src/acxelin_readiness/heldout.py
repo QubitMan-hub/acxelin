@@ -112,12 +112,27 @@ def evaluate(benchmark, layouts=LAYOUTS, categories=CATEGORIES):
     return out
 
 
+def algorithm_source(benchmark, result, layout="neutral", rule="strict"):
+    """After the fact, descriptive only: how many tests read the algorithm name from benchmark.properties (a static scan of one file cannot know it) and how many of the
+    errors are among them. Not one of the registered rates."""
+    names = {n for group in ("missed", "false_alarms") for n in result["results"][layout][rule]["overall"][group]}
+    expected = load_expected(Path(benchmark) / "expectedresults-1.2.csv")
+    counts = {"property": [0, 0], "literal": [0, 0]}  # [tests, errors]
+    for name in expected:
+        text = (Path(benchmark) / CODE / f"{name}.java").read_text(encoding="utf-8", errors="replace")
+        kind = "property" if "getProperty" in text and "benchmark.properties" in text else "literal"
+        counts[kind][0] += 1
+        counts[kind][1] += name in names
+    return {k: {"tests": t, "errors": e} for k, (t, e) in counts.items()}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--benchmark", required=True, help="a checkout of OWASP-Benchmark/BenchmarkJava")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     result = evaluate(a.benchmark)
+    result["after_the_fact"] = {"algorithm_source (neutral, strict)": algorithm_source(a.benchmark, result)}
     Path(a.out).write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")
     for layout, block in result["results"].items():
         for rule in RULES:

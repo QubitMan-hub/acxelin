@@ -1,6 +1,7 @@
 """The held-out evaluation's arithmetic and plumbing, on a tiny synthetic stand-in (the real set is GPL-2.0 and is never copied into this repository)."""
 import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -85,3 +86,28 @@ def test_the_whole_evaluation_on_the_stand_in_records_what_a_reader_needs(tmp_pa
     for key in ("readiness_version", "readiness_commit", "benchmark_commit", "rules", "layouts", "protocol"):
         assert key in out
     json.dumps(out)
+
+
+def test_the_split_by_algorithm_source_counts_tests_and_errors(tmp_path):
+    bm = checkout(tmp_path, ["BenchmarkTest00002", "BenchmarkTest00003"])
+    (bm / heldout.CODE / "BenchmarkTest00003.java").write_text('class Y { String a = benchmark.getProperty("benchmark.properties"); }\n', encoding="utf-8")
+    write_csv(bm / "expectedresults-1.2.csv", [("BenchmarkTest00002", "crypto", "true", 327), ("BenchmarkTest00003", "hash", "false", 328)])
+    result = heldout.evaluate(bm, layouts=("neutral",))
+    assert heldout.algorithm_source(bm, result) == {"property": {"tests": 1, "errors": 0}, "literal": {"tests": 1, "errors": 0}}
+
+
+RESULT = Path(__file__).resolve().parents[1] / "heldout" / "results" / "owasp-1.2-readiness-1.1.1.json"
+
+
+def test_the_recorded_result_is_internally_consistent_and_names_what_it_measured():
+    r = json.loads(RESULT.read_text(encoding="utf-8"))
+    for key in ("readiness_version", "readiness_commit", "benchmark_commit", "population", "rules", "layouts"):
+        assert r[key], key
+    assert sum(r["population"].values()) == 482
+    for layout, block in r["results"].items():
+        for rule in ("strict", "broad"):
+            for group, g in block[rule].items():
+                assert heldout.rates(g["confusion"]) == g["rates"], f"{layout}/{rule}/{group}: the rates do not follow from the confusion matrix"
+                assert sum(g["confusion"].values()) == (482 if group == "overall" else r["population"][group])
+            assert len(block[rule]["overall"]["missed"]) == block[rule]["overall"]["confusion"]["fn"]
+            assert len(block[rule]["overall"]["false_alarms"]) == block[rule]["overall"]["confusion"]["fp"]
