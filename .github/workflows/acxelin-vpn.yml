@@ -25,6 +25,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.14"]
     runs-on: ${{ matrix.os }}
+    env:
+      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5' || '' }}  # Ubuntu's own OpenSSL is 3.0 on purpose: doctor must refuse it. The Debian 13 job runs the full suite on 3.5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -33,8 +35,8 @@ jobs:
       - name: OpenSSL 3.5+ (Homebrew on macOS, Chocolatey on Windows; Linux runs the tunnels job with its own build)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"; fi
-          if [ "$RUNNER_OS" = Windows ]; then choco install openssl -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3.5 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = Windows ]; then choco install openssl --version=3.5.9 -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
       - run: pip install ./core "./products/vpn[vpn,desktop,test]"
       - name: Playwright's Chromium and axe-core, for the console and app window journeys
         shell: bash
@@ -100,7 +102,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: brew install openssl@3 wireguard-tools && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
+      - run: brew install openssl@3.5 wireguard-tools && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV" && echo "ACXELIN_REQUIRE_OPENSSL=3.5" >> "$GITHUB_ENV"
       - run: pip install ./core "./products/vpn[test]"
       - name: VPN client with Homebrew's WireGuard, a real tunnel brought up, rotated and removed; a skip fails the step
         run: |
@@ -144,17 +146,17 @@ jobs:
       - name: Two sites in network namespaces, real ESP traffic
         run: |
           sudo modprobe -a esp4 xfrm_user || true
-          sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib ACXELIN_STRONGSWAN=/opt/pqc ACXELIN_VPN_DATAPLANE=1 \
+          sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib ACXELIN_REQUIRE_OPENSSL=3.5 ACXELIN_STRONGSWAN=/opt/pqc ACXELIN_VPN_DATAPLANE=1 \
             python -m pytest products/vpn/tests/test_vpn.py -v -rs
       - name: WireGuard remote access in network namespaces, real traffic
         run: |
           set -o pipefail
           sudo modprobe wireguard || true
-          sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib python -m pytest products/vpn/tests/test_wireguard.py -v -rs 2>&1 | tee wg.log
+          sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib ACXELIN_REQUIRE_OPENSSL=3.5 python -m pytest products/vpn/tests/test_wireguard.py -v -rs 2>&1 | tee wg.log
           grep -q "test_traffic_rotation_and_revocation PASSED" wg.log
           grep -q "test_all_traffic_through_the_tunnel_recovery_and_kill_switch PASSED" wg.log
       - name: VPN demo (branch over IPsec, laptop over WireGuard)
-        run: sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib ACXELIN_STRONGSWAN=/opt/pqc python products/vpn/demo.py --auto
+        run: sudo -E env "PATH=$PATH" LD_LIBRARY_PATH=/opt/pqc/lib ACXELIN_OPENSSL=/opt/pqc/lib ACXELIN_REQUIRE_OPENSSL=3.5 ACXELIN_STRONGSWAN=/opt/pqc python products/vpn/demo.py --auto
   installers:
     strategy:
       fail-fast: false

@@ -25,6 +25,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.14"]
     runs-on: ${{ matrix.os }}
+    env:
+      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5' || '' }}  # Ubuntu's own OpenSSL is 3.0 on purpose: doctor must refuse it. The Debian 13 job runs the full suite on 3.5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -33,8 +35,8 @@ jobs:
       - name: OpenSSL 3.5+ (Homebrew on macOS, Chocolatey on Windows; Linux runs the Debian 13 job for the full TLS suite)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"; fi
-          if [ "$RUNNER_OS" = Windows ]; then choco install openssl -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3.5 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = Windows ]; then choco install openssl --version=3.5.9 -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
       - name: A second loopback address, as Linux has, for the per-host limit test
         if: runner.os == 'macOS'
         run: sudo ifconfig lo0 alias 127.0.0.2 up
@@ -68,6 +70,8 @@ jobs:
     # Debian 13's system OpenSSL is 3.5, so every TLS test runs here instead of being skipped
     runs-on: ubuntu-latest
     container: python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+    env:
+      ACXELIN_REQUIRE_OPENSSL: "3.5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Real services for the scenario tests (nginx, Redis, MQTT, PostgreSQL) and OpenSSL's own client

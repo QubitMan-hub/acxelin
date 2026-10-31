@@ -27,7 +27,8 @@ python -m pytest -q products/vpn/tests
 ```
 
 Run the pytest commands separately: the products each have a `test_install.py`, which clash in one run. Installer tests
-run with `ACXELIN_INSTALL_TEST=1`. Readiness's labelled corpus (`products/readiness/bench`) is a quality gate: precision and
+run with `ACXELIN_INSTALL_TEST=1`. CI pins OpenSSL 3.5 (the LTS line customers run) with `ACXELIN_REQUIRE_OPENSSL=3.5`: a different or
+unloadable OpenSSL stops the run instead of skipping the tests that need 3.5; set it yourself to get the same on your machine. Readiness's labelled corpus (`products/readiness/bench`) is a quality gate: precision and
 recall must not drop, and `truth.json` changes only in commits titled `truth:` that the owner approves.
 
 ## Releases
