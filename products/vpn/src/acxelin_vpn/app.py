@@ -72,7 +72,7 @@ class App:
             raise ValueError("disconnect before opening another invitation")
         if path.exists() and join.read(path)["name"] != inv["name"]:
             raise ValueError(f"{path.name} already holds an invitation for someone else; rename the file and open it again")
-        if not path.exists():
+        if not path.exists() or "token" in inv:  # a new invitation for the same person replaces the used one
             write(path, text.encode(), secret=True)
         with self.lock:
             self.invitation = path

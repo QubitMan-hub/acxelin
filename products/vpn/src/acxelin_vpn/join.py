@@ -55,12 +55,16 @@ def device_for(invitation, device=None):
 
 
 def must_enroll(inv, device):
-    """True when this machine still needs a certificate; refuses a used or expired invitation."""
-    if (Path(device) / "cert.pem").exists():
-        return False
+    """True when the invitation's one-time token should be used: this machine has no certificate yet, or the administrator sent
+    a new invitation (after a revocation, or for a certificate that ran out), which replaces the old certificate."""
+    has = (Path(device) / "cert.pem").exists()
     if "token" not in inv:
+        if has:
+            return False
         raise ValueError(f"this invitation was already used and {device} holds no certificate; ask your administrator for a new invitation")
     if dt.datetime.fromisoformat(inv["expires"]) < dt.datetime.now(dt.timezone.utc):
+        if has:
+            return False
         raise ValueError(f"this invitation expired at {inv['expires']}; ask your administrator for a new one")
     return True
 
@@ -87,5 +91,9 @@ def enroll(inv, device, invitation, passphrase):
     device.mkdir(parents=True, exist_ok=True)
     est.fetch_ca(inv["enroll"], inv["ca_fingerprint"], device / "ca.crt")
     cert = est.enroll(inv["enroll"], inv["token"], inv["name"], (), device, device / "ca.crt", passphrase=passphrase)
+    write(device / "enroll.url", inv["enroll"].encode())  # where the certificate is renewed before it runs out
     write(Path(invitation), json.dumps({k: inv[k] for k in FIELDS if k in inv}, indent=1).encode(), secret=True)
+    if os.name != "nt" and os.geteuid() == 0 and os.environ.get("SUDO_UID"):  # run with sudo: leave the person's files theirs
+        for p in (Path(invitation), *device.rglob("*"), device):
+            os.chown(p, int(os.environ["SUDO_UID"]), int(os.environ.get("SUDO_GID", os.environ["SUDO_UID"])))
     return cert

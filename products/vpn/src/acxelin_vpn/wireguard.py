@@ -34,6 +34,7 @@ from acxelin_core.config import build, env_passphrase, read_toml
 from acxelin_core.files import write
 from acxelin_core.http import explain, hostport
 from acxelin_core.pki import CAError, algorithm_of, follow_crl
+from acxelin_core.server import Revocation
 
 from . import agreement, audit
 from .agreement import TAG, common_name, read_line
@@ -89,7 +90,13 @@ def ensure_interface(name, address, routes=()):
 def forward(interface, pool, on=True):
     """Linux, full tunnel: route clients' traffic onwards, NAT it to the gateway's own address, and let the replies back."""
     if on:
-        Path("/proc/sys/net/ipv4/ip_forward").write_text("1")
+        flag = Path("/proc/sys/net/ipv4/ip_forward")
+        try:
+            flag.write_text("1")
+        except OSError:  # read-only in a container: fine if it is already on
+            if flag.read_text().strip() != "1":
+                raise WGError("full tunnel needs IP forwarding, and /proc/sys is read-only here: start the container with "
+                              "--sysctl net.ipv4.ip_forward=1") from None
     rules = [["-t", "nat", "POSTROUTING", "-s", pool, "!", "-o", interface, "-j", "MASQUERADE"], ["FORWARD", "-i", interface, "-j", "ACCEPT"],
              ["FORWARD", "-o", interface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"]]
     for rule in rules:
@@ -172,7 +179,12 @@ class Gateway:
         self.clients = {}
         self.counts = Counter()
         self.leases = json.loads(Path(cfg.state).read_text()) if Path(cfg.state).exists() else {}
-        self.server = self.crl_follow = None
+        self.server = self.crl_follow = self.revocation = None
+
+    def refuse(self, conn, cn, addr, why, reason=None):
+        self.counts["refused"] += 1
+        log.warning("keyring: refused %s from %s: %s", cn or "unknown", addr[0], why)
+        agreement.send(conn, {"ok": False} | ({"reason": reason} if reason else {}))
 
     def lease(self, cn):
         if cn not in self.leases:
@@ -187,29 +199,34 @@ class Gateway:
     def respond(self, conn, addr):
         cert = conn.peer_certificate()
         cn = common_name(cert)
+        if self.revocation:  # checked here rather than by the server, so a revoked laptop is told why
+            try:
+                self.revocation.check(cert.serial_number, conn.peer_chain()[1:], cert.issuer)
+            except CAError as e:
+                revoked = "revoked" in str(e)
+                self.counts["revoked_refused" if revoked else "refused"] += 1
+                log.warning("keyring: refused %s from %s: %s", cn, addr[0], e)
+                agreement.send(conn, {"ok": False, "reason": "revoked" if revoked else "crl"})
+                return
         msg = read_line(conn)
         pub, tag = str(msg.get("public", "")), str(msg.get("tag", ""))
         if (self.cfg.users and cn not in self.cfg.users) or not valid_key(pub) or not TAG.match(tag) or pub == self.public:
-            self.counts["refused"] += 1
-            log.warning("keyring: refused %s from %s", cn or "unknown", addr[0])
-            agreement.send(conn, {"ok": False})
-            return
+            return self.refuse(conn, cn, addr, "not allowed, or a malformed request")
+        if any(other != cn and c["public"] == pub for other, c in self.clients.items()):
+            return self.refuse(conn, cn, addr, "its WireGuard key belongs to another person")
         psk = agreement.wireguard_psk(conn, self.cfg.name, cn, tag, pub, self.public)
         with self.lock:
             try:
                 ip = self.lease(cn)
             except CAError as e:
-                self.counts["refused"] += 1
-                log.warning("keyring: refused %s: %s", cn, e)
-                agreement.send(conn, {"ok": False})
-                return
+                return self.refuse(conn, cn, addr, str(e))
             old = self.clients.get(cn)
             self.wg.set_peer(pub, b64(psk), [f"{ip}/32"] + self.cfg.sites.get(cn, []))
             if old and old["public"] != pub:
                 self.wg.remove_peer(old["public"])
                 self.counts["replaced_devices"] += 1
             now = time.time()
-            self.clients[cn] = {"public": pub, "serial": cert.serial_number, "agreed": now, "address": ip, "tag": tag,
+            self.clients[cn] = {"public": pub, "serial": cert.serial_number, "issuer": cert.issuer, "agreed": now, "address": ip, "tag": tag,
                                 "since": old["since"] if old and old["public"] == pub else now}
         self.counts["key_agreements"] += 1
         log.info("%s: %s at %s, new PSK %s", cn, "rotated" if old else "connected", ip, tag)
@@ -226,12 +243,12 @@ class Gateway:
             reason = None
             if revocation:
                 try:
-                    revocation.check(c["serial"])
+                    revocation.check(c["serial"], (), c.get("issuer"))
                 except CAError as e:
-                    if "revoked" not in str(e):
-                        log.error("CRL problem, keeping clients as they are: %s", e)
-                        return
-                    reason, key = str(e), "revoked"
+                    if "revoked" in str(e):
+                        reason, key = str(e), "revoked"
+                    else:  # an unusable CRL cannot clear anyone, but laptops that stopped renewing still go
+                        log.error("CRL problem: %s", e)
             if not reason and c["agreed"] < stale:
                 reason, key = "stopped renewing its key", "expired"
             if reason:
@@ -240,11 +257,17 @@ class Gateway:
                         continue
                     self.wg.remove_peer(c["public"])
                     self.clients.pop(cn)
+                    if key == "revoked" and self.leases.pop(cn, None):
+                        write(Path(self.cfg.state), json.dumps(self.leases, indent=1).encode())
                 self.counts[key] += 1
                 log.warning("%s: %s; removed", cn, reason)
 
     def start(self):
         c = self.cfg
+        held = common_name(x509.load_pem_x509_certificates(Path(c.cert).read_bytes())[0])
+        if held != c.name:
+            raise ValueError(f"the gateway's name is {c.name!r} but its certificate is for {held!r}: laptops derive their key from the "
+                             "certificate's name, so set name to it (or issue a certificate for the name)")
         if c.manage_interface:
             ensure_interface(c.interface, f"{c.address}/{c.network.prefixlen}", [n for v in c.sites.values() for n in v])
             if c.full_tunnel:
@@ -254,13 +277,14 @@ class Gateway:
             self.wg.remove_peer(stale)
         if c.crl_url:
             self.crl_follow = follow_crl(c.crl_url, c.crl, c.ca, c.crl_every)
-        self.server = agreement.keyring(c.keyring_listen, c.cert, c.key, c.ca, self.respond, c.crl,
+        self.revocation = Revocation(c.crl, c.ca) if c.crl else None
+        self.server = agreement.keyring(c.keyring_listen, c.cert, c.key, c.ca, self.respond, None,
                                         lambda: env_passphrase(c.key_passphrase_env), max_connections=256)
 
         def watch():
             while not self.stop.wait(min(15, c.rotate_minutes * 30)):
                 try:
-                    self.expire(self.server.revocation)
+                    self.expire(self.revocation)
                 except (WGError, OSError) as e:
                     log.error("expiry check failed: %s", e)
         threading.Thread(target=watch, daemon=True, name="expiry").start()
@@ -280,6 +304,8 @@ class Gateway:
         users no longer listed; False when anything else changed and the gateway has to restart."""
         if any(getattr(self.cfg, k) != v for k, v in vars(new).items() if k not in LIVE):
             return False
+        if new.sites != self.cfg.sites and new.manage_interface:  # routes to the subnets behind newly listed sites
+            ensure_interface(new.interface, f"{new.address}/{new.network.prefixlen}", [n for v in new.sites.values() for n in v])
         self.cfg = new
         for cn, c in list(self.clients.items()):
             if new.users and cn not in new.users:
@@ -333,12 +359,19 @@ class Client:
         self.details, self.on_status = {}, on_status
         self.ks_on, self.ks_changed = False, None
         self.status_file = status_file or (Path(tunnel.folder) / f"{interface}.status.json" if apply and hasattr(tunnel, "folder") else None)
+        self.stop_file = Path(tunnel.folder) / f"{interface}.disconnect" if apply and hasattr(tunnel, "folder") else None
+        self.renew_url = (self.dir / "enroll.url").read_text().strip() if (self.dir / "enroll.url").exists() else None
+        self.renewed_at, self.pins = 0.0, {}
 
     def agree(self):
         tag = agreement.new_tag()
-        with agreement.dial((self.host, self.port), self.ca, self.dir / "chain.pem", self.dir / "key.pem", self.passphrase, self.server_name, 15) as conn:
+        with agreement.dial((self.pin(self.host), self.port), self.ca, self.dir / "chain.pem", self.dir / "key.pem", self.passphrase, self.server_name, 15) as conn:
             agreement.send(conn, {"v": 1, "public": self.public, "tag": tag})
             reply = read_line(conn)
+            if reply.get("reason") == "revoked":
+                raise tls.TLSError("this computer's certificate has been revoked: ask your administrator for a new invitation")
+            if reply.get("reason") == "crl":
+                raise tls.TLSError("the gateway cannot read its revocation list, so it lets no one in: tell your administrator")
             if reply.get("ok") is not True or not valid_key(str(reply.get("gateway_public", ""))):
                 raise tls.TLSError("the gateway refused the key agreement (is this certificate allowed?)")
             peer = conn.peer_certificate()
@@ -346,11 +379,37 @@ class Client:
             self.details = {"tls_group": conn.group, "gateway_certificate": algorithm_of(peer.public_key()), "gateway": common_name(peer)}
         return reply, b64(psk)
 
+    def pin(self, host):
+        """The address to reach `host` at. While the kill switch blocks DNS, the addresses resolved before it went on."""
+        if self.ks_on and self.pins.get(host):
+            return self.pins[host][0]
+        try:
+            self.pins[host] = addresses(host)
+        except OSError:
+            if not self.pins.get(host):
+                raise
+        return self.pins[host][0]
+
+    def renew(self):
+        """Renew this computer's certificate within 30 days of its end, checked twice a day, so a laptop keeps working past a year."""
+        if not self.renew_url or time.time() - self.renewed_at < 43200:
+            return
+        self.renewed_at = time.time()
+        from acxelin_core.pki import est
+        try:
+            if est.renew(self.renew_url, self.dir, within_days=30, passphrase=self.passphrase):
+                log.info("this computer's certificate was renewed")
+        except (CAError, tls.TLSError, OSError, ValueError) as e:
+            log.warning("certificate renewal failed (%s); trying again later", explain(e))
+
     def apply(self, reply, psk):
         if self.apply_:
             shape = {k: reply[k] for k in ("address", "routes", "dns", "endpoint", "gateway_public")}
             if self.applied != shape or not self.tunnel.up_:
-                self.tunnel.up(wg_quick(self.private, reply | {"routes": self.tunnel.routes(reply["routes"])}, psk))
+                host, port = hostport(reply["endpoint"])
+                pinned = self.pin(host) if "0.0.0.0/0" in reply["routes"] else None  # wg-quick cannot resolve names under the kill switch
+                endpoint = (f"[{pinned}]:{port}" if ":" in pinned else f"{pinned}:{port}") if pinned else reply["endpoint"]
+                self.tunnel.up(wg_quick(self.private, reply | {"routes": self.tunnel.routes(reply["routes"]), "endpoint": endpoint}, psk))
                 self.applied = shape
             else:
                 self.tunnel.wg().set_psk(reply["gateway_public"], psk)
@@ -386,6 +445,12 @@ class Client:
 
     def step(self):
         """One pass of the loop; returns how long to wait before the next."""
+        if self.stop_file and self.stop_file.exists():  # `acxelin-vpn disconnect` asked this client to stop
+            log.info("disconnect requested; stopping")
+            self.stop_file.unlink(missing_ok=True)
+            self.stop.set()
+            return 0
+        self.renew()
         if time.time() >= self.due or self.quiet():
             try:
                 reply = self.once()
@@ -446,6 +511,8 @@ class Client:
                 self.on_status(s)
 
     def run(self):
+        if self.stop_file:
+            self.stop_file.unlink(missing_ok=True)
         while not self.stop.is_set():
             self.stop.wait(self.step())
 

@@ -70,7 +70,7 @@ def ca(root):
                             "moved elsewhere, or a crash while issuing; revoke any whose files are gone for good"))
     soon = c.expiring(30)
     out.append(("warn", f"{len(soon)} certificate(s) expire within 30 days: {', '.join(r.common_name for r in soon[:5])} "
-                        "(acxelin-vpn ca maintain renews them)") if soon else ("ok", "no certificate expires within 30 days"))
+                        "(ca maintain renews gateways and sites; laptops renew their own when the app or join runs)") if soon else ("ok", "no certificate expires within 30 days"))
     return out
 
 

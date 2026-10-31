@@ -394,6 +394,9 @@ def verify_crl(crl_pem, ca_certs):
             crl = x509.load_pem_x509_crl(crl_pem)
         except (ValueError, x509.InvalidVersion):
             raise CAError("the CRL file is damaged or not a CRL; re-sign it with `ca crl`") from None
+        if not any(c.subject == crl.issuer for c in cas):
+            raise CAError(f"the CRL was not signed by this CA: it is from {crl.issuer.rfc4514_string()}, whose certificate is not in the CA "
+                          "file (for an intermediate, give its chain.pem as the CA)")
         if not any(signed_by(c, crl.tbs_certlist_bytes, crl.signature) for c in cas if c.subject == crl.issuer):
             raise CAError("the CRL was not signed by this CA")
         if len(_verified) >= 8:
@@ -404,16 +407,25 @@ def verify_crl(crl_pem, ca_certs):
     return crl
 
 
-def check_revocation(serial, crl_pem, ca_certs):
+def check_revocation(serial, crl_pem, ca_certs, issuer=None):
     """Raise if the certificate with this serial number is revoked, or if the CRL is forged or stale. Fails closed.
-    `ca_certs` is the issuing CA's certificate, or several of which one issued the CRL."""
-    crl = verify_crl(crl_pem, ca_certs)
-    revoked = next((s for c, s in _verified.values() if c is crl), None)
-    if revoked is not None and serial not in revoked:
-        return
-    r = crl.get_revoked_certificate_by_serial_number(serial)
-    if r is not None:
-        raise CAError(f"certificate {serial:x} was revoked on {r.revocation_date_utc.date()}")
+    `ca_certs` is the issuing CA's certificate, or several of which one issued the CRL. `crl_pem` may hold several CRLs (an
+    intermediate's and the root's). With `issuer` (the certificate's issuer name), only that CA's CRL can clear it, and having
+    none from it is an error: a list from another CA in the chain says nothing about this certificate."""
+    blocks = [b"-----BEGIN X509 CRL-----" + b for b in crl_pem.split(b"-----BEGIN X509 CRL-----")[1:]] or [crl_pem]
+    crls = [verify_crl(b, ca_certs) for b in blocks]
+    if issuer is not None:
+        crls = [c for c in crls if c.issuer == issuer]
+        if not crls:
+            raise CAError(f"no CRL from {issuer.rfc4514_string()}, which issued this certificate: add its CRL to the CRL file "
+                          "(several CRLs can be concatenated in one file)")
+    for crl in crls:
+        revoked = next((s for c, s in _verified.values() if c is crl), None)
+        if revoked is not None and serial not in revoked:
+            continue
+        r = crl.get_revoked_certificate_by_serial_number(serial)
+        if r is not None:
+            raise CAError(f"certificate {serial:x} was revoked on {r.revocation_date_utc.date()}")
 
 
 def crl_number(crl):

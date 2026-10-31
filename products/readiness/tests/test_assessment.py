@@ -84,8 +84,11 @@ def test_the_overview_lists_the_third_party_libraries_and_whether_they_support_p
     r("POST", "/api/projects/scan-all", {})
     while r("GET", "/api/overview")["scan_all"]["running"]:
         pass
-    libs = {x["name"]: x for x in r("GET", "/api/overview")["libraries"]}
-    assert libs["cryptography"]["pq"] and libs["cryptography"]["projects"] == ["a", "b"]
+    found = r("GET", "/api/overview")["libraries"]
+    libs = {x["name"]: x for x in found}
+    versions = {x["version"]: x["projects"] for x in found if x["name"] == "cryptography"}
+    assert versions == {"==44": ["a"], "==45": ["b"]}, "each version is its own entry, so an old one is never hidden behind a new one"
+    assert all(x["pq"] for x in found if x["name"] == "cryptography")
     assert not libs["pycrypto"]["pq"] and "Unmaintained" in libs["pycrypto"]["note"]
 
 

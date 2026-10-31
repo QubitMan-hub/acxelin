@@ -7,7 +7,7 @@ import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
 
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
 
 from acxelin_core.config import read_text
 from acxelin_core.http import explain, hostport
@@ -49,6 +49,10 @@ def key_name(key):
         return f"ECDSA-{key.curve.name}"
     if isinstance(key, ed25519.Ed25519PublicKey):
         return "Ed25519"
+    if isinstance(key, ed448.Ed448PublicKey):
+        return "Ed448"
+    if isinstance(key, dsa.DSAPublicKey):
+        return f"DSA-{key.key_size}"
     return algorithm_of(key) or type(key).__name__
 
 

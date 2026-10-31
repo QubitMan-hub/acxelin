@@ -11,7 +11,7 @@ from acxelin_core.http import explain, hostport
 from acxelin_core.pki import CAError, follow_crl
 from acxelin_core.server import Revocation
 
-from . import agreement
+from . import agreement, qkd
 from .agreement import TAG, common_name, read_line
 from .charon import Charon, CharonError, conn_config, ppk_pattern, protected
 from .policies import policy_for
@@ -34,6 +34,8 @@ class Controller:
         self.revocation = Revocation(site.crl, site.ca) if site.crl else None
         self.server = None
         self.started = time.time()
+        s = site
+        self.kme = qkd.KME(s.qkd_kme, s.qkd_sae_id, s.qkd_ca, s.qkd_cert, s.qkd_key, self.passphrase) if s.qkd_kme else None
 
     def passphrase(self):
         return env_passphrase(self.site.key_passphrase_env)
@@ -49,7 +51,7 @@ class Controller:
             for old in self.keys[peer.name][:-2]:
                 self.charon.unload_key(f"ppk-{peer.name}-{old}")
             self.keys[peer.name] = self.keys[peer.name][-2:]
-        self.serials[peer.name] = cert.serial_number
+        self.serials[peer.name] = (cert.serial_number, cert.issuer)
         self.last_agreed[peer.name] = time.time()
         self.counts["key_agreements"] += 1
         log.info("%s: new keys %s (PSK + PPK from ML-DSA mutual TLS)", peer.name, tag)
@@ -62,10 +64,16 @@ class Controller:
             if common_name(cert) != peer.name:
                 raise tls.TLSError(f"{peer.keyring} presented {common_name(cert)!r}, expected {peer.name!r}")
             if self.revocation:
-                self.revocation.check(cert.serial_number)
-            tag = agreement.new_tag()
-            agreement.send(conn, {"v": 1, "site": self.site.name, "tag": tag})
+                self.revocation.check(cert.serial_number, (), cert.issuer)
+            tag, msg = agreement.new_tag(), {}
+            if peer.qkd_sae_id:
+                key_id, qkey = self.kme.new_key(peer.qkd_sae_id)
+                msg = {"qkd_key_id": key_id}
+            agreement.send(conn, {"v": 1, "site": self.site.name, "tag": tag} | msg)
             material = agreement.ipsec_keys(conn, self.site.name, peer.name, tag)
+            if peer.qkd_sae_id:
+                material = qkd.mix(material, qkey, context(self.site.name, peer.name, tag))
+                self.counts["qkd_keys"] += 1
             if read_line(conn).get("ok") is not True:
                 raise tls.TLSError(f"{peer.name} refused the key agreement")
         self.install(peer, tag, material, cert)
@@ -82,7 +90,18 @@ class Controller:
             log.warning("keyring: refused %s from %s", name or "unknown", addr[0])
             agreement.send(conn, {"ok": False})
             return
-        self.install(peer, msg["tag"], agreement.ipsec_keys(conn, self.site.name, name, msg["tag"]), cert)
+        material = agreement.ipsec_keys(conn, self.site.name, name, msg["tag"])
+        if peer.qkd_sae_id:
+            try:
+                qkey = self.kme.key(peer.qkd_sae_id, msg.get("qkd_key_id"))
+            except qkd.QKDError as e:
+                self.counts["key_agreements_refused"] += 1
+                log.warning("keyring: refused %s: no QKD key (%s)", name, e)
+                agreement.send(conn, {"ok": False})
+                return
+            material = qkd.mix(material, qkey, context(self.site.name, name, msg["tag"]))
+            self.counts["qkd_keys"] += 1
+        self.install(peer, msg["tag"], material, cert)
         agreement.send(conn, {"ok": True})
 
     def tunnel(self, name):
@@ -134,9 +153,9 @@ class Controller:
         """Cut the tunnel and drop the keys of any peer whose certificate appears on the CRL."""
         if not self.revocation:
             return
-        for name, serial in list(self.serials.items()):
+        for name, (serial, issuer) in list(self.serials.items()):
             try:
-                self.revocation.check(serial)
+                self.revocation.check(serial, (), issuer)
             except CAError as e:
                 if "revoked" not in str(e):
                     log.error("CRL problem, keeping tunnels as they are: %s", e)
@@ -177,7 +196,7 @@ class Controller:
     def status(self):
         tunnels = {t["peer"]: t for t in self.charon.tunnels()}
         return {p.name: {"initiate": p.initiate, "profile": p.profile, "keys_age_s": int(time.time() - self.last_agreed[p.name])
-                         if p.name in self.last_agreed else None, "certificate": format(self.serials[p.name], "x") if p.name in self.serials else None,
+                         if p.name in self.last_agreed else None, "certificate": format(self.serials[p.name][0], "x") if p.name in self.serials else None,
                          "tunnel": tunnels.get(p.name)} for p in self.site.peers} | {
             "_events": dict(self.counts)}
 

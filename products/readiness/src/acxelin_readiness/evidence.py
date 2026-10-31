@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 
 from acxelin_core.pki import algorithm_of
+
+from .endpoints import key_name
 from cryptography import x509
 
 from . import __version__
@@ -63,15 +65,19 @@ def certificates(folder):
     """Rows for every certificate in the PEM files of `folder`; files that hold none are skipped."""
     folder, now, out = Path(folder), dt.datetime.now(dt.timezone.utc), []
     for f in sorted(p for p in folder.rglob("*") if p.is_file() and p.stat().st_size <= 1_000_000):
+        data = f.read_bytes()
         try:
-            certs = x509.load_pem_x509_certificates(f.read_bytes())
+            certs = x509.load_pem_x509_certificates(data)
         except ValueError:
-            continue
+            try:
+                certs = [x509.load_der_x509_certificate(data)]
+            except ValueError:
+                continue
         for c in certs:
             name = next((str(a.value) for a in c.subject if a.oid == x509.NameOID.COMMON_NAME), f.stem)
             try:
                 key = c.public_key()
-                algo = algorithm_of(key) or (f"RSA-{key.key_size}" if hasattr(key, "key_size") else c.public_key_algorithm_oid.dotted_string)
+                algo = algorithm_of(key) or key_name(key)
             except Exception:  # noqa: BLE001 - a key type this library cannot load (GOST, SM2, a new OID) is still a certificate
                 algo = c.public_key_algorithm_oid.dotted_string
             expired, when = c.not_valid_after_utc < now, c.not_valid_after_utc.date().isoformat()
@@ -79,6 +85,8 @@ def certificates(folder):
             evidence = {"serial": format(c.serial_number, "x"), "file": f.name}
             if expired:
                 out.append(_row("pki", name, detail, "action", "expired: renew it", "expired", evidence))
+            elif algo.startswith("DSA") or algo.startswith("RSA-") and int(algo[4:] or 0) < 2048:
+                out.append(_row("pki", name, detail, "action", "disallowed now (NIST SP 800-131A, FIPS 186-5): replace it", "needs ML-DSA-87", evidence))
             elif algo.startswith("ML-DSA"):
                 out.append(_row("pki", name, detail, "ready", "approved (FIPS 204)", "compliant" if algo == "ML-DSA-87" else "needs ML-DSA-87", evidence))
             else:

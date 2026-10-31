@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from acxelin_core import tls
 from acxelin_core.config import build, env_passphrase, read_toml
@@ -69,6 +70,13 @@ class Route:
             raise ValueError(f"{self.name}: crl_url needs a terminate route with crl (where the copy is kept) and ca")
         if self.crl_every < 5:
             raise ValueError(f"{self.name}: crl_every must be at least 5 seconds")
+        if (self.crl or self.crl_url) and not self.ca:
+            raise ValueError(f"{self.name}: crl checks client certificates, so it needs ca (the CA that issues them)")
+        if self.mode == "terminate" and self.crl and not self.require_client_cert:
+            raise ValueError(f"{self.name}: crl only takes effect with require_client_cert = true; without it any client gets in")
+        for field_, low in (("idle_timeout", 0), ("handshake_timeout", 0), ("max_connections", 0), ("max_per_client", -1), ("max_rate_per_client", -1)):
+            if not getattr(self, field_) > low:
+                raise ValueError(f"{self.name}: {field_} must be {'above 0' if low == 0 else '0 or more'}, not {getattr(self, field_)}")
         if self.mode == "originate" and not self.ca:
             raise ValueError(f"{self.name}: originate needs the ca that signed the remote's certificate")
         policies.policy(self.policy)
@@ -109,7 +117,9 @@ def readable(*socks):
 
 
 def proxy_header(client, local):
-    fam = "TCP6" if ":" in client[0] else "TCP4"
+    unmap = lambda a: a[7:] if a.startswith("::ffff:") and "." in a else a  # an IPv4 client on a dual-stack listener
+    client, local = (unmap(client[0]), client[1]), (unmap(local[0]), local[1])
+    fam = "TCP6" if ":" in client[0] or ":" in local[0] else "TCP4"
     return f"PROXY {fam} {client[0]} {local[0]} {client[1]} {local[1]}\r\n".encode()
 
 
@@ -144,6 +154,9 @@ class Edge:
             self.stamps = [file_stamp(p) for p in self.watch]
             self.ctx = tls.client_context(policies.policy(r.policy), r.ca, r.cert or None, r.key or None, r.passphrase())
             self.listener = tls.listen(hostport(r.listen, "127.0.0.1"), reuse_port=reuse_port)
+            if not is_loopback(hostport(r.listen, "127.0.0.1")[0]):
+                log.warning("%s: originate listens on %s: anyone who can reach it is tunnelled in with this edge's certificate; "
+                            "listen on 127.0.0.1 unless that is intended", r.name, r.listen)
             self.port = self.listener.getsockname()[1]
             log.info("%s: listening on %s, tunnelling to %s", r.name, r.listen, r.target)
         return self
@@ -236,8 +249,10 @@ class Edge:
 def load_config(path):
     """Read and check [[edge]] routes from a TOML file."""
     doc = read_toml(path)
-    routes = []
-    for i, e in enumerate(doc.get("edge", [])):
+    routes, here = [], Path(path).resolve().parent
+    files = ("cert", "key", "ca", "crl", "fallback_cert", "fallback_key")
+    for i, e in enumerate(doc.get("edge", [])):  # relative paths are relative to the file, not to wherever the edge was started
+        e = e | {k: str(here / e[k]) for k in files if isinstance(e.get(k), str) and e[k] and not Path(e[k]).is_absolute()}
         routes.append(build(Route, {"name": f"edge{i + 1}", **e}, f"edge #{i + 1}"))
     if not routes:
         other = ", ".join(f"[[{k}]]" if isinstance(v, list) else f"[{k}]" for k, v in doc.items() if k != "edge" and isinstance(v, (dict, list)))

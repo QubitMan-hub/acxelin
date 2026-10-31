@@ -39,8 +39,8 @@ def positive(kind):
             v = kind(s)
         except ValueError:
             v = 0
-        if not v > 0:
-            raise argparse.ArgumentTypeError(f"expected a number above 0, got {s!r}")
+        if not 0 < v <= 36500:
+            raise argparse.ArgumentTypeError(f"expected a number above 0 and at most 36500, got {s!r}")
         return v
     return check
 

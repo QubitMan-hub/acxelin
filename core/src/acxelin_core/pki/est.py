@@ -127,7 +127,7 @@ class Service:
             raise HTTPError(401, "re-enrollment needs the current certificate (mutual TLS)")
         crl = Path(self.ca.root) / "crl.pem"
         if crl.exists():
-            check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert)
+            check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert, current.issuer)
         rec = next((r for r in self.ca.records() if r.serial == format(current.serial_number, "x")), None)
         cn, names = names_of(csr)
         if not rec or rec.status != "valid":

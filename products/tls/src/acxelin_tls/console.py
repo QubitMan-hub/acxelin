@@ -229,6 +229,9 @@ class TLSConsole:
         current = self._files(r)[0]
         if current != r.serial:
             raise ValueError(f"{r.common_name}'s folder already holds a newer certificate ({current}); renew that one")
+        if encrypted(Path(r.path) / "key.pem"):
+            raise ValueError(f"{r.common_name}'s key is encrypted with a passphrase the console does not hold: renew it with "
+                             "`acxelin-tls ca renew --key-passphrase-env`, so the new key is encrypted too")
         _, new = ca.renew(r.serial, out=r.path)
         self.audit("renew", {"serial": r.serial, "new_serial": new.serial, "common_name": r.common_name})
         return 200, {"renewed": r.serial, "serial": new.serial, "not_after": new.not_after}

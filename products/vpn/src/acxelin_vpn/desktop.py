@@ -119,8 +119,9 @@ def entry():
 def elevated(command):
     """How to run `command` (a list) with administrator rights on this system, as a list to start without waiting. The
     prompt's clean environment keeps this interpreter's import path, so a per-user or virtualenv install still loads."""
-    if not getattr(sys, "frozen", False):
-        command = ["env", "PYTHONPATH=" + os.pathsep.join(p for p in sys.path if p), *command]
+    if not getattr(sys, "frozen", False):  # only the folder this package was loaded from, never the person's whole path
+        here = str(Path(__file__).resolve().parents[1])
+        command = ["env", "PYTHONPATH=" + here, *command]
     if sys.platform == "darwin":
         script = shlex.join(command) + " >/dev/null 2>&1 &"
         return ["osascript", "-e", f'do shell script "{script.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}" with administrator privileges']

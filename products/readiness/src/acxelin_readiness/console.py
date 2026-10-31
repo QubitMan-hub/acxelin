@@ -49,9 +49,19 @@ class Readiness:
                 if isinstance(saved, list) else []
         except (OSError, ValueError):
             pass  # a damaged history starts again; it holds no findings
+        self.notice = None
         settings = self.home / "settings.json"
-        if settings.exists():
-            self.folder = Path(json.loads(settings.read_text())["directory"])
+        try:
+            if settings.exists():
+                self.folder = Path(json.loads(settings.read_text())["directory"])
+        except (OSError, ValueError, KeyError, TypeError):
+            self.notice = "The console's settings file was damaged, so the repositories folder has to be chosen again."
+        try:
+            self.store.read()
+        except ValueError:  # a damaged workspace: keep it aside for recovery and start an empty one, rather than not starting
+            kept = self.store.path.with_name(f"{self.store.path.name}.damaged-{int(time.time())}")
+            self.store.path.replace(kept)
+            self.notice = f"The project workspace was damaged; it was kept as {kept.name} and the console started with an empty one."
         self.reload()
 
     def reload(self):
@@ -80,7 +90,7 @@ class Readiness:
                 pass
         return 200, {"configured": bool(self.folder), "directory": str(self.folder or ""), "available": available, "example": str(Path.home() / "code"),
                      "projects": [{"id": i, "name": self.label(p)} for i, p in enumerate(self.projects)], "selected": self.job["selected"],
-                     "github_token": self.token_file.exists()}
+                     "github_token": self.token_file.exists(), "notice": self.notice}
 
     def setup(self, body):
         d = body.get("directory")
@@ -120,7 +130,10 @@ class Readiness:
     def label(self, path):
         if path.parent == self.import_dir:
             return "Imported: " + self.imports().get(path.name, path.name)
-        return "github.com/" + remote.label(self.remotes()[path.name]) if path.parent == self.remote_dir else path.name
+        if path.parent == self.remote_dir:
+            url = self.remotes().get(path.name)
+            return "github.com/" + remote.label(url) if url else path.name
+        return path.name
 
     # --- CBOMs from other tools, kept owner-only in the console's folder
 
@@ -260,8 +273,12 @@ class Readiness:
                 progress("Reading the imported CBOM")
                 result = workspace.imported(path, self.imports()[path.name])
             else:
-                horizon = Horizon(secrets=owners.secrets(self.store.owner_rules(path)))
-                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name, horizon=horizon)
+                cfg, note = workspace.repo_settings(path) if path.parent != self.remote_dir else ({}, None)  # a download's own settings are not trusted
+                horizon = Horizon(cfg.get("shelf_life", 10), cfg.get("migration", 5), cfg.get("crqc_year", 2035), owners.secrets(self.store.owner_rules(path)))
+                result = workspace.scan(path, history=self.history, progress=progress, exclude=[self.store.path], cancel=self.cancel, cache=self.cache, name=name,
+                                        horizon=horizon, settings=cfg)
+                if note:
+                    result["notes"].insert(0, note)
             result["project_key"] = self.store.key(path)
             try:
                 result = self.store.save(path, result)
@@ -269,7 +286,7 @@ class Readiness:
                 result["notes"].append("The workspace could not be saved; this result is kept until the console closes. Check the folder's permissions and size.")
             with self.lock:
                 self.job["last"] = result
-        except (workspace.ScanStopped, remote.Refused) as error:
+        except (workspace.ScanStopped, remote.Refused, workspace.SettingsError) as error:
             with self.lock:
                 self.job["error"] = str(error)
         except Exception:  # source-sensitive failures are never echoed or logged with their contents
@@ -315,8 +332,11 @@ class Readiness:
     def github_org(self, body):
         token = self.token_file.read_text().strip() if self.token_file.exists() else None
         links = remote.organisation(body.get("org"), token=token, api=self.github_api)
-        added = [self.github({"url": u})[1]["project"] for u in links]
-        return 200, {"added": len(added), "projects": added}
+        known = set(self.remotes().values())
+        new = [u for u in links if u not in known]
+        room = max(0, 200 - len(known))
+        added = [self.github({"url": u})[1]["project"] for u in new[:room]]
+        return 200, {"added": len(added), "projects": added, "left_out": len(new) - len(added)}
 
     def overview(self, body):
         """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
@@ -324,7 +344,7 @@ class Readiness:
             projects, scan_all = list(enumerate(self.projects)), dict(self.all)
         saved, rows, services, libraries, actions = self.store.read()["projects"], [], {}, {}, {}
         board = {"weakest": None, "projects": len(projects), "scanned": 0, "critical": 0, "high": 0, "recordable": 0, "deadline_findings": 0, "to_fix": 0, "done": 0,
-                 "effort": Counter(), "scores": [], "previous": [], "coverage": []}
+                 "effort": Counter(), "scores": [], "previous": [], "coverage": [], "pairs": []}
         for i, path in projects:
             record = saved.get(self.store.key(path))
             if not record:
@@ -345,7 +365,7 @@ class Readiness:
                     s["importance"] = max(s["importance"], hint.get("importance", ""), key=lambda x: IMPORTANCE[x] if x else 0)
             self.tally(board, actions, v, live, self.label(path))
             for x in v.get("libraries", []):
-                lib = libraries.setdefault((x["ecosystem"], x["name"]), {**x, "projects": set()})
+                lib = libraries.setdefault((x["ecosystem"], x["name"], x.get("version", "")), {**x, "projects": set()})
                 lib["projects"].add(self.label(path))
         for s in services.values():
             s["risk"] = IMPORTANCE.get(s["importance"], 2) * sum(WEIGHT[k] * s[k] for k in WEIGHT)
@@ -353,7 +373,10 @@ class Readiness:
                         key=lambda s: (-s["risk"], -s["critical"], -s["high"], s["service"]))
         libs = sorted(({**x, "projects": sorted(x["projects"])} for x in libraries.values()), key=lambda x: (x["pq"], -len(x["projects"]), x["name"]))
         choice = self.store.deadline_choice()
-        due = [d for d in compliance.deadlines(choice["countries"] or ["us"], choice["sectors"]) if not d["passed"]]
+        try:
+            due = [d for d in compliance.deadlines(choice.get("countries") or ["us"], choice.get("sectors") or []) if not d["passed"]]
+        except (ValueError, TypeError):  # a damaged saved choice: show the default, and the form can save a good one
+            choice, due = {"countries": [], "sectors": []}, [d for d in compliance.deadlines(["us"], []) if not d["passed"]]
         return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home),
                      "board": summary(board, actions, ranked, libs) | {"next_deadline": due[0] if due else None, "deadlines": due},
                      "deadline_choice": choice, "countries": compliance.COUNTRIES, "sectors": compliance.SECTORS}
@@ -383,8 +406,9 @@ class Readiness:
             before = [h["summary"].get("score") for h in v.get("history", []) if h.get("finished", 0) < v["finished"] and h["summary"].get("score") is not None]
             if before:
                 board["previous"].append(before[-1])
+                board["pairs"].append((s["score"], before[-1]))  # the trend compares the same projects, then and now
         board["coverage"].append(s.get("coverage"))
-        for rank, x in enumerate((v.get("outlook") or {}).get("actions", [])):
+        for rank, x in enumerate(a for a in (v.get("outlook") or {}).get("actions", []) if a.get("targets")):  # not "nothing to change"
             act = actions.setdefault(x["text"], {"text": x["text"], "rank": rank, "projects": set(), "names": set()})
             act["names"].update(x.get("targets", []))
             act["rank"] = min(act["rank"], rank)
@@ -522,7 +546,9 @@ def summary(board, actions, services, libraries):
     if known and min(known) < 80:
         gaps.append(f"coverage under 80% in {sum(c < 80 for c in known)} of them")
     top = sorted(actions.values(), key=lambda a: (a["rank"], -len(a["projects"]), a["text"]))[:5]
-    return {**board, "score": mean(board.pop("scores")), "previous": mean(board["previous"]) if board["previous"] else None,
+    pairs = board.pop("pairs")
+    change = (mean([n for n, _ in pairs]) - mean([b for _, b in pairs])) if pairs else None
+    return {**board, "score": mean(board.pop("scores")), "previous": mean(board["previous"]) if board["previous"] else None, "change": change,
             "coverage": min(known) if known else None, "provisional": "; ".join(gaps), "effort": dict(board["effort"]),
             "agility": {"without_code": sum(n for k, n in board["effort"].items() if k in ("setting", "reissue", "upgrade")), "total": sum(board["effort"].values())},
             "actions": [{"text": a["text"], "names": sorted(a["names"])[:4], "projects": sorted(a["projects"])} for a in top],

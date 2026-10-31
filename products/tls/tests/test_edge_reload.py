@@ -80,6 +80,8 @@ class EdgeReloadTest(unittest.TestCase):
 
     def route(self, name, port, app, **kw):
         from acxelin_tls.edge import Route
+        if kw.get("crl"):
+            kw.setdefault("require_client_cert", True)  # a CRL only checks the client certificates a route requires
         return Route(name, "terminate", f"127.0.0.1:{port}", self.apps[app], cert=str(self.srv / "chain.pem"), key=str(self.srv / "key.pem"),
                      ca=str(self.d / "pki" / "ca.crt"), **kw)
 

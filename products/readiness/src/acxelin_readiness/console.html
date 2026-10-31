@@ -463,7 +463,7 @@ function pollProject() { clearInterval(state.timer); state.timer = setInterval(a
 
 function overviewView() {
   const org = h("input", {type: "text", id: "org", autocomplete: "off", spellcheck: "false", placeholder: "acme or https://github.com/acme"});
-  const addOrg = async () => { try { const r = await call("projects/github-org", {org: org.value}); org.value = ""; await load(); notify("Added " + r.added + (r.added === 1 ? " repository" : " repositories") + ". Choose Scan every project to scan them."); } catch (e) {} };
+  const addOrg = async () => { try { const r = await call("projects/github-org", {org: org.value}); org.value = ""; await load(); notify("Added " + r.added + (r.added === 1 ? " repository" : " repositories") + (r.left_out ? "; " + r.left_out + " left out: the console keeps at most 200" : "") + ". Choose Scan every project to scan them."); } catch (e) {} };
   org.addEventListener("keydown", (e) => { if (e.key === "Enter") addOrg(); });
   const all = h("button", {class: "btn", id: "scan-all"}, "Scan every project");
   all.addEventListener("click", async () => { try { await call("projects/scan-all", {}); refreshOverview(); } catch (e) {} });
@@ -481,7 +481,7 @@ const EFFORT_SHORT = {setting: "a setting", reissue: "a new key or certificate",
 async function showBoard() {
   let o;
   try { o = await call("overview"); } catch (e) { return; }
-  const b = o.board, trend = b.previous == null || b.score == null ? "first assessment" : b.score === b.previous ? "unchanged since the scans before" : (b.score > b.previous ? "up " : "down ") + Math.abs(b.score - b.previous) + " since the scans before";
+  const b = o.board, trend = b.change == null ? "first assessment" : b.change === 0 ? "unchanged since the scans before" : (b.change > 0 ? "up " : "down ") + Math.abs(b.change) + " since the scans before";
   const effort = Object.entries(b.effort).sort((x, y) => y[1] - x[1]).map(([k, n]) => n + " need " + EFFORT_SHORT[k]).join(", ");
   const section = h("section", {id: "board", "aria-labelledby": "board-h", tabindex: "-1"},
     h("h2", {id: "board-h"}, "Post-quantum readiness: board summary"),
@@ -693,6 +693,7 @@ function pollEndpoints() { clearInterval(state.timer); state.timer = setInterval
 async function load() {
   try { state.status = await call("status"); state.selected = state.status.selected || 0; } catch (e) { return signedOut(); }
   shell();
+  if (state.status.notice) say(state.status.notice);
   if (!state.status.configured && state.tab === "projects") $("#dir")?.focus();
 }
 acx.start().then((ok) => (ok ? load() : signedOut()));

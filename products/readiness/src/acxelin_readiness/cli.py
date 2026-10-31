@@ -4,19 +4,16 @@ import os
 import shutil
 import sys
 import tempfile
-import tomllib
 import warnings
 from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import __version__, pipeline, report, image, inventory, compliance, remote, owners
+from . import __version__, pipeline, report, image, inventory, compliance, remote, owners, workspace
 from .rank import Horizon, TIERS
 from .report import write_results
 from .detectors import Scope
 
-SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
-            "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict}
 
 
 START = """Acxelin Readiness: find the cryptography a quantum computer breaks, and what to migrate first.
@@ -182,7 +179,7 @@ def main(argv=None):
             sys.exit(f"acxelin-readiness: {root.name} could not be read as a container image ({e.__class__.__name__}); save it again with docker save")
         name = a.name or root.name.split(".")[0]
     try:
-        cmdb = owners.from_csv(Path(a.owners).read_text(encoding="utf-8")) if a.owners else []
+        cmdb = owners.from_csv(owners.decode(Path(a.owners).read_bytes())) if a.owners else []
     except (OSError, ValueError) as e:
         sys.exit(f"acxelin-readiness: cannot read --owners {a.owners}: {e}")
     h = Horizon(a.shelf_life, a.migration, a.crqc_year, owners.secrets(cmdb))
@@ -319,15 +316,9 @@ def settings(path, root):
     if f is None or (not path and not f.exists()):
         return {}
     try:
-        cfg = tomllib.loads(f.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        sys.exit(f"acxelin-readiness: cannot read {f}: {e}")
-    for k, v in cfg.items():
-        if k not in SETTINGS:
-            sys.exit(f"acxelin-readiness: {f}: unknown setting {k!r} (known: {', '.join(SETTINGS)})")
-        if not isinstance(v, SETTINGS[k]) or (SETTINGS[k] is list and not all(isinstance(x, str) for x in v)):
-            sys.exit(f"acxelin-readiness: {f}: {k} has the wrong type")
-    return cfg
+        return workspace.read_settings(f)
+    except ValueError as e:
+        sys.exit(f"acxelin-readiness: {e}")
 
 
 def grade(a):

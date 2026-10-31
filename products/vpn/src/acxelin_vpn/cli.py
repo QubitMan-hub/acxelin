@@ -136,7 +136,8 @@ def cmd_app(a):
     if a.session:
         session = json.loads(Path(a.session).read_text(encoding="utf-8"))
         window.token, port = session["token"], int(session["port"])
-        log = os.fdopen(os.open(window.folder / f"{a.interface}.service.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a", encoding="utf-8", buffering=1)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)  # never follow a link planted in the folder
+        log = os.fdopen(os.open(window.folder / f"{a.interface}.service.log", flags, 0o600), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
         for h in logging.getLogger().handlers:
             h.setStream(log)
@@ -194,7 +195,9 @@ def cmd_wireguard(a):
         return 0
     from . import platforms
     if a.cmd == "disconnect":
+        from acxelin_core.files import write
         tunnel, kill_switch = platforms.this_machine(a.interface)
+        write(tunnel.folder / f"{a.interface}.disconnect", b"")  # a running join, app or service stops instead of reconnecting
         tunnel.down()
         kill_switch.off()
         print(f"{a.interface} is down and nothing is blocked any more")

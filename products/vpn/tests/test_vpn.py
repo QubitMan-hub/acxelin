@@ -385,7 +385,7 @@ class KeyAgreementFailureTest(unittest.TestCase):
         ch = FakeCharon({"psk-branch.acme", "ppk-branch.acme-aaaaaaaaaaaa", "psk-lab.acme"}, [{"peer": "branch.acme", "established_s": 1}])
         ctl = Controller(site(), charon=ch)
         ctl.enforce_revocations()
-        ctl.serials = {"branch.acme": 7}
+        ctl.serials = {"branch.acme": (7, None)}
         ctl.revocation = Mock(check=Mock(side_effect=CAError("the CRL signature does not verify")))
         ctl.enforce_revocations()
         self.assertEqual(ch.terminated, [])

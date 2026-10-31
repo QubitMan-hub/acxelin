@@ -2,6 +2,8 @@
 how hard the change is."""
 from pathlib import PurePosixPath
 
+from .detectors import is_test
+
 LANGS = {".py": "Python", ".java": "Java", ".go": "Go", ".js": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript", ".ts": "TypeScript",
          ".conf": "nginx"}
 HASH = {"MD5": ("md5", "MD5", "md5.Sum", "md5"), "SHA-1": ("sha1", "SHA-1", "sha1.Sum", "sha1")}
@@ -31,7 +33,7 @@ def language(asset):
         lang = LANGS.get(PurePosixPath(str(path)).suffix.lower())
         if lang == "nginx" and "nginx" not in str(path).lower():
             continue
-        if lang and "test" not in str(path).lower():
+        if lang and not is_test(str(path)):
             return lang
     return None
 
@@ -116,7 +118,7 @@ def effort(asset):
     """How hard a finding is to change, judged by the hardest place it was seen outside tests: {"level", "text", "places"}."""
     if asset.get("tier") in (None, "ok"):
         return None
-    places = [f for f, _ in asset.get("locations", []) if "test" not in str(f).lower()]
+    places = [f for f, _ in asset.get("locations", []) if not is_test(str(f))]
     if not places:
         return None
     level = max((_kind(f) for f in places), key=list(EFFORT).index)

@@ -17,6 +17,8 @@ from .common import ca_passphrase, policy, tls_client_args
 def cmd_tls(a):
     if a.cmd == "serve":
         from acxelin_core.server import Server
+        if a.crl and not a.ca:
+            raise ValueError("--crl checks client certificates, so it needs --ca (the CA that issues them) and --require-client-cert")
         make = lambda: tls.server_context(policies.policy(a.policy), a.cert, a.key, a.ca, a.require_client_cert, env_passphrase(a.key_passphrase_env))
 
         def echo(conn, addr):
@@ -34,6 +36,8 @@ def cmd_tls(a):
         raise tls.TLSError(f"{host}: {explain(e)}; connect by address and name the certificate with --server-name {host}") from None
     with conn:
         out = conn.info()
+        if a.send is None and (refused := _refused(conn)):
+            raise tls.TLSError(refused)
         if a.send is not None:
             try:
                 conn.sendall(a.send.encode())
@@ -51,6 +55,17 @@ def cmd_tls(a):
     return 0
 
 
+def _refused(conn):
+    """In TLS 1.3 a server refuses a client certificate after the client's handshake is done: the refusal is the first read."""
+    try:
+        if conn.recv(timeout=1.5) == b"":
+            return ("the server closed the connection right after the handshake: either it refused our client certificate "
+                    "(untrusted or revoked), or the service behind it is down")
+    except tls.TLSError as e:
+        return None if "timed out" in str(e) else f"the server refused the connection: {e}"
+    return None
+
+
 def _more(conn):
     """The rest of a reply that arrives in several pieces: read until the server closes or is quiet for a second."""
     try:
@@ -66,7 +81,8 @@ def cmd_edge(a):
     if a.config:
         routes, metrics = load_config(a.config)
     else:
-        routes = [Route(name="edge", mode=a.mode, listen=a.listen, target=a.target, policy=a.policy, cert=a.cert or "", key=a.key or "",
+        listen = a.listen or ("127.0.0.1:8443" if a.mode == "originate" else "[::]:8443")  # an open originate port tunnels anyone in
+        routes = [Route(name="edge", mode=a.mode, listen=listen, target=a.target, policy=a.policy, cert=a.cert or "", key=a.key or "",
                         key_passphrase_env=a.key_passphrase_env or "", ca=a.ca or "", require_client_cert=a.require_client_cert,
                         crl=a.crl or "", crl_url=a.crl_url or "", server_name=a.server_name or "", proxy_protocol=a.proxy_protocol,
                         fallback_cert=a.fallback_cert or "", fallback_key=a.fallback_key or "", max_connections=a.max_connections,
@@ -119,7 +135,7 @@ def add(sub):
     p.add_argument("--config", help="TOML file with [[edge]] routes; replaces the flags below")
     p.add_argument("--mode", choices=["terminate", "originate"], default="terminate",
                    help="terminate: post-quantum TLS in front of --target; originate: plain local clients reach a remote edge at --target")
-    p.add_argument("--listen", default="[::]:8443", help="host:port (default: every interface, IPv4 and IPv6, port 8443)")
+    p.add_argument("--listen", help="host:port (default: terminate on every interface, port 8443; originate on this machine only, 127.0.0.1:8443)")
     p.add_argument("--target", help="upstream host:port (terminate) or remote edge host:port (originate)")
     policy(p)
     for flag, text in (("--cert", "the edge's certificate chain (chain.pem)"), ("--key", "its private key (key.pem)"),

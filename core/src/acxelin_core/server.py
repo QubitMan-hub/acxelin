@@ -68,6 +68,7 @@ class Revocation:
         with open(ca_path, "rb") as f:
             self.crl_path, self.cas = crl_path, x509.load_pem_x509_certificates(f.read())
         self.stamp, self.data, self.swept = None, None, file_stamp(crl_path)
+        self.issuers = {}  # CA certificates seen in verified chains, by subject: a resumed session brings none
 
     def changed_since_sweep(self):
         m = file_stamp(self.crl_path)
@@ -76,12 +77,23 @@ class Revocation:
         self.swept = m
         return True
 
-    def check(self, serial, chain=()):
-        """`chain` is the verified chain above the certificate, where an intermediate CA's certificate comes from."""
+    def check(self, serial, chain=(), issuer=None):
+        """`chain` is the verified chain above the certificate, where an intermediate CA's certificate comes from; `issuer` is the
+        certificate's issuer name, whose CRL alone can clear it. Each intermediate is checked too, when its issuer's CRL is in the
+        file (the root revoking an intermediate)."""
         m = file_stamp(self.crl_path)
         if m != self.stamp:
             self.data, self.stamp = shared(Path(self.crl_path).read_bytes), m
-        check_revocation(serial, self.data, self.cas + list(chain))
+        for c in chain:
+            self.issuers[c.subject.public_bytes()] = c
+        cas = self.cas + list(self.issuers.values())
+        check_revocation(serial, self.data, cas, issuer)
+        for c in self.issuers.values() if issuer is not None else ():
+            try:
+                check_revocation(c.serial_number, self.data, cas, c.issuer)
+            except CAError as e:
+                if "revoked" in str(e):
+                    raise CAError(f"the issuing CA {c.subject.rfc4514_string()} is revoked: {e}") from None
 
 
 class Stats:
@@ -200,9 +212,9 @@ class Server:
             return  # the CRL file is being replaced; the next pass sees it
         with self.lock:
             live = list(self.live.items())
-        for conn, (serial, chain) in live:
+        for conn, (serial, chain, issuer) in live:
             try:
-                self.revocation.check(serial, chain)
+                self.revocation.check(serial, chain, issuer)
             except (CAError, ValueError, OSError) as e:
                 log.warning("%s: closing %s, its certificate is no longer accepted: %s", self.name, conn.peer_name, e)
                 self.stats.add("revoked_closed")
@@ -268,7 +280,7 @@ class Server:
                 conn = ctx.wrap(sock, timeout=self.handshake_timeout)
                 cert = conn.peer_certificate()
                 if self.revocation and cert:
-                    self.revocation.check(cert.serial_number, conn.peer_chain()[1:])
+                    self.revocation.check(cert.serial_number, conn.peer_chain()[1:], cert.issuer)
             except (TLSError, CAError, OSError, ValueError) as e:
                 if any(x in str(e) for x in ("Broken pipe", "Connection reset")):
                     self.stats.add("client_left")
@@ -284,7 +296,7 @@ class Server:
             if self.revocation and cert:
                 conn.peer_name = peer
                 with self.lock:
-                    self.live[conn] = (cert.serial_number, conn.peer_chain()[1:])
+                    self.live[conn] = (cert.serial_number, conn.peer_chain()[1:], cert.issuer)
             self.stats.opened(info["group"])
             log.info("%s: %s %s %s %s peer=%s", self.name, peer, info["version"], info["group"], info["cipher"], info["peer"] or "-")
             try:

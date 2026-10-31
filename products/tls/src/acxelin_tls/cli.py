@@ -75,11 +75,21 @@ def cmd_status(a):
 def cmd_try(a):
     """A self-contained tour, nothing to set up: a CA, a plain web server, the post-quantum edge in front of it, a
     post-quantum client that gets through and a classical one that does not. Everything lives in a temporary folder."""
+    tls.lib()  # say at once when this machine's OpenSSL cannot do post-quantum TLS, not halfway through the tour
+    quiet = {name: logging.getLogger(name).level for name in ("acxelin_tls", "acxelin_core")}  # the tour's own output only
+    for name in quiet:
+        logging.getLogger(name).setLevel(logging.ERROR)
+    try:
+        return _tour()
+    finally:
+        for name, level in quiet.items():
+            logging.getLogger(name).setLevel(level)
+
+
+def _tour():
     from acxelin_core.openssl import Context
 
     from .edge import Edge, Route
-    tls.lib()  # say at once when this machine's OpenSSL cannot do post-quantum TLS, not halfway through the tour
-    logging.getLogger("acxelin_tls").setLevel(logging.ERROR)
     step = lambda n, text: print(f"\n{n}. {text}")
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)

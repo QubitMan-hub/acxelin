@@ -357,12 +357,12 @@ class GatewayTest(unittest.TestCase):
         bob.agree()
         self.ca.revoke(self.recs["alice"].serial, "keyCompromise")
         time.sleep(0.05)
-        self.gw.expire(self.gw.server.revocation)
+        self.gw.expire(self.gw.revocation)
         self.assertEqual(list(self.wg.peers_), [bob.public])
         with self.assertRaises((tls.TLSError, OSError)):
             alice.agree()
         self.gw.clients["bob"]["agreed"] -= 3600
-        self.gw.expire(self.gw.server.revocation)
+        self.gw.expire(self.gw.revocation)
         self.assertEqual(self.wg.peers_, {})
         self.assertEqual(self.gw.counts["revoked"], 1)
         self.assertEqual(self.gw.counts["expired"], 1)
@@ -400,6 +400,44 @@ class GatewayTest(unittest.TestCase):
         self.client("alice").agree()
         with self.assertRaisesRegex(tls.TLSError, "refused"):
             self.client("bob").agree()
+
+    def test_a_revoked_laptop_is_told_it_was_revoked_and_its_address_is_freed(self):
+        alice = self.client("alice")
+        alice.agree()
+        self.ca.revoke(self.recs["alice"].serial, "keyCompromise")
+        time.sleep(0.05)
+        with self.assertRaisesRegex(tls.TLSError, "revoked"):
+            alice.agree()
+        self.gw.expire(self.gw.revocation)
+        self.assertNotIn("alice", self.gw.leases)
+        self.assertEqual(self.client("bob").agree()[0]["address"], "10.99.0.2/24")
+
+    def test_a_broken_crl_still_removes_laptops_that_stopped_renewing(self):
+        from unittest.mock import Mock
+        from acxelin_core.pki import CAError
+        bob = self.client("bob")
+        bob.agree()
+        self.gw.clients["bob"]["agreed"] -= 3600
+        self.gw.expire(Mock(check=Mock(side_effect=CAError("the CRL expired at 2026-01-01"))))
+        self.assertEqual(self.wg.peers_, {}, "an unusable CRL must not keep a silent laptop's key forever")
+        with self.assertRaisesRegex(tls.TLSError, "revocation list"):
+            self.gw.revocation = Mock(check=Mock(side_effect=CAError("the CRL expired at 2026-01-01")))
+            bob.agree()
+
+    def test_one_person_cannot_take_over_anothers_wireguard_key(self):
+        alice, bob = self.client("alice"), self.client("bob")
+        alice.agree()
+        psk = self.wg.peers_[alice.public]["psk"]
+        bob.public = alice.public
+        with self.assertRaisesRegex(tls.TLSError, "refused"):
+            bob.agree()
+        self.assertEqual(self.wg.peers_[alice.public]["psk"], psk)
+        self.assertEqual(self.gw.clients["alice"]["address"], "10.99.0.2")
+
+    def test_a_gateway_whose_name_differs_from_its_certificate_does_not_start(self):
+        import dataclasses
+        with self.assertRaisesRegex(ValueError, "vpn.acme.example.*localhost"):
+            Gateway(dataclasses.replace(self.cfg, name="vpn.acme.example", keyring_listen="127.0.0.1:0"), FakeWG()).start()
 
 
 def wireguard_available():

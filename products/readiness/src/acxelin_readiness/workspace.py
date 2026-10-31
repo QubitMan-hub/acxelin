@@ -56,7 +56,49 @@ def score(assets):
     return round(sum(listed) / len(listed)) if listed else None
 
 
-def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None, name=None, horizon=None):
+SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
+            "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict}  # what .acxelin-readiness.toml may hold
+
+
+class SettingsError(ValueError):
+    pass
+
+
+def read_settings(f):
+    """A repository's .acxelin-readiness.toml as a dict; ValueError when it cannot be read or holds an unknown or mistyped key."""
+    import tomllib
+    try:
+        cfg = tomllib.loads(Path(f).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SettingsError(f"cannot read {Path(f).name}: {e}") from None
+    for k, v in cfg.items():
+        if k not in SETTINGS:
+            raise SettingsError(f"{Path(f).name}: unknown setting {k!r} (known: {', '.join(SETTINGS)})")
+        if not isinstance(v, SETTINGS[k]) or (SETTINGS[k] is list and not all(isinstance(x, str) for x in v)):
+            raise SettingsError(f"{Path(f).name}: {k} has the wrong type")
+    return cfg
+
+
+def repo_settings(root):
+    """The settings a scan of this repository uses: its .acxelin-readiness.toml, or the old .wolfpack.toml with a note."""
+    root = Path(root)
+    for name in (".acxelin-readiness.toml", ".wolfpack.toml"):
+        if (root / name).is_file():
+            return read_settings(root / name), (None if name.startswith(".acxelin") else
+                                                 f"{name} is the old name; rename it to .acxelin-readiness.toml")
+    return {}, None
+
+
+def line_of(value):
+    """A line number from another tool's CBOM, which may write "12-14" or "7.0"; 0 when it gives none."""
+    try:
+        return max(0, int(float(str(value).split("-")[0])))
+    except (TypeError, ValueError):
+        return 0
+
+
+def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, max_files=50000, max_bytes=512_000_000, timeout=300, cache=None, name=None, horizon=None,
+         settings=None):
     notify = progress or (lambda stage: None)
     notify("Preparing project")
     root = Path(path).resolve()
@@ -79,7 +121,10 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
             except ValueError:
                 pass
     try:
-        result = pack.run(root, name or root.name, scope=Scope(exclude=tuple(excluded), checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes), cache=cache, horizon=horizon)
+        s = settings or {}
+        result = pack.run(root, name or root.name, scope=Scope(vendor=bool(s.get("include_vendor")), exclude=tuple(excluded) + tuple(s.get("exclude", [])),
+                                                               checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes),
+                          cache=cache, horizon=horizon, threshold=s.get("threshold", 0.6))
     except ScanLimitError as error:
         raise ScanStopped(str(error)) from None
     checkpoint()
@@ -187,7 +232,7 @@ def imported(path, name):
                "why": "Priority estimated from the algorithm: the CBOM gives none" if a["estimated"] else "",
                "confidence": None, "test_only": False, "declared": False,
                "uncertainty": f"Imported from {system['tool']}; not verified by Acxelin Readiness",
-               "locations": sorted({(str(o.get("location", "")), int(o.get("line") or 0)) for o in a["occurrences"] if isinstance(o, dict)}),
+               "locations": sorted({(str(o.get("location", "")), line_of(o.get("line"))) for o in a["occurrences"] or [] if isinstance(o, dict)}),
                "impact": None, "hybrid_context": [], "seen": ["imported"], "missing": [], "confidence_level": None}
               for a in system["assets"] if a["tier"]]
     unrated = sum(not a["tier"] for a in system["assets"])
@@ -299,8 +344,10 @@ class ProjectStore:
             tracking = {k: v for k, v in tracking.items() if k in ids or k in missing}
             brief = lambda a: {'id': a['id'], 'name': a['name'], 'tier': a['tier']}
             order = lambda a: (TIER_ORDER.get(a['tier'], 9), a['name'])
-            current['comparison'] = {'baseline': bool(previous), 'new': len(ids - old.keys()), 'persisting': len(ids & old.keys()),
-                                     'not_observed': len(old.keys() - ids), 'previous_finished': previous.get('assessment', {}).get('finished'),
+            live = {a['id'] for a in current['assets'] if not a['test_only']}
+            was = {k for k, a in old.items() if not a.get('test_only')}  # findings only in tests are not counted, as they are not listed
+            current['comparison'] = {'baseline': bool(previous), 'new': len(live - old.keys()), 'persisting': len(ids & old.keys()),
+                                     'not_observed': len(was - ids), 'previous_finished': previous.get('assessment', {}).get('finished'),
                                      'new_findings': [brief(a) for a in sorted((a for a in current['assets'] if a['id'] not in old and not a['test_only']), key=order)][:50] if previous else [],
                                      'gone_findings': [brief(a) for a in sorted((a for k, a in old.items() if k not in ids and not a.get('test_only')), key=order)][:50]}
             history = previous.get('history', [])[-29:] + [{k: current[k] for k in ('project', 'finished', 'summary', 'comparison')}]

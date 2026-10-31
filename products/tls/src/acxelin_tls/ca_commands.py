@@ -48,6 +48,9 @@ def cmd_ca(a):
         ca.crl(a.days)
         print(f"wrote {Path(a.dir) / 'crl.pem'}")
     elif a.ca_cmd == "renew":
+        rec = ca.find(a.serial)
+        if rec.path and encrypted(Path(a.out or rec.path) / "key.pem") and not a.key_passphrase_env:
+            raise ValueError(f"{rec.common_name}'s key is encrypted: renew with --key-passphrase-env so the new key is encrypted too")
         out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
         print(f"renewed as {r.serial}, valid until {r.not_after}, in {out}")
     elif a.ca_cmd == "token":
@@ -159,7 +162,7 @@ def add(sub, common):
     p.add_argument("--kms-region", help="the KMS key's AWS region (default: from your AWS configuration)")
     p.add_argument("--signer-command", nargs="+", metavar="ARG", help="an HSM tool that reads data on stdin and writes the signature")
     p.add_argument("--signer-public-key", help="PEM public key of the --signer-command key")
-    p.add_argument("--days", type=int, default=3650, help="the CA certificate's lifetime (default: 3650, ten years)")
+    p.add_argument("--days", type=positive(int), default=3650, help="the CA certificate's lifetime (default: 3650, ten years)")
     enc = p.add_mutually_exclusive_group()
     enc.add_argument("--encrypt", action="store_true", help=argparse.SUPPRESS)  # the default now; still accepted from older scripts
     enc.add_argument("--no-encrypt", action="store_true",
@@ -176,13 +179,13 @@ def add(sub, common):
             p.add_argument("serial", help="from `ca list`; the first 8 or more hex characters are enough")
         p.add_argument("--algorithm", choices=list(ALGORITHMS), default="ML-DSA-65" if name == "issue" else None,
                        help=None if name == "issue" else "default: the algorithm of the certificate being renewed")
-        p.add_argument("--days", type=int, default=397)
+        p.add_argument("--days", type=positive(int), default=397)
         p.add_argument("--out", help="folder for cert.pem, chain.pem and key.pem")
         p.add_argument("--key-passphrase-env", help="encrypt the new key with the passphrase in this environment variable")
     p = ca.add_parser("sign-csr", parents=[common], help="certify a key generated elsewhere")
     p.add_argument("csr")
     p.add_argument("--kind", choices=["server", "client", "site"], required=True)
-    p.add_argument("--days", type=int, default=397)
+    p.add_argument("--days", type=positive(int), default=397)
     p.add_argument("--out", required=True, help="the certificate file to write")
     p = ca.add_parser("revoke", parents=[common], help="revoke a certificate and refresh the CRL")
     p.add_argument("serial")

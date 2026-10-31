@@ -313,7 +313,8 @@ def cmd_console(a):
         except (OSError, ValueError) as e:
             sys.exit(f"acxelin-vpn: no console is running on port {a.port} ({e}); start one with `acxelin-vpn console`")
         return 0
-    return run(home, a.port, open_browser=not a.no_browser and not a.container, ca_dir=a.ca, host="0.0.0.0" if a.container else "127.0.0.1")
+    ca = a.ca or ("pki" if Path("pki/ca.crt").exists() else None)  # the folder the manual creates with `ca init --dir pki`
+    return run(home, a.port, open_browser=not a.no_browser and not a.container, ca_dir=ca, host="0.0.0.0" if a.container else "127.0.0.1")
 
 
 def add(sub):

@@ -23,6 +23,7 @@ def _rx(pattern):
     `**` across folders, and a folder matching everything under it."""
     anchored = pattern.startswith("/") or "/" in pattern.rstrip("/")
     p, out, i = pattern.strip("/"), "", 0
+    direct = anchored and "*" in p.rsplit("/", 1)[-1] and "**" not in p.rsplit("/", 1)[-1]  # docs/* : the folder's own files only
     while i < len(p):
         if p.startswith("**/", i):
             out, i = out + "(?:.*/)?", i + 3
@@ -30,7 +31,7 @@ def _rx(pattern):
             out, i = out + ".*", i + 2
         else:
             out, i = out + ("[^/]*" if p[i] == "*" else "[^/]" if p[i] == "?" else re.escape(p[i])), i + 1
-    return re.compile(("" if anchored else "(?:.*/)?") + out + ("/.*" if pattern.endswith("/") else "(?:/.*)?"))
+    return re.compile(("" if anchored else "(?:.*/)?") + out + ("/.*" if pattern.endswith("/") else "" if direct else "(?:/.*)?"))
 
 
 def match(rules, path):
@@ -62,12 +63,21 @@ def codeowners(root):
     return []
 
 
+def decode(data):
+    """A CSV's text as Excel saves it: UTF-8 (with or without a byte order mark), else Windows-1252."""
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
 def from_csv(text):
     """[(pattern, owner)] from a CMDB export with a path (or pattern) column and an owner (or team) column; with a service (or
     application) column too, [(pattern, owner, service)]; with a keep-secret (years) or an importance column, [(pattern, owner,
     service, years or "", importance or "")]."""
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Choose a CSV with a path column and an owner column")
+    text = text.lstrip("\ufeff")  # Excel's UTF-8 byte order mark
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
     except csv.Error:
@@ -84,6 +94,7 @@ def from_csv(text):
     cell = lambda r, i: r[i].strip() if i is not None and len(r) > i else ""
     def extra(r):
         y, level = cell(r, years), cell(r, importance).lower()
+        level = {"1": "critical", "2": "high", "3": "medium", "4": "low"}.get(level[:1], level) if level[:1].isdigit() else level  # ServiceNow: "1 - most critical"
         try:
             y = float(y) if y else ""
         except ValueError:
@@ -94,7 +105,8 @@ def from_csv(text):
             raise ValueError(f"Importance is one of {', '.join(LEVELS)}, not {level[:20]!r}")
         return (y, level)
     more = years is not None or importance is not None
-    rules = [(cell(r, path), cell(r, owner)) + ((cell(r, service),) if service is not None or more else ()) + (extra(r) if more else ())
+    norm = lambda p: re.sub(r"^\./", "", p.replace("\\", "/"))  # Windows separators and ./ from a spreadsheet
+    rules = [(norm(cell(r, path)), cell(r, owner)) + ((cell(r, service),) if service is not None or more else ()) + (extra(r) if more else ())
              for r in rows[1:] if cell(r, path) and cell(r, owner)]
     if len(rules) > MAX_RULES:
         raise ValueError(f"At most {MAX_RULES} rows")
