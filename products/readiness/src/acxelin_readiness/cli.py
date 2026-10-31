@@ -9,7 +9,7 @@ from pathlib import Path
 
 from cryptography.utils import CryptographyDeprecationWarning
 
-from . import __version__, pipeline, report, image, inventory, compliance, remote, owners, workspace
+from . import __version__, pacing, pipeline, report, image, inventory, compliance, remote, owners, workspace
 from .rank import Horizon, TIERS
 from .report import write_results
 from .detectors import Scope
@@ -24,6 +24,39 @@ Start here:
   acxelin-readiness grade HOST    grade a TLS or SSH endpoint from A to F
   acxelin-readiness doctor        check what this machine can scan
   acxelin-readiness --help        every command"""
+
+
+def _rate(text):
+    try:
+        return pacing.profile(rate=float(text)).rate
+    except ValueError:
+        raise argparse.ArgumentTypeError("connections a second to one host: 0 or more, 0 for no limit") from None
+
+
+def _workers(text):
+    try:
+        return pacing.profile(workers=int(text)).workers
+    except ValueError:
+        raise argparse.ArgumentTypeError("endpoints probed at once: a whole number, 1 or more") from None
+
+
+def pacing_flags(p, workers=True):
+    p.add_argument("--rate", type=_rate, metavar="N", help="live probes: at most N new connections a second to any one host:port, one at a time (default 2; 0 for no limit)")
+    if workers:
+        p.add_argument("--workers", type=_workers, metavar="N", help="live probes: endpoints probed at once (default 4)")
+    p.add_argument("--aggressive", action="store_true", help="live probes: no pacing and 16 endpoints at once, as before pacing was added; the burst can trip intrusion detection and loads the host")
+
+
+def pacer_for(a, cfg, workers):
+    """(profile, pacer) from the command line, then the settings file, then the gentle default."""
+    first = lambda *xs: next((x for x in xs if x is not None), None)
+    try:
+        prof = pacing.profile(first(a.rate, cfg.get("rate")), first(getattr(a, "workers", None), cfg.get("workers")), a.aggressive or cfg.get("aggressive", False))
+    except ValueError as e:
+        sys.exit(f"acxelin-readiness: {e}")
+    if workers is not None and first(getattr(a, "workers", None), cfg.get("workers")) is None:
+        prof = prof._replace(workers=workers)
+    return prof, pacing.Pacer(prof.rate)
 
 
 def main(argv=None):
@@ -58,6 +91,7 @@ def main(argv=None):
     s.add_argument("--fail-on-policy", action="store_true", help="exit 2 if any policy rule is already broken (deadline passed or none)")
     s.add_argument("--owners", metavar="CSV", help="CMDB export with path and owner columns; a keep secret (years) column sets how long each path's data must stay secret")
     s.add_argument("-q", "--quiet", action="store_true")
+    pacing_flags(s)
     w = sub.add_parser("watch", help="scan again on a schedule and say what appeared or disappeared since the last scan")
     w.add_argument("path", nargs="?", default=".", help="folder or GitHub link to scan; its .acxelin-readiness.toml adds endpoints and other settings")
     w.add_argument("-o", "--out", default="readiness-watch", help="results of the latest scan, and changes.json")
@@ -66,6 +100,7 @@ def main(argv=None):
     w.add_argument("--on-change", metavar="COMMAND", help="run this when something appeared or disappeared; ACXELIN_READINESS_CHANGES names changes.json")
     w.add_argument("--config", metavar="FILE", help="settings file for the scans")
     w.add_argument("--home", metavar="DIR", help="the console's folder, where each run is recorded for its Overview (default: ~/.acxelin-readiness)")
+    pacing_flags(w)
     m = sub.add_parser("merge", help="merge the CBOMs of many systems into one organisation inventory and dashboard")
     m.add_argument("cboms", nargs="+", metavar="CBOM", help="cbom.json files, or folders searched for them (other tools' CBOMs work too)")
     m.add_argument("--name", default="Organisation", help="organisation name for the inventory")
@@ -77,7 +112,8 @@ def main(argv=None):
     g.add_argument("targets", nargs="+", help="host (port 443), host:port, ssh://host (port 22), or .txt files with one per line")
     g.add_argument("--json", metavar="FILE")
     g.add_argument("--html", metavar="FILE")
-    g.add_argument("--workers", type=int, default=16)
+    pacing_flags(g)
+    g.add_argument("--config", metavar="FILE", help="settings file: rate, workers and aggressive apply")
     g.add_argument("--timeout", type=float, default=8.0)
     r = sub.add_parser("report", help="compliance evidence: NIST IR 8547 and CNSA 2.0 status of certificates, endpoints and CBOMs")
     r.add_argument("--certs", metavar="DIR", help="a folder of PEM certificates")
@@ -85,6 +121,8 @@ def main(argv=None):
     r.add_argument("--cbom", action="append", default=[], metavar="PATH", help="a scan's output folder or any cbom.json (repeatable): code, or another product's exported inventory")
     r.add_argument("-o", "--out", default="readiness-report")
     r.add_argument("--timeout", type=float, default=8.0)
+    r.add_argument("--config", metavar="FILE", help="settings file: rate, workers and aggressive apply")
+    pacing_flags(r)
     sub.add_parser("doctor", help="check what this machine can scan")
     k = sub.add_parser("console", help="open the console in your browser; `console link` prints a fresh launch address for a console already running")
     k.add_argument("action", nargs="?", choices=["link"])
@@ -183,14 +221,19 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         sys.exit(f"acxelin-readiness: cannot read --owners {a.owners}: {e}")
     h = Horizon(a.shelf_life, a.migration, a.crqc_year, owners.secrets(cmdb))
+    prof, pacer = pacer_for(a, cfg, 1)  # endpoints are probed one after another unless asked
+    if (a.tls or a.ssh) and not a.quiet:
+        print(pacing.announce(pacer), file=sys.stderr)
     try:
         r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap,
-                         aws=a.aws, aws_session=aws_session)
+                         aws=a.aws, aws_session=aws_session, pacer=pacer, workers=prof.workers)
     finally:
         for folder in (unpacked, downloaded):
             if folder:
                 shutil.rmtree(folder, ignore_errors=True)
     r.notes[:0] = notes
+    if pacer.opened and not a.quiet:
+        print(pacer.summary(), file=sys.stderr)
     if only is not None:
         r.notes.insert(0, f"incremental scan: {len(only)} file(s) changed since {a.changed_since}; the rest of the repository was not read")
     if any(policy.get(k) for k in ("profiles", "forbid", "min_bits", "require_hybrid")):
@@ -229,7 +272,8 @@ def watch(a):
         while True:
             before = pipeline.load_baseline(bom) if bom.exists() else None
             try:
-                main(["scan", a.path, "-o", str(out), "-q"] + (["--config", a.config] if a.config else []))
+                main(["scan", a.path, "-o", str(out), "-q"] + (["--config", a.config] if a.config else []) + (["--rate", str(a.rate)] if a.rate is not None else [])
+                     + (["--workers", str(a.workers)] if a.workers is not None else []) + (["--aggressive"] if a.aggressive else []))
             except SystemExit as e:
                 if e.code != 2:  # 2 is fail_on in the settings: the scan finished
                     raise
@@ -329,7 +373,11 @@ def grade(a):
         sys.exit(f"acxelin-readiness: {e}")
     if not targets:
         sys.exit("acxelin-readiness: no targets: give host, host:port, ssh://host, or a .txt file with one per line")
-    results = endpoints.scan(targets, a.workers, a.timeout)
+    prof, pacer = pacer_for(a, settings(a.config, None), None)
+    print(pacing.announce(pacer), file=sys.stderr)
+    results = endpoints.scan(targets, prof, a.timeout, pacer)
+    if pacer.opened:
+        print(pacer.summary(), file=sys.stderr)
     for r in results:
         print(f"{r.get('grade', 'F')}  {r.get('target', '?')}  {r.get('error') or r.get('negotiated') or ''}")
         if r.get("note"):
@@ -382,7 +430,11 @@ def report_command(a):
             targets = endpoints.load_targets(a.targets)
             if not targets:
                 sys.exit("acxelin-readiness: no targets in --targets: give host, host:port, ssh://host, or a .txt file with one per line")
-            rows += evidence.endpoints(endpoints.scan(targets, timeout=a.timeout))
+            prof, pacer = pacer_for(a, settings(a.config, None), None)
+            print(pacing.announce(pacer), file=sys.stderr)
+            rows += evidence.endpoints(endpoints.scan(targets, prof, a.timeout, pacer))
+            if pacer.opened:
+                print(pacer.summary(), file=sys.stderr)
         for source in a.cbom:
             rows += evidence.code(source)
     except (OSError, ValueError) as e:

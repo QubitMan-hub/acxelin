@@ -4,6 +4,7 @@ import ssl
 
 from cryptography import x509
 
+from .. import pacing
 from ..catalog import lookup, curve, pq_from_text, HYBRIDS
 from ..model import Detection
 from .artifacts import cert_record
@@ -20,7 +21,7 @@ def _ctx():
 
 
 def _handshake(host, port, ctx, timeout):
-    with socket.create_connection((host, port), timeout=timeout) as s:
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as s:
         with ctx.wrap_socket(s, server_hostname=host) as t:
             return t.version(), t.cipher(), t.getpeercert(binary_form=True)
 

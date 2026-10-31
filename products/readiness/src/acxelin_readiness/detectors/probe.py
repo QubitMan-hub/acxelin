@@ -4,6 +4,7 @@ import os
 import socket
 import struct
 
+from .. import pacing
 from ..catalog import pq_from_text
 
 GROUPS = {
@@ -88,6 +89,11 @@ def _dh_bits(sock, first):
 def server_hello(host, port, groups, timeout=5.0, version=None, name=None, suites=None, dh=False):
     """Returns (kind, info). kind is 'hrr', 'hello', 'alert', 'closed' (the server hung up on the hello, as some do to refuse it)
     or 'error' (no connection, or no answer in time)."""
+    with pacing.slot(host, port):
+        return _server_hello(host, port, groups, timeout, version, name, suites, dh)
+
+
+def _server_hello(host, port, groups, timeout, version, name, suites, dh):
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as e:
@@ -168,7 +174,7 @@ def _namelist(b, i):
 
 
 def ssh_kexinit(host, port=22, timeout=6.0):
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as sock:
         sock.sendall(b"SSH-2.0-acxelin_readiness_probe\r\n")
         buf = b""
         while b"\n" not in buf or not buf.lstrip().startswith(b"SSH-"):
