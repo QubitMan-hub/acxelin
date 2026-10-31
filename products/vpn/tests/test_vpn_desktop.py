@@ -95,7 +95,10 @@ class DesktopTest(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "shown: True"), r.stderr)
 
     def test_the_window_profile_never_offers_to_save_the_passphrase(self):
-        with mock.patch.object(self.desktop, "browser", return_value=sys.executable), mock.patch("subprocess.Popen") as popen:
+        from acxelin_core.console import launch_page
+        page = launch_page("http://127.0.0.1:1/#t", self.d)  # written before Popen is replaced: on Windows its owner-only step runs icacls through Popen
+        with mock.patch.object(self.desktop, "browser", return_value=sys.executable), mock.patch.object(self.desktop, "launch_page", return_value=page), \
+                mock.patch("subprocess.Popen") as popen:
             (self.d / "Default").mkdir()
             (self.d / "Default" / "Preferences").write_text('{"profile": {"name": "kept"}}')
             self.desktop.open_window("http://127.0.0.1:1/#t", self.d)
