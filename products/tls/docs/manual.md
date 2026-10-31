@@ -183,6 +183,19 @@ acxelin-tls edge --listen 0.0.0.0:8443 --target 127.0.0.1:8080 --cert web/chain.
 
 Give each client its own certificate (`acxelin-tls ca issue client laptop-01 --dir pki --out laptop`). It connects with `--cert laptop/chain.pem --key laptop/key.pem`. A client without one is refused, and the edge logs `peer did not return a certificate`.
 
+### Short-lived certificates
+
+A certificate that lives for a day needs no revocation: it is gone by tomorrow. To use them, issue with hours and renew automatically:
+
+```
+acxelin-tls ca issue server payments.internal --dir pki --hours 24 --out payments
+acxelin-tls ca maintain --dir pki
+```
+
+`ca maintain` renews a short-lived certificate in the last third of its life (a 24-hour certificate at 8 hours) into the same folder, and edges pick the new one up without a restart. A renewal keeps the lifetime. Anything up to 7 days counts as short-lived; longer certificates renew for 397 days, as before. Use `--renew-within-hours N` to choose the window yourself.
+
+What you take on: **something must run `ca maintain` at least every third of the shortest lifetime** (every 8 hours for 24-hour certificates), on a machine that can reach the CA. If it stops, the services stop when their certificates expire. `acxelin-tls doctor` tells you the interval, and warns when a certificate is due and has not been renewed. The CRL still matters for mutual TLS: a revoked client is refused at once, not at expiry, and the CRL (7 days by default) is re-signed every time `maintain` runs.
+
 ### Revoke a certificate
 
 ```
