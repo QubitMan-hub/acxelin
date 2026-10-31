@@ -17,6 +17,19 @@
   where users cannot write. On macOS the tray no longer starts the service from Applications, which any administrator account
   can change: run `sudo acxelin-vpn app`. The Windows and macOS rules are checked by unit tests, not on those systems.
   `sudo acxelin-vpn app`, run by an administrator on purpose, is unchanged.
+- Outage grace, opt-in: `outage_grace_minutes` (0 to 1440, default 0, which behaves exactly as before) in `[wireguard]` and on a
+  site's `[[peer]]` keeps a person or peer that has stopped agreeing keys on its last keys for up to that long past the normal
+  limit, instead of removing them after 6.5 minutes (remote access) or cutting the tunnel after three rotations plus two
+  minutes (sites). The cap is hard; the grace applies only while the CRL is present, signed by your CA and not expired (it needs
+  `crl`); revocation is checked first and is never delayed. `/status` and the metrics show who is in grace and for how long
+  (`in_grace`, `acxelin_vpn_wireguard_client_in_grace`, `acxelin_vpn_tunnel_in_grace`, `events_total{event="grace_used"}`),
+  and the log has one warning line on entering and one on leaving. A running gateway applies a changed value without a restart.
+  Limits: for remote access the computer's own software still takes its tunnel down when its key agreement fails, and a gateway
+  restart is not covered. Tested with stand-ins for `wg` and charon; `docs/outage-drill.md` and `tools/outage_drill.sh` are how
+  to try it on two real machines (not yet run).
+- A CRL file that disappears while the gateway or a site is running is now treated like any unusable CRL: laptops and peers that
+  stopped renewing are still removed or cut. Before, the check failed with a file error and removed no one in that pass.
+- `/status` of a site gains `in_grace` for every peer (false unless the outage grace is in use).
 - `acxelin-vpn setup NAME`: a remote-access gateway in one step: the CA (or the existing one), the gateway's certificate, the
   CRL and a checked `gateway.toml`, then the commands that start enrollment and the gateway and invite the first person.
 - Console, People: traffic, when each person's key was last renewed (and the last handshake), gateway uptime, and an access

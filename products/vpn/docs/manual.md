@@ -348,12 +348,43 @@ With `metrics = "HOST:PORT"`, a site serves `/metrics` (Prometheus) and `/status
 | `acxelin_vpn_events_total{event}` | key agreements, rotations, refusals and revoked peers |
 | `acxelin_vpn_wireguard_client_up{user}` | 1 while that person's computer has completed a handshake in the last three minutes |
 | `acxelin_vpn_wireguard_bytes_total`, `acxelin_vpn_wireguard_events_total` | the same for remote access |
+| `acxelin_vpn_tunnel_in_grace{peer}`, `acxelin_vpn_wireguard_client_in_grace{user}` | 1 while that peer or person is running on its last keys under the outage grace (below) |
+| `acxelin_vpn_tunnel_grace_remaining_seconds{peer}`, `acxelin_vpn_wireguard_client_grace_remaining_seconds{user}` | seconds until the grace's hard cap, only while in grace |
+
+`events_total{event="grace_used"}` counts how many times a peer or person entered the grace. `/status` shows the same per peer or person: `in_grace`, and while in grace `grace_elapsed_s`, `grace_remaining_s` and `grace_cap_s`.
+
+### Riding out a key agreement outage
+
+The VPN fails closed when key agreement stops: a person's computer that has not agreed new keys for three rotations plus 30 seconds (6.5 minutes at the default two-minute rotation) is removed from the gateway, and a site's tunnel is cut after three rotations plus two minutes without a key agreement. So an outage of the key agreement service, or a partition between the sides, of more than a few minutes disconnects everyone, although nobody was revoked.
+
+`outage_grace_minutes` lets you accept a longer outage. It is **off (0) by default**, which behaves exactly as described above. Set it in `[wireguard]` of `gateway.toml`, or on a `[[peer]]` of a site, to a number of minutes between 0 and 1440 (24 hours):
+
+```toml
+[wireguard]
+rotate_minutes = 2
+outage_grace_minutes = 30     # needs crl = "..."
+```
+
+- **The cap is hard.** A person or peer whose last key agreement is older than the normal limit plus the grace is removed or cut, whatever else is happening, even if the key agreement service never comes back. Nothing extends it.
+- **Revocation is never delayed.** Revocation is checked first, every 15 seconds, grace or not. Someone revoked while in the grace is removed or cut at the next pass, as soon as the gateway has the new CRL.
+- **It needs a usable CRL.** The grace applies only while the CRL is present, signed by your CA and not expired, and `outage_grace_minutes` above 0 needs `crl` to be set. If the CRL is missing, damaged or expired, nothing shows that the silent peer is not revoked, so the normal limit applies at once. A site peer also gets no grace for a certificate the controller has not seen since it started.
+- **You can see it.** Each entry into and exit from the grace is one warning line in the log, never one per pass. The `/status` page served at `metrics = "HOST:PORT"` shows `in_grace` with the time elapsed and remaining; the metrics above export the same.
+
+**The trade-off.** A person or peer in the grace keeps running on keys that are older than the design intends: the WireGuard pre-shared key, or the IPsec PSK and PPK, from the last key agreement. Recorded traffic is not exposed by this alone: to use the longer window, an attacker who recorded it would also have to hold that old pre-shared key, which is exactly what the post-quantum key agreement protects. What the grace does weaken is the speed at which a stolen device or key stops being useful when the gateway cannot learn of the revocation: the gateway acts on the CRL it has, so a certificate revoked during an outage that also keeps the new CRL from reaching the gateway (`crl_url` unreachable) stays connected until the CRL arrives or the cap ends, whichever is first. The cap you choose is therefore the longest you accept that. A CRL file also expires (`ca crl` signs one for seven days by default), and once it has, the grace ends.
+
+**How to choose.** Start from the longest outage you want to ride out without a call to the on-call engineer, and no longer than you would accept for a revoked device to stay connected if the CRL could not reach the gateway. Begin with the shortest value that covers the outages you have actually had, and raise it only with evidence. Sites that rotate every 60 minutes already tolerate a silent peer for three hours and two minutes before the grace starts; they need a grace only for longer outages. Keep the CA's `ca maintain` daily so the CRL is always current.
+
+**Limits to know before relying on it.**
+
+- For remote access, the grace is held by the gateway. The computer's own software still takes its tunnel down when its own key agreement fails, and retries every second until it succeeds (from the code; not yet measured in an outage). So the grace helps most where a computer can still agree keys but the gateway cannot reach the rest of the control plane, and protects what the gateway does; it does not yet keep a laptop that cannot reach the key agreement port connected. Run the outage drill (`docs/outage-drill.md`) to see what your computers do.
+- For sites, the grace only stops this software from cutting the tunnel. strongSwan's own lifetimes still apply: it keeps rekeying with the last two PPKs it holds, which has not been tested over a long outage here.
+- Tests exercise the logic with a stand-in for `wg` and charon. The drill in `docs/outage-drill.md` is how you check it on two real machines.
 
 ## 9. How keys are agreed
 
 1. **Mutual TLS.** One side connects to the other's key agreement service (port 7443) over TLS 1.3 with a hybrid ML-KEM group (X25519MLKEM768, SecP384r1MLKEM1024 or SecP256r1MLKEM768). Both present ML-DSA certificates from your CA, checked against the CRL. Anything else is refused.
 2. **Keys from the session.** Both sides derive the same secrets from that TLS session (an RFC 5705 exporter): for IPsec the IKE PSK, the PPK and its id; for WireGuard the pre-shared key. Nothing secret crosses the network.
-3. **Rotation.** Sites agree new keys every `rotate_minutes` (60 by default), people's computers every two minutes. A side that stops re-agreeing is removed after three missed rotations.
+3. **Rotation.** Sites agree new keys every `rotate_minutes` (60 by default), people's computers every two minutes. A side that stops re-agreeing is removed after three missed rotations, or later if you set `outage_grace_minutes` (section 8).
 4. **Revocation.** A revoked certificate gets no new keys, and its tunnel is cut.
 
 ### Keys from quantum key distribution (site-to-site)
@@ -392,6 +423,8 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 | A tunnel stays `CONNECTING` | The key agreement port or IPsec's UDP 500 and 4500 are blocked, or the names in the configuration differ from the certificates. | Open the ports; `name` must equal the certificate's name. `doctor --config` checks the files. |
 | **Not protected** with `revoked` in the app | This computer's certificate was revoked. | Ask the administrator for a new invitation. |
 | Every peer is refused after a week | The CRL has expired, and the VPN fails closed. | Run `acxelin-vpn ca maintain --dir pki` now, and schedule it daily. |
+| A person or peer shows `in_grace` in `/status`, or the log says `running on its last keys under the outage grace` | Key agreement with it has stopped, and `outage_grace_minutes` is keeping it up on its last keys. It will be removed or cut when the grace ends. | Find out why key agreement stopped: the key agreement service on port 7443, the network between the two sides, or the CA's CRL. Everything returns to normal at the next key agreement. |
+| `stopped renewing its key; the outage grace does not apply because the CRL cannot be used` | The CRL is missing, damaged or expired, so nothing shows the silent peer is not revoked. | Run `acxelin-vpn ca maintain --dir pki` and make sure the gateway has the new CRL. |
 | `The CA key is locked` in the console | The console restarted and forgot the passphrase. | Enter the passphrase again. |
 | `doctor` exits 2 | A check failed. | The line marked `FAIL` names the problem and the fix. |
 | `would run code with administrator rights that an ordinary user can change` | The tray or `acxelin-vpn install` was started from a copy installed for one user. | Use the Windows Setup, the Linux package, or a copy an administrator installed under `/opt` (section 3). |
@@ -421,5 +454,6 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 - Phones are not supported.
 - On Windows, the kill switch can lift for a moment while the tunnel is recreated.
 - The desktop installers are not code-signed yet.
+- The outage grace (section 8) keeps people and sites connected on their last keys for up to the time you set, at most 24 hours. It never outlasts the CRL, and a certificate revoked while the new CRL cannot reach the gateway stays connected until the CRL arrives or the cap ends. For remote access, the computer's own software still takes its tunnel down when its own key agreement fails.
 - A revoked site or person keeps access until their gateway has the new CRL: up to 15 seconds, plus `crl_every` when it is fetched.
 - The tunnels have been tested in Linux network namespaces and on GitHub's Windows and macOS runners, not on your network. Test on your own laptops and gateways before a wide rollout.

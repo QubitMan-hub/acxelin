@@ -9,12 +9,15 @@ import tempfile
 import textwrap
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from acxelin_core.pki import CA
 from acxelin_vpn import PROFILES, Peer, Site, load_config, validate
 from acxelin_vpn.charon import conn_config, ppk_pattern
 from acxelin_vpn.controller import context
+from support_vpn import REASON
 
 
 def site(**kw):
@@ -155,6 +158,182 @@ class FreshnessTest(unittest.TestCase):
         self.assertEqual(ch.terminated, ["branch.acme"])
         self.assertEqual(ch.keys, {"psk-lab.acme", "ppk-lab.acme-bbbbbbbbbbbb", "psk-other"})
         self.assertEqual(ctl.counts["stale_peers"], 1)
+
+
+@unittest.skipIf(REASON, REASON)
+class OutageGraceTest(unittest.TestCase):
+    """A peer that has not re-agreed keys within the normal limit (300 s at rotate_minutes = 1) is kept on its last keys for up to
+    outage_grace_minutes, only while the CRL can show it is not revoked; revocation is never delayed."""
+    LIMIT = 3 * 60 + 120
+
+    def setUp(self):
+        from unittest.mock import Mock
+        from acxelin_vpn.controller import Controller
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        d = self.d = Path(self.tmp.name)
+        self.ca = CA.init(d / "pki", "Root")
+        self.ca.crl()
+        self.crl = d / "pki" / "crl.pem"
+        self.recs = {n: self.ca.issue(n, "site", out=d / n)[1] for n in ("branch.acme", "lab.acme")}
+        peers = [Peer(n, "10.0.0.2", ["10.1.0.0/16"], ["10.2.0.0/16"], rotate_minutes=1, outage_grace_minutes=g)
+                 for n, g in (("branch.acme", 30), ("lab.acme", 0))]
+        self.charon = FakeCharon({"psk-branch.acme", "ppk-branch.acme-aaaaaaaaaaaa", "psk-lab.acme", "ppk-lab.acme-bbbbbbbbbbbb"},
+                                 [{"peer": n, "state": "ESTABLISHED", "established_s": 5} for n in ("branch.acme", "lab.acme")])
+        self.ctl = Controller(site(peers=peers, ca=str(d / "pki" / "ca.crt"), crl=str(self.crl), keyring_listen="0.0.0.0:7443"), charon=self.charon)
+        for n in ("branch.acme", "lab.acme"):
+            self.ctl.serials[n] = (int(self.recs[n].serial, 16), self.ca.cert.subject)
+            self.ctl.keys[n] = ["aaaaaaaaaaaa"]
+        self.Mock = Mock
+        self.silent(0)
+
+    def silent(self, seconds, *names):
+        for n in names or ("branch.acme", "lab.acme"):
+            self.ctl.last_agreed[n] = time.time() - seconds
+
+    def passes(self):
+        self.ctl.enforce()
+
+    def test_a_silent_peer_stays_inside_the_grace_window_and_is_cut_at_the_cap(self):
+        self.silent(self.LIMIT + 60, "branch.acme")
+        self.passes()
+        self.assertEqual(self.charon.terminated, [], "past the normal limit, inside the grace: kept on its last keys")
+        self.assertIn("psk-branch.acme", self.charon.keys)
+        self.silent(self.LIMIT + 30 * 60 + 5, "branch.acme")
+        self.passes()
+        self.assertEqual(self.charon.terminated, ["branch.acme"])
+        self.assertNotIn("psk-branch.acme", self.charon.keys)
+        self.assertEqual((self.ctl.counts["stale_peers"], self.ctl.counts["grace_used"]), (1, 1))
+
+    def test_a_peer_without_a_grace_is_cut_at_the_normal_limit_as_before(self):
+        self.silent(self.LIMIT + 1, "lab.acme")
+        self.passes()
+        self.assertEqual((self.charon.terminated, self.ctl.counts["grace_used"]), (["lab.acme"], 0))
+
+    def test_a_peer_revoked_inside_the_grace_window_is_cut_at_the_next_pass(self):
+        self.silent(self.LIMIT + 60, "branch.acme")
+        self.passes()
+        self.assertEqual(self.charon.terminated, [])
+        self.ca.revoke(self.recs["branch.acme"].serial, "keyCompromise")
+        time.sleep(0.05)
+        self.passes()
+        self.assertEqual(self.charon.terminated, ["branch.acme"], "revoked inside the grace: cut at once")
+        self.assertNotIn("psk-branch.acme", self.charon.keys)
+        self.assertEqual((self.ctl.counts["revoked_peers"], self.ctl.status()["branch.acme"]["in_grace"]), (1, False))
+
+    def test_freshness_alone_never_keeps_a_revoked_peer(self):
+        self.silent(self.LIMIT + 60, "branch.acme")
+        self.ca.revoke(self.recs["branch.acme"].serial, "keyCompromise")
+        time.sleep(0.05)
+        self.ctl.enforce_freshness()
+        self.assertEqual(self.charon.terminated, ["branch.acme"])
+
+    def test_a_crl_that_cannot_be_used_cancels_the_grace(self):
+        good = self.crl.read_bytes()
+        later = mock.patch("acxelin_core.pki.now", return_value=datetime.now(timezone.utc) + timedelta(days=8))  # past the CRL's next update
+        for what, (ruin, restore) in {"expired": (later.start, later.stop), "damaged": (lambda: self.crl.write_bytes(b"not a CRL"), lambda: self.crl.write_bytes(good)),
+                                      "missing": (self.crl.unlink, lambda: self.crl.write_bytes(good))}.items():
+            with self.subTest(what):
+                self.charon.sas = [{"peer": "branch.acme", "state": "ESTABLISHED", "established_s": 5}]
+                self.charon.terminated.clear()
+                self.ctl.serials["branch.acme"] = (int(self.recs["branch.acme"].serial, 16), self.ca.cert.subject)
+                self.silent(self.LIMIT + 60, "branch.acme")
+                self.passes()
+                self.assertEqual(self.charon.terminated, [], "usable CRL: in grace")
+                ruin()
+                time.sleep(0.05)
+                self.passes()
+                self.assertEqual(self.charon.terminated, ["branch.acme"], f"{what} CRL: no grace")
+                restore()
+
+    def test_a_restarted_controller_gives_leftover_tunnels_no_grace(self):
+        self.ctl.serials.clear()
+        self.silent(self.LIMIT + 60, "branch.acme")
+        self.passes()
+        self.assertEqual(self.charon.terminated, ["branch.acme"], "no certificate seen since the start: nothing shows it is not revoked")
+
+    def test_the_cap_is_hard_however_long_the_control_plane_stays_away(self):
+        self.ctl.site.peers[0].outage_grace_minutes = 10
+        for age in range(self.LIMIT - 55, self.LIMIT + 40 * 60, 60):
+            self.silent(age, "branch.acme")
+            self.passes()
+            self.assertEqual("branch.acme" in self.charon.terminated, age > self.LIMIT + 10 * 60, f"at {age}s")
+            if self.charon.terminated:
+                break
+        self.passes()
+        self.assertEqual((self.charon.terminated, self.ctl.counts["grace_used"]), (["branch.acme"], 1))
+
+    def test_a_peer_that_re_agrees_during_the_grace_leaves_it_and_is_kept(self):
+        self.silent(self.LIMIT + 60, "branch.acme")
+        with self.assertLogs("acxelin_vpn.controller", "WARNING") as logs:
+            self.passes()
+            self.assertTrue(self.ctl.status()["branch.acme"]["in_grace"])
+            self.charon.load_keys = self.charon.load_conn = lambda *a: None
+            self.ctl.install(self.ctl.site.peer("branch.acme"), "cccccccccccc", b"x" * 64, self.Mock(serial_number=int(self.recs["branch.acme"].serial, 16)))
+            self.passes()
+        self.assertFalse(self.ctl.status()["branch.acme"]["in_grace"])
+        self.assertEqual(self.charon.terminated, [])
+        self.assertEqual(len([m for m in logs.output if "grace" in m]), 2, "one line on entering, one on leaving")
+
+    def test_the_grace_is_logged_when_it_starts_and_ends_not_on_every_pass(self):
+        self.silent(self.LIMIT + 60, "branch.acme")
+        with self.assertLogs("acxelin_vpn.controller", "WARNING") as logs:
+            for _ in range(5):
+                self.passes()
+            self.silent(self.LIMIT + 3600, "branch.acme")
+            for _ in range(3):
+                self.passes()
+        lines = [m for m in logs.output if "grace" in m]
+        self.assertEqual(len(lines), 2, lines)
+
+    def test_status_and_metrics_show_who_runs_on_last_keys_and_for_how_long(self):
+        self.silent(self.LIMIT + 12 * 60, "branch.acme")
+        self.silent(30, "lab.acme")
+        self.passes()
+        s = self.ctl.status()
+        self.assertEqual(s["lab.acme"]["in_grace"], False)
+        self.assertTrue(s["branch.acme"]["in_grace"])
+        self.assertAlmostEqual(s["branch.acme"]["grace_elapsed_s"], 12 * 60, delta=5)
+        self.assertAlmostEqual(s["branch.acme"]["grace_remaining_s"], 18 * 60, delta=5)
+        self.assertEqual((s["branch.acme"]["grace_cap_s"], s["_events"]["grace_used"]), (30 * 60, 1))
+        text = self.ctl.metrics()
+        self.assertIn('acxelin_vpn_tunnel_in_grace{peer="branch.acme"} 1', text)
+        self.assertIn('acxelin_vpn_tunnel_in_grace{peer="lab.acme"} 0', text)
+        self.assertRegex(text, r'acxelin_vpn_tunnel_grace_remaining_seconds\{peer="branch.acme"\} \d+')
+        self.assertIn('acxelin_vpn_events_total{event="grace_used"} 1', text)
+
+    def test_a_missing_crl_still_cuts_peers_that_stopped_renewing(self):
+        self.silent(self.LIMIT + 1, "lab.acme")
+        self.crl.unlink()
+        self.passes()
+        self.assertEqual(self.charon.terminated, ["lab.acme"])
+
+
+class OutageGraceConfigTest(unittest.TestCase):
+    def peers(self, **kw):
+        return [Peer("branch.acme", "10.0.0.2", ["10.1.0.0/16"], ["10.2.0.0/16"], initiate=True, keyring="10.0.0.2:7443", **kw)]
+
+    def test_defaults_to_off_and_is_limited_to_a_day(self):
+        self.assertEqual(self.peers()[0].outage_grace_minutes, 0)
+        validate(site(crl="crl.pem", peers=self.peers()))
+        for ok in (0, 0.5, 30, 1440):
+            validate(site(crl="crl.pem", peers=self.peers(outage_grace_minutes=ok)))
+        for bad in (-1, -0.1, 1440.5, 100000, float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "branch.acme: outage_grace_minutes must be between 0 and 1440"):
+                validate(site(crl="crl.pem", peers=self.peers(outage_grace_minutes=bad)))
+        with self.assertRaisesRegex(ValueError, "branch.acme: outage_grace_minutes needs crl"):
+            validate(site(peers=self.peers(outage_grace_minutes=30)))
+
+    def test_must_be_a_number_in_a_configuration_file(self):
+        base = (Path(__file__).parent.parent / "config" / "site-hq.toml").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = Path(tmp) / "site.toml"
+            for bad in ('"30"', "true", "[30]"):
+                conf.write_text(base + f"outage_grace_minutes = {bad}\n", encoding="utf-8")
+                with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "outage_grace_minutes must be a number"):
+                    load_config(conf)
+            conf.write_text(base + "outage_grace_minutes = 30\n", encoding="utf-8")
+            self.assertEqual(load_config(conf).peers[0].outage_grace_minutes, 30)
 
 
 class TunnelHealthTest(unittest.TestCase):
@@ -407,7 +586,8 @@ class KeyAgreementFailureTest(unittest.TestCase):
         ctl.start()
         self.assertEqual(list(ctl.charon.load_conn.call_args.args[0]), ["branch.acme"])
         ctl.charon.tunnels.return_value = []
-        self.assertEqual(ctl.status()["branch.acme"], {"initiate": False, "profile": "standard", "keys_age_s": None, "certificate": None, "tunnel": None})
+        self.assertEqual(ctl.status()["branch.acme"], {"initiate": False, "profile": "standard", "keys_age_s": None, "certificate": None, "tunnel": None,
+                                                       "in_grace": False})
         ctl.shutdown()
         self.assertTrue(ctl.stop.is_set())
         ctl.crl_follow.set.assert_called_once()

@@ -18,3 +18,5 @@ initiate = true
 keyring = "203.0.113.10:7443"
 profile = "standard"
 rotate_minutes = 60
+# outage_grace_minutes = 30             # off (0) by default. Keep this peer's tunnel up to 30 minutes past the normal limit (3 x rotate_minutes + 2 minutes)
+#                                       # when key agreement stops, while the CRL is usable and does not list it. Hard cap, 0-1440; needs crl
