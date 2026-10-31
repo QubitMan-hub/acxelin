@@ -365,3 +365,24 @@ def test_a_request_without_a_session_is_refused_before_its_body_is_read():
         assert answer.split(b" ")[1] == b"401" and time.monotonic() - start < 3, "no 15 MB is awaited, parsed or buffered without a session"
     finally:
         server.shutdown()
+
+
+def test_the_launch_ticket_never_appears_on_the_browsers_command_line(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    assert console.open_in_browser("http://127.0.0.1:8900/#secret-ticket", tmp_path)
+    assert "secret-ticket" not in opened[0] and opened[0].startswith("file:")
+    page = Path(opened[0].removeprefix("file://").lstrip("/") if os.name == "nt" else opened[0].removeprefix("file://"))
+    assert "secret-ticket" in page.read_text()
+    if os.name != "nt":
+        assert stat.S_IMODE(page.stat().st_mode) == 0o600
+
+
+def test_only_opening_the_page_itself_may_come_from_another_site():
+    nav = {"Host": "127.0.0.1:8900", "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+    assert console.refusal(nav, "GET", "/") is None, "the owner-only launch page is a file:// page, so its redirect is cross-site"
+    assert console.refusal(nav, "GET", "/api/status") == 403
+    assert console.refusal(nav, "POST", "/") == 403
+    assert console.refusal(nav | {"Sec-Fetch-Dest": "iframe"}, "GET", "/") == 403, "never inside another site's frame"
+    assert console.refusal(nav | {"Sec-Fetch-Mode": "cors"}, "GET", "/") == 403
+    assert console.refusal(nav | {"Origin": "http://evil.example"}, "GET", "/") == 403

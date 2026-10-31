@@ -62,7 +62,7 @@ class TLSConsole:
         self.ca_dir = Path(ca_dir) if ca_dir else self.home / "ca"
         self.passphrase = None
         self.lock = threading.Lock()
-        given = os.environ.get("ACXELIN_TLS_CA_PASSPHRASE")  # a service's secret, so nobody types it into a browser
+        given = os.environ.pop("ACXELIN_TLS_CA_PASSPHRASE", None)  # read once and removed: the browser this opens inherits the environment
         if given and self._exists() and encrypted(self.ca_dir / "ca.key"):
             try:
                 CA(self.ca_dir, given.encode()).signer
@@ -433,12 +433,11 @@ def build(home, ca_dir=None):
 
 def run(home, port=8900, open_browser=True, ca_dir=None, host="127.0.0.1"):
     """Start the console and sign this browser in: the launch address carries a single-use ticket in its fragment."""
-    import webbrowser
     app = build(home, ca_dir)
     server = core.start(app, home, port, host)
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/#{app.sessions.ticket()}"
-    if open_browser and webbrowser.open(url):
+    if open_browser and core.open_in_browser(url, home):
         print(f"Acxelin TLS console is open in your browser (http://127.0.0.1:{port}). Press Ctrl+C to stop.")
     else:
         core.link_running(port, home)

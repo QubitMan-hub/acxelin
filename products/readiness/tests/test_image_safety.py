@@ -58,3 +58,27 @@ def test_a_tar_with_some_other_manifest_is_scanned_as_a_plain_archive_not_an_ima
     arc.write_bytes(tarbytes([("manifest.json", b'{"name": "a browser extension", "version": "1"}'), ("x.js", b"1")]))
     assert not image.is_image(arc)
     assert cli.main(["scan", str(arc), "--out", str(tmp_path / "out"), "--quiet"]) == 0
+
+
+def test_an_oci_index_that_points_to_itself_is_refused_not_followed_forever(tmp_path):
+    loop = json.dumps({"manifests": [{"digest": "sha256:aa"}]}).encode()
+    p = tmp_path / "loop.tar"
+    p.write_bytes(tarbytes([("oci-layout", b"{}"), ("index.json", loop), ("blobs/sha256/aa", loop)]))
+    with pytest.raises(ValueError, match="manifests"):
+        image.unpack(p, tmp_path / "out")
+
+
+@pytest.mark.parametrize("names", [[None, 5, {}], "l0.tar", [["x"]]])
+def test_layer_names_that_are_not_names_are_refused(tmp_path, names):
+    with pytest.raises(ValueError, match="layer"):
+        image.unpack(archive(tmp_path / "bad.tar", tarbytes([("a", b"x")]), manifest=[{"Layers": names}]), tmp_path / "out")
+
+
+def test_an_image_unpacks_to_a_bounded_size_however_often_a_layer_is_listed(tmp_path, monkeypatch):
+    monkeypatch.setattr(image, "MAX_BYTES", 10_000)
+    layer = tarbytes([(f"f{i}", b"x" * 1000) for i in range(30)])
+    p = archive(tmp_path / "amp.tar", layer, manifest=[{"Layers": ["l0.tar"] * 50}])
+    notes = image.unpack(p, tmp_path / "out")
+    size = sum(f.stat().st_size for f in (tmp_path / "out").rglob("*") if f.is_file())
+    assert size <= 10_000
+    assert any("limit" in n for n in notes)

@@ -111,12 +111,11 @@ def test_acme_validation_cannot_reactivate_a_deactivated_authorization(tmp_path)
     auth = svc.state['authz'][aid]
     auth['challenge_status'] = 'processing'
 
-    class Response(io.BytesIO):
-        def read(self, *args):
-            svc.authz(aid, {'status': 'deactivated'}, 'owner')
-            return super().read(*args)
+    def fetch(*args, **kwargs):  # the authorization is deactivated while its challenge is being fetched
+        svc.authz(aid, {'status': 'deactivated'}, 'owner')
+        return f"{auth['token']}.tp".encode()
 
-    with mock.patch('acxelin_tls.acme.FETCH.open', return_value=Response(f"{auth['token']}.tp".encode())):
+    with mock.patch('acxelin_tls.acme.fetch', side_effect=fetch):
         svc.validate(aid, f"{auth['token']}.tp")
     assert auth['status'] == 'deactivated'
 

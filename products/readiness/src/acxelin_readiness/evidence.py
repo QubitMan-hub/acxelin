@@ -4,10 +4,8 @@ NIST IR 8547 (initial public draft, November 2024): quantum-vulnerable public-ke
 after 2030 and all of them are disallowed after 2035; ML-KEM and ML-DSA are the replacements.
 CNSA 2.0 (NSA, 2022, updated 2024): ML-KEM-1024, ML-DSA-87, AES-256 and SHA-384/512, used exclusively by the category's deadline.
 """
-import csv
 import datetime as dt
 import html
-import io
 import json
 import re
 import sys
@@ -45,13 +43,14 @@ def _row(kind, name, detail, status, nist, cnsa2, evidence):
 
 
 def csv_text(header, rows):
-    """CSV a spreadsheet opens as text: a cell starting with = + - @ or a control character gets a leading apostrophe."""
-    out = io.StringIO()
-    w = csv.writer(out, lineterminator="\n")
-    w.writerow(header)
-    for row in rows:
-        w.writerow(["'" + c if isinstance(c, str) and c[:1] in ("=", "+", "-", "@", "\t", "\r") else "" if c is None else c for c in row])
-    return out.getvalue()
+    """CSV a spreadsheet opens as text: a cell starting with = + - @ or a control character gets a leading apostrophe, and a
+    cell holding a semicolon is quoted, so a spreadsheet that splits at semicolons (European settings) cannot make a formula
+    out of part of it."""
+    def cell(c):
+        s = "" if c is None else str(c)
+        s = "'" + s if isinstance(c, str) and s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+        return '"' + s.replace('"', '""') + '"' if any(ch in s for ch in ',";\n\r\t') else s
+    return "".join(",".join(map(cell, row)) + "\n" for row in [header, *rows])
 
 
 def to_csv(rep):

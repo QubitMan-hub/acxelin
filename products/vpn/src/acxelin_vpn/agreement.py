@@ -5,6 +5,7 @@ computers derive the same keys only while they stay as they are."""
 import json
 import re
 import secrets
+import time
 
 from cryptography.x509.oid import NameOID
 
@@ -48,10 +49,14 @@ def send(conn, msg):
     conn.sendall(json.dumps(msg).encode() + b"\n")
 
 
-def read_line(conn, limit=4096):
-    buf = b""
+def read_line(conn, limit=4096, seconds=5):
+    """One JSON line within `seconds` in total, so a peer that sends a byte at a time cannot hold the service."""
+    buf, deadline = b"", time.monotonic() + seconds
     while not buf.endswith(b"\n"):
-        chunk = conn.recv(limit - len(buf), timeout=10)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise tls.TLSError("key agreement message too slow")
+        chunk = conn.recv(limit - len(buf), timeout=left)
         if not chunk or len(buf) + len(chunk) >= limit:
             raise tls.TLSError("key agreement message missing or too long")
         buf += chunk

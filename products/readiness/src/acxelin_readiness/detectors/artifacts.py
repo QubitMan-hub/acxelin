@@ -182,7 +182,7 @@ def scan(root, scope=False):
         if ext in keystores.EXT:
             try:
                 a, s = keystores.read(p.read_bytes(), rel(root, p))
-            except OSError:
+            except Exception:  # noqa: BLE001 - one damaged keystore must not end the scan
                 continue
             base = {"test"} if is_test(rel(root, p)) else set()
             for x in s:

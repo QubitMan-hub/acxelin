@@ -12,7 +12,7 @@ from pathlib import Path
 from cryptography import x509
 
 from .files import shared
-from .http import file_stamp, listen, nodelay
+from .http import file_stamp, listen, network, nodelay
 from .pki import CAError, check_revocation
 from .openssl import TLSError
 
@@ -69,6 +69,7 @@ class Revocation:
             self.crl_path, self.cas = crl_path, x509.load_pem_x509_certificates(f.read())
         self.stamp, self.data, self.swept = None, None, file_stamp(crl_path)
         self.issuers = {}  # CA certificates seen in verified chains, by subject: a resumed session brings none
+        self.lock = threading.Lock()
 
     def changed_since_sweep(self):
         m = file_stamp(self.crl_path)
@@ -82,15 +83,17 @@ class Revocation:
         certificate's issuer name, whose CRL alone can clear it. Each intermediate is checked too, when its issuer's CRL is in the
         file (the root revoking an intermediate)."""
         m = file_stamp(self.crl_path)
-        if m != self.stamp:
-            self.data, self.stamp = shared(Path(self.crl_path).read_bytes), m
-        for c in chain:
-            self.issuers[c.subject.public_bytes()] = c
-        cas = self.cas + list(self.issuers.values())
-        check_revocation(serial, self.data, cas, issuer)
-        for c in self.issuers.values() if issuer is not None else ():
+        with self.lock:
+            if m != self.stamp:
+                self.data, self.stamp = shared(Path(self.crl_path).read_bytes), m
+            for c in chain:
+                self.issuers[c.subject.public_bytes()] = c
+            data, known = self.data, list(self.issuers.values())
+        cas = self.cas + known
+        check_revocation(serial, data, cas, issuer)
+        for c in known if issuer is not None else ():
             try:
-                check_revocation(c.serial_number, self.data, cas, c.issuer)
+                check_revocation(c.serial_number, data, cas, c.issuer)
             except CAError as e:
                 if "revoked" in str(e):
                     raise CAError(f"the issuing CA {c.subject.rfc4514_string()} is revoked: {e}") from None
@@ -194,6 +197,15 @@ class Server:
     def serve_forever(self):
         host = self.address[0] or "*"
         log.info("%s: listening on %s:%d", self.name, f"[{host}]" if ":" in host else host, self.port)
+        while not self.stopping.is_set():
+            try:
+                self._accept_loop()
+            except Exception:  # noqa: BLE001  a route that stopped accepting would look healthy while refusing everyone
+                self.stats.add("accept_loop_failed")
+                log.exception("%s: the accept loop failed; starting it again", self.name)
+                time.sleep(0.5)
+
+    def _accept_loop(self):
         last_watch = time.monotonic()
         while not self.stopping.is_set():
             if time.monotonic() - last_watch > 5:
@@ -227,7 +239,14 @@ class Server:
             t = threading.Thread(target=self._run, args=(sock, addr, self.ctx), daemon=True)
             with self.lock:
                 self.threads.add(t)
-            t.start()
+            try:
+                t.start()
+            except RuntimeError as e:  # out of threads: refuse this one and keep serving the rest
+                self.stats.add("refused_busy")
+                self._refuse(addr[0], f"no thread for it ({e})")
+                sock.close()
+                self._handshake_over(addr[0])
+                self._release(t, addr[0])
 
     def close_revoked(self):
         """When the CRL changes, close open connections whose client certificate it now revokes: a stolen device holding a
@@ -253,19 +272,20 @@ class Server:
     def _admit(self, host):
         """None, or why `host` waits. An address opens at most `rate` connections a second (bursts of twice that): a handshake
         costs milliseconds of CPU, so one machine reconnecting as fast as it can would otherwise take nearly all of it and
-        slow everyone else's new connections 40-fold. Once half the connections are taken, an address with `per_host` handshakes unfinished, or
-        `per_client` connections open, gets no more: one machine opening connections and sending nothing, before or after the
-        handshake, cannot lock everyone else out. Below half, a busy partner behind one NAT address is not held back."""
+        slow everyone else's new connections 40-fold. A network (/24 or /64) holds at most `per_client` connections, and once
+        half the connections are taken at most `per_host` unfinished handshakes: a few machines opening connections and sending
+        nothing cannot lock everyone else out. This machine is held to the caps only once half the connections are taken."""
         with self.lock:
-            if self.rate and not is_loopback(host) and not self._take(host):
+            local, net = is_loopback(host), network(host)
+            if self.rate and not local and not self._take(host):
                 return f"it opens more than {self.rate:g} connections a second (max_rate_per_client)"
-            if len(self.threads) >= self.max_connections // 2:
-                if self.handshaking[host] >= self.per_host:
+            if not local or len(self.threads) >= self.max_connections // 2:
+                if len(self.threads) >= self.max_connections // 2 and self.handshaking[net] >= self.per_host:
                     return "too many unfinished handshakes from it"
-                if self.open[host] >= self.per_client:
-                    return f"it already holds {self.open[host]} connections (max_per_client)"
-            self.handshaking[host] += 1
-            self.open[host] += 1
+                if self.open[net] >= self.per_client:
+                    return f"its network {net} already holds {self.open[net]} connections (max_per_client)"
+            self.handshaking[net] += 1
+            self.open[net] += 1
             return None
 
     def _take(self, host):
@@ -294,6 +314,7 @@ class Server:
             log.warning("%s: %s (repeats from this address are counted in /status, not logged, for 10 s)", self.name, message)
 
     def _handshake_over(self, host):
+        host = network(host)
         with self.lock:
             self.handshaking[host] -= 1
             if not self.handshaking[host]:
@@ -347,12 +368,16 @@ class Server:
                 conn.close()
             else:
                 sock.close()
-            self.slots.release()
-            with self.lock:
-                self.threads.discard(threading.current_thread())
-                self.open[addr[0]] -= 1
-                if not self.open[addr[0]]:
-                    del self.open[addr[0]]
+            self._release(threading.current_thread(), addr[0])
+
+    def _release(self, thread, host):
+        self.slots.release()
+        net = network(host)
+        with self.lock:
+            self.threads.discard(thread)
+            self.open[net] -= 1
+            if not self.open[net]:
+                del self.open[net]
 
     def start(self):
         t = threading.Thread(target=self.serve_forever, daemon=True, name=self.name)
@@ -360,7 +385,8 @@ class Server:
         return t
 
     def stop(self, grace=10.0):
-        """Stop accepting, then give open connections up to `grace` seconds to finish."""
+        """Stop accepting, then give open connections up to `grace` seconds to finish. Connections still open after that are
+        checked against the CRL until they end, so a configuration reload does not exempt them from revocation."""
         self.stopping.set()
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
@@ -372,3 +398,13 @@ class Server:
             threads = list(self.threads)
         for t in threads:
             t.join(max(0, deadline - time.monotonic()))
+        if self.revocation:
+            threading.Thread(target=self._sweep_until_drained, daemon=True, name=f"{self.name}-crl").start()
+
+    def _sweep_until_drained(self):
+        while True:
+            with self.lock:
+                if not self.threads:
+                    return
+            self.close_revoked()
+            time.sleep(1)

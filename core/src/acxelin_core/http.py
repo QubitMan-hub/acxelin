@@ -1,10 +1,12 @@
 """A small loopback HTTP server for JSON, metrics and health routes, and host:port parsing."""
+import ipaddress
 import logging
 import os
 import socket
 import sys
 import threading
 import time
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 METRICS, JSON, PEM = "text/plain; version=0.0.4; charset=utf-8", "application/json", "application/x-pem-file"
@@ -35,6 +37,85 @@ def explain(e):
     return str(e)
 
 
+def network(host):
+    """The unit connection caps count by: one /24 for IPv4 and one /64 for IPv6, the block a single customer usually gets, so
+    an attacker cannot multiply its share by using more addresses from its own block. Loopback addresses count one by one."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return host if ip.is_loopback else str(ipaddress.ip_network(f"{ip}/{24 if ip.version == 4 else 64}", strict=False))
+
+
+class GuardedHTTPServer(ThreadingHTTPServer):
+    """At most `max_connections` at once and `per_client` from one network, each closed `deadline` seconds after it opened
+    whatever it is doing: a few machines trickling requests cannot hold every thread or file descriptor. `wrap` turns the
+    accepted socket into the one requests are read from (TLS, for ACME)."""
+    daemon_threads = True
+    max_connections, per_client, deadline = 128, 16, 30.0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.guard, self.held, self.watched, self.closed = threading.Lock(), Counter(), {}, threading.Event()
+        threading.Thread(target=self._reap, daemon=True, name="http-deadline").start()
+
+    def server_close(self):
+        self.closed.set()
+        super().server_close()
+
+    def wrap(self, request):
+        return request
+
+    def process_request(self, request, address):
+        net = network(address[0])
+        with self.guard:
+            refused = sum(self.held.values()) >= self.max_connections or self.held[net] >= self.per_client
+            if not refused:
+                self.held[net] += 1
+        if refused:
+            return self.shutdown_request(request)
+        try:
+            super().process_request(request, address)
+        except BaseException:
+            self._release(net)
+            raise
+
+    def process_request_thread(self, request, address):
+        me, start = threading.get_ident(), time.monotonic()
+        try:
+            with self.guard:
+                self.watched[me] = request, start
+            request = self.wrap(request)
+            with self.guard:
+                self.watched[me] = request, start
+            super().process_request_thread(request, address)
+        except OSError:
+            self.shutdown_request(request)
+        finally:
+            with self.guard:
+                self.watched.pop(me, None)
+            self._release(network(address[0]))
+
+    def _release(self, net):
+        with self.guard:
+            self.held[net] -= 1
+            if self.held[net] <= 0:
+                del self.held[net]
+
+    def _reap(self):
+        while not self.closed.wait(0.5):
+            t = time.monotonic()
+            with self.guard:
+                late = [s for s, start in self.watched.values() if t - start > self.deadline]
+            for s in late:
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+
 def serve_http(address, routes):
     """Answers GET on a background thread. `routes` maps a path to (content type, function returning the body as text, or
     None for 404); /healthz always answers ok."""
@@ -60,7 +141,7 @@ def serve_http(address, routes):
         def log_message(self, *args):
             pass
 
-    httpd = http_server(address, Handler)
+    httpd = http_server(address, Handler, GuardedHTTPServer)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 

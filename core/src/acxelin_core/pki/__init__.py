@@ -44,6 +44,7 @@ class Record:
     revoked_at: str = ""
     reason: str = ""
     path: str = ""
+    replaces: str = ""  # the serial an EST renewal was presented with: revoking one revokes the whole family
 
 
 def now():
@@ -207,11 +208,11 @@ class CA:
             raise CAError(f"{'no' if not match else 'more than one'} certificate matches serial {serial}")
         return match[0]
 
-    def sign(self, public_key, common_name, kind, names=(), days=397):
+    def sign(self, public_key, common_name, kind, names=(), days=397, replaces=""):
         """Issue a leaf certificate for any ML-DSA public key."""
         cert, algorithm, not_after, names = self._certify(public_key, common_name, kind, names, days)
         with locked(self.root):
-            rec = self._record(cert, common_name, kind, algorithm, not_after, names)
+            rec = self._record(cert, common_name, kind, algorithm, not_after, names, replaces=replaces)
         return cert, rec
 
     def _certify(self, public_key, common_name, kind, names, days):
@@ -242,9 +243,9 @@ class CA:
             b = b.add_extension(x509.SubjectAlternativeName(general_names(names)), critical=False)
         return signers.sign(b, self.signer), algorithm, not_after, names
 
-    def _record(self, cert, common_name, kind, algorithm, not_after, names, path=""):
+    def _record(self, cert, common_name, kind, algorithm, not_after, names, path="", replaces=""):
         rec = Record(serial=format(cert.serial_number, "x"), common_name=common_name, kind=kind,
-                     algorithm=algorithm, not_after=not_after.isoformat(), names=names, path=path)
+                     algorithm=algorithm, not_after=not_after.isoformat(), names=names, path=path, replaces=replaces)
         self._save(self.records() + [rec])
         return rec
 
@@ -285,12 +286,17 @@ class CA:
             return self.crl()
 
     def _revoke(self, serial, reason):
+        """Revokes the certificate and every certificate renewed from it or that it was renewed from over EST: a thief who
+        renewed a stolen key is cut off with the certificate the owner knows about."""
         recs = self.records()
         rec = self.find(serial)
+        if rec.status == "revoked":
+            raise CAError(f"{rec.serial} is already revoked")
+        family = {rec.serial}
+        while not (more := {r.serial for r in recs if r.replaces in family} | {r.replaces for r in recs if r.serial in family} - {""}) <= family:
+            family |= more
         for r in recs:
-            if r.serial == rec.serial:
-                if r.status == "revoked":
-                    raise CAError(f"{r.serial} is already revoked")
+            if r.serial in family and r.status != "revoked":
                 r.status, r.revoked_at, r.reason = "revoked", now().isoformat(), reason
         self._save(recs)
 
@@ -381,6 +387,7 @@ def signed_by(issuer, tbs, signature):
 
 
 _verified = {}  # (CRL bytes, CA fingerprints) -> (the parsed CRL whose signature checked out, its revoked serials)
+_verified_lock = threading.Lock()  # connection threads read it while one of them adds to it
 
 
 def verify_crl(crl_pem, ca_certs):
@@ -388,7 +395,8 @@ def verify_crl(crl_pem, ca_certs):
     is remembered, so checking each new connection against an unchanged list of 20,000 entries takes microseconds, not 26 ms."""
     cas = list(ca_certs) if isinstance(ca_certs, (list, tuple)) else [ca_certs]
     key = (crl_pem, tuple(c.fingerprint(hashes.SHA256()) for c in cas))
-    crl, _ = _verified.get(key, (None, None))
+    with _verified_lock:
+        crl, _ = _verified.get(key, (None, None))
     if crl is None:
         try:
             crl = x509.load_pem_x509_crl(crl_pem)
@@ -399,9 +407,11 @@ def verify_crl(crl_pem, ca_certs):
                           "file (for an intermediate, give its chain.pem as the CA)")
         if not any(signed_by(c, crl.tbs_certlist_bytes, crl.signature) for c in cas if c.subject == crl.issuer):
             raise CAError("the CRL was not signed by this CA")
-        if len(_verified) >= 8:
-            _verified.clear()
-        _verified[key] = crl, frozenset(r.serial_number for r in crl)
+        revoked = frozenset(r.serial_number for r in crl)
+        with _verified_lock:
+            if len(_verified) >= 8:
+                _verified.clear()
+            _verified[key] = crl, revoked
     if crl.next_update_utc and crl.next_update_utc < now():
         raise CAError(f"the CRL expired at {crl.next_update_utc.isoformat()}")
     return crl
@@ -420,7 +430,8 @@ def check_revocation(serial, crl_pem, ca_certs, issuer=None):
             raise CAError(f"no CRL from {issuer.rfc4514_string()}, which issued this certificate: add its CRL to the CRL file "
                           "(several CRLs can be concatenated in one file)")
     for crl in crls:
-        revoked = next((s for c, s in _verified.values() if c is crl), None)
+        with _verified_lock:
+            revoked = next((s for c, s in _verified.values() if c is crl), None)
         if revoked is not None and serial not in revoked:
             continue
         r = crl.get_revoked_certificate_by_serial_number(serial)

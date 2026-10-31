@@ -92,6 +92,29 @@ class ESTTest(unittest.TestCase):
         with self.assertRaisesRegex(CAError, "403.*revoked"):
             est.renew(self.url, self.d / "db")
 
+    def test_a_stolen_key_cannot_renew_its_way_past_a_revocation(self):
+        token = est.create_token(self.ca, "alice", "client")
+        stolen = est.enroll(self.url, token, "alice", [], self.d / "alice", self.cafile)
+        copies = []
+        for i in range(3):
+            thief = self.d / f"thief{i}"
+            thief.mkdir()
+            for f in ("cert.pem", "key.pem", "chain.pem", "ca.crt"):
+                (thief / f).write_bytes((self.d / "alice" / f).read_bytes())
+            copies.append(est.renew(self.url, thief))
+        again = est.renew(self.url, self.d / "thief0")
+        self.ca.revoke(format(stolen.serial_number, "x"), "keyCompromise")
+        status = {r.serial: r.status for r in self.ca.records()}
+        for c in [stolen, *copies, again]:
+            self.assertEqual(status[format(c.serial_number, "x")], "revoked")
+
+    def test_a_renewal_keeps_the_lifetime_it_was_given(self):
+        _, rec = self.ca.issue("short.acme", "server", days=90, out=self.d / "short")
+        (self.d / "short" / "ca.crt").write_bytes(self.cafile.read_bytes())
+        renewed = est.renew(self.url, self.d / "short")
+        days = (renewed.not_valid_after_utc - renewed.not_valid_before_utc).days
+        self.assertLessEqual(days, 90)
+
     def test_a_token_names_a_valid_host_and_survives_a_failed_signing(self):
         with self.assertRaisesRegex(CAError, "not a valid host name"):
             est.create_token(self.ca, "bad name!", "server")
@@ -126,6 +149,21 @@ class ESTTest(unittest.TestCase):
         csr = x509.load_der_x509_csr(base64.b64decode(est._csr(generate("ML-DSA-65"), "crash.acme", [])))
         with self.assertRaisesRegex(est.HTTPError, "already used"):
             est.Service(self.ca).enroll(csr, {"authorization": "Basic " + base64.b64encode(f"{tid}:{secret}".encode()).decode()})
+
+    def test_strangers_cannot_fill_the_audit_log_with_huge_names(self):
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.x509.oid import NameOID
+        key = ec.generate_private_key(ec.SECP256R1())
+        for name, sans in (("a" * 50000, []), ("ok", [x509.DNSName("b" * 60 + f"{i}.example") for i in range(2000)])):
+            b = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name, _validate=False)]))
+            if sans:
+                b = b.add_extension(x509.SubjectAlternativeName(sans), critical=False)
+            body = base64.encodebytes(b.sign(key, hashes.SHA256()).public_bytes(serialization.Encoding.DER))
+            with self.assertRaisesRegex(est.HTTPError, "too long|too many"):
+                est.Service(self.ca)("POST", "/.well-known/est/simpleenroll", {"authorization": "Basic Zm9vOmJhcg=="}, body, None)
+        log = self.d / "pki" / "est-audit.jsonl"
+        self.assertLess(log.stat().st_size if log.exists() else 0, 2000)
 
     def test_renewal_cannot_become_someone_else(self):
         token = est.create_token(self.ca, "app.acme", "server")

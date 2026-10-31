@@ -275,3 +275,13 @@ def test_an_issued_server_certificate_says_where_it_is_and_how_to_use_it(page, c
     assert "acxelin-tls edge --listen" in text
     assert page.get_by_role("button", name="Copy command").is_visible()
     assert "on the left" not in page.content()
+
+
+def test_the_owner_only_launch_page_opens_the_console_signed_in(page, console):
+    app, url, home = console
+    launch = core.launch_page(f"{url}/#{app.sessions.ticket()}", home)
+    assert "#" not in launch, "the ticket is not in what the browser is given"
+    page.goto(launch)
+    page.wait_for_url(f"{url}/**", timeout=10000)
+    page.wait_for_function("Object.keys(sessionStorage).length > 0", timeout=10000)
+    assert "#" not in page.url or not page.url.split("#", 1)[1], "the redeemed ticket is cleared from the address bar"

@@ -3,7 +3,9 @@ import datetime as dt
 import json
 import os
 import shutil
+import http.client
 import socket
+import time
 import subprocess
 import sys
 import tempfile
@@ -72,6 +74,31 @@ class HTTPSListenerTest(unittest.TestCase):
         self.assertTrue(get(ssl.TLSVersion.TLSv1_3).startswith(b"HTTP/1.0 200"))
         with self.assertRaises(ssl.SSLError):
             get(ssl.TLSVersion.TLSv1_2)
+
+
+class SlowClientTest(unittest.TestCase):
+    def test_slow_requests_from_one_address_do_not_shut_out_other_acme_clients(self):
+        d = Path(tempfile.mkdtemp())
+        httpd = serve(Service(CA.init(d / "pki", "Root"), "http://localhost"), "127.0.0.1:0")
+        httpd.deadline = 2
+        port = start(httpd, self)
+        slow = []
+        for _ in range(httpd.max_connections):
+            s = socket.create_connection(("127.0.0.1", port), timeout=5)
+            s.sendall(b"GET /dir")
+            slow.append(s)
+        self.addCleanup(lambda: [s.close() for s in slow])
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=5, source_address=("127.0.0.2", 0))
+        except OSError:
+            self.skipTest("this machine has no 127.0.0.2")
+        with s:
+            s.sendall(b"GET /directory HTTP/1.0\r\n\r\n")
+            self.assertTrue(s.recv(200).startswith(b"HTTP/1.0 200"), "another address is served while one holds its share")
+        start_ = time.monotonic()
+        for x in slow[:httpd.per_client]:
+            self.assertEqual(x.recv(1), b"")
+        self.assertLess(time.monotonic() - start_, 5, "the slow requests ran out of time")
 
 
 @unittest.skipIf(REASON, REASON)
@@ -256,10 +283,59 @@ class ValidationTest(unittest.TestCase):
             for n, ip in enumerate(["127.0.0.1", "169.254.169.254", "::1", "0.0.0.0", "10.0.0.5"]):
                 svc.state["authz"][str(n)] = {"account": "a", "identifier": {"type": "ip", "value": ip}, "status": "pending",
                                               "token": "t", "challenge_status": "pending", "error": None, "validated": None}
-                with self.subTest(ip=ip), mock.patch("acxelin_tls.acme.FETCH.open", side_effect=OSError("connection refused")) as fetch:
+                with self.subTest(ip=ip), mock.patch("acxelin_tls.acme.fetch", side_effect=OSError("connection refused")) as fetch:
                     svc.validate(str(n), "t.tp")
                     self.assertEqual(svc.state["authz"][str(n)]["status"], "invalid")
                     self.assertEqual(fetch.called, ip == "10.0.0.5", "private networks are validated; the others never reached")
+
+    def test_cloud_metadata_addresses_are_never_validated_even_when_local_ones_are(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            svc = Service(CA.init(Path(d) / "pki", "R"), "http://acme", validate_async=False, allow_local=True)
+            for n, ip in enumerate(["fd00:ec2::254", "100.100.100.200", "169.254.169.254", "fd20:ce::254"]):
+                svc.state["authz"][str(n)] = {"account": "a", "identifier": {"type": "ip", "value": ip}, "status": "pending",
+                                              "token": "t", "challenge_status": "pending", "error": None, "validated": None}
+                with self.subTest(ip=ip), mock.patch("acxelin_tls.acme.fetch") as fetch:
+                    svc.validate(str(n), "t.tp")
+                    self.assertFalse(fetch.called)
+                    self.assertIn("metadata", svc.state["authz"][str(n)]["error"]["detail"])
+
+    def test_a_challenge_server_trickling_its_answer_runs_out_of_time(self):
+        from acxelin_tls import acme
+        srv = socket.create_server(("127.0.0.1", 0))
+        self.addCleanup(srv.close)
+
+        def drip():
+            conn, _ = srv.accept()
+            conn.recv(4096)
+            try:
+                for b in b"HTTP/1.1 200 OK\r\nX: " + b"y" * 1000:
+                    conn.sendall(bytes([b]))
+                    time.sleep(0.2)
+            except OSError:
+                pass
+            conn.close()
+        threading.Thread(target=drip, daemon=True).start()
+        start = time.monotonic()
+        with self.assertRaises((OSError, http.client.HTTPException)):
+            acme.fetch("127.0.0.1", srv.getsockname()[1], "x", "/", seconds=1.5)
+        self.assertLess(time.monotonic() - start, 4)
+
+    def test_one_account_cannot_grow_the_state_without_limit(self):
+        from acxelin_tls.acme import Problem
+        with tempfile.TemporaryDirectory() as d:
+            svc = Service(CA.init(Path(d) / "pki", "R"), "http://acme", validate_async=False)
+            svc.MAX_OPEN_ORDERS = 5
+            for i in range(5):
+                svc.new_order({"identifiers": [{"type": "dns", "value": f"h{i}.test"}]}, "acct")
+            with self.assertRaises(Problem) as e:
+                svc.new_order({"identifiers": [{"type": "dns", "value": "h9.test"}]}, "acct")
+            self.assertEqual(e.exception.kind, "rateLimited")
+            svc.new_order({"identifiers": [{"type": "dns", "value": "h9.test"}]}, "other")
+            for o in svc.state["orders"].values():
+                o["expires"] = "2020-01-01T00:00:00Z"
+            svc.new_order({"identifiers": [{"type": "dns", "value": "h10.test"}]}, "acct")
+            self.assertEqual(len(svc.state["orders"]), 1, "long-expired orders are pruned")
 
     def test_a_target_that_does_not_speak_http_fails_the_challenge(self):
         with tempfile.TemporaryDirectory() as d:

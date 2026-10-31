@@ -30,6 +30,7 @@ def cmd_vpn(a):
         ctl.start()
         if site.metrics:
             serve_http(site.metrics, {"/metrics": (METRICS, ctl.metrics), "/status": (JSON, lambda: json.dumps(ctl.status(), default=str))})
+            exposed(site.metrics)
         again = threading.Event()
         watch = ConfigWatch(a.config, load_config, lambda new: new != site and (again.set(), ctl.shutdown()))
         run_until_signal(ctl.stop.wait, ctl.shutdown, watch.poke)
@@ -86,6 +87,15 @@ def cmd_setup(a):
     return 0
 
 
+def exposed(address):
+    """Status and metrics answer without a login and name every person, address and certificate: say so when they are not local."""
+    from acxelin_core.http import hostport
+    from acxelin_core.server import is_loopback
+    if not is_loopback(hostport(address, "127.0.0.1")[0]):
+        logging.getLogger("acxelin_vpn").warning("status and metrics on %s answer without a login and list every person, address and "
+                                                 "certificate: let only your monitoring reach that port", address)
+
+
 def cmd_invite(a):
     from acxelin_core.files import write
     from . import join
@@ -129,7 +139,7 @@ def cmd_app(a):
     """The VPN window's service: a page on 127.0.0.1 behind a one-time address; this process holds the tunnel until stopped.
     With --session (how `vpn desktop` starts it, with administrator rights) the port and key come from the tray's file,
     output goes to a log next to it, and problems are shown in the window instead of ending the process."""
-    import webbrowser
+    from acxelin_core.console import open_in_browser
     from acxelin_core.files import write
     from . import app, join
     window = app.App(a.invitation, a.folder, interface=a.interface, apply=not a.no_apply)
@@ -140,7 +150,7 @@ def cmd_app(a):
         url = f"http://127.0.0.1:{running['port']}/#{app.request(running['port'], running['token'], 'POST', '/api/ticket')['ticket']}"
         print(f"The VPN window for {a.interface} is already running: {url}", flush=True)
         if not a.no_browser:
-            webbrowser.open(url)
+            open_in_browser(url, window.folder)
         return 0
     port, record = 0, window.folder / f"{a.interface}.app.json"
     if a.session:
@@ -164,7 +174,7 @@ def cmd_app(a):
         url = f"http://127.0.0.1:{port}/#{window.ticket()}"
         print(f"VPN window: {url}\nKeep this running; closing the window does not disconnect. Ctrl+C disconnects and stops it.", flush=True)
         if not a.no_browser:
-            webbrowser.open(url)
+            open_in_browser(url, window.folder)
     try:
         run_until_signal(srv.serve_forever, window.on_quit)
     finally:
@@ -197,6 +207,7 @@ def cmd_wireguard(a):
         print(f"WireGuard gateway {gw.cfg.name} on {gw.cfg.interface}, key agreement on {gw.cfg.keyring_listen}, public key {gw.public}")
         if gw.cfg.metrics:
             serve_http(gw.cfg.metrics, {"/metrics": (METRICS, gw.metrics), "/status": (JSON, lambda: json.dumps(gw.status(), default=str))})
+            exposed(gw.cfg.metrics)
         again = threading.Event()
         watch = ConfigWatch(a.config, wg.load_gateway, lambda new: gw.reconfigure(new) or (again.set(), gw.shutdown()))
         run_until_signal(gw.stop.wait, gw.shutdown, watch.poke)

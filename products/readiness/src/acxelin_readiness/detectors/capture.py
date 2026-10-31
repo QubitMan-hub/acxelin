@@ -17,7 +17,7 @@ from .tls import group_algo
 
 MAX_STREAM = 65536
 VERSIONS = {0x0300: "SSLv3", 0x0301: "TLSv1", 0x0302: "TLSv1.1", 0x0303: "TLSv1.2", 0x0304: "TLSv1.3"}
-
+MAX_CAPTURE = 512_000_000
 
 def packets(data):
     """(linktype, frame) for every packet in a pcap or pcapng file."""
@@ -47,7 +47,7 @@ def _pcapng(data):
         if btype == 0x0A0D0D0A:
             order = "<" if body[:4] == b"\x4d\x3c\x2b\x1a" else ">"
             links = []
-        elif btype == 1:
+        elif btype == 1 and len(body) >= 2:
             links.append(struct.unpack(order + "H", body[:2])[0])
         elif btype == 6 and len(body) >= 20:
             iface, cap = struct.unpack(order + "I", body[:4])[0], struct.unpack(order + "I", body[12:16])[0]
@@ -355,7 +355,10 @@ def named(server, session):
 
 
 def scan(path):
-    """Detections, endpoint summaries and notes from one capture file."""
+    """Detections, endpoint summaries and notes from one capture file, of at most MAX_CAPTURE bytes (it is read whole)."""
+    if Path(path).stat().st_size > MAX_CAPTURE:
+        raise ValueError(f"larger than {MAX_CAPTURE // 1_000_000} MB; cut it to the handshakes, for example with "
+                         "`editcap -c 1000000` or a capture filter on the ports you want")
     data = Path(path).read_bytes()
     name = Path(path).name
     by_server, skipped, unknown = defaultdict(lambda: {"tls": [], "ssh": [], "quic": [], "ike": [], "dtls": []}), 0, []

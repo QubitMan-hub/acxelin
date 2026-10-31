@@ -46,6 +46,7 @@ class Route:
     max_per_client: int = 0  # 0: an eighth of max_connections, at least 16
     max_rate_per_client: float = 50.0  # new connections a second from one address; 0: no limit (behind a load balancer)
     idle_timeout: float = 3600.0
+    first_data_timeout: float = 30.0  # a connection where neither side has sent anything this long after the handshake is closed
     handshake_timeout: float = 10.0
     fallback_cert: str = ""
     fallback_key: str = ""
@@ -79,7 +80,7 @@ class Route:
             raise ValueError(f"{self.name}: crl checks client certificates, so it needs ca (the CA that issues them)")
         if self.mode == "terminate" and self.crl and not self.require_client_cert:
             raise ValueError(f"{self.name}: crl only takes effect with require_client_cert = true; without it any client gets in")
-        for field_, low in (("idle_timeout", 0), ("handshake_timeout", 0), ("max_connections", 0), ("max_per_client", -1), ("max_rate_per_client", -1)):
+        for field_, low in (("idle_timeout", 0), ("first_data_timeout", 0), ("handshake_timeout", 0), ("max_connections", 0), ("max_per_client", -1), ("max_rate_per_client", -1)):
             if not getattr(self, field_) > low:
                 raise ValueError(f"{self.name}: {field_} must be {'above 0' if low == 0 else '0 or more'}, not {getattr(self, field_)}")
         if self.mode == "originate" and not self.ca:
@@ -87,16 +88,19 @@ class Route:
         policies.policy(self.policy)
 
 
-def pump(conn, raw, idle_timeout):
+def pump(conn, raw, idle_timeout, first_data_timeout=None):
     """Copy bytes both ways between a TLS connection and a plain socket until either side closes or goes idle. A peer that
-    stops reading for a while (a slow link, a paused phone) gets the idle timeout too, not the short handshake deadline."""
+    stops reading for a while (a slow link, a paused phone) gets the idle timeout too, not the short handshake deadline. Until
+    either side sends something, the wait is `first_data_timeout`: a slot held by a connection that never speaks is freed soon."""
     raw.settimeout(idle_timeout)
     conn.timeout = idle_timeout
     wait = readable(conn.sock, raw)
+    first = min(first_data_timeout or idle_timeout, idle_timeout)
     while True:
-        ready = {conn.sock} if conn.pending() else wait(idle_timeout)
+        ready = {conn.sock} if conn.pending() else wait(first)
         if not ready:
-            raise TimeoutError(f"idle for {idle_timeout:g}s")
+            raise TimeoutError(f"idle for {first:g}s")
+        first = idle_timeout
         if conn.sock in ready:
             data = conn.recv(wait=False)
             if data == b"":
@@ -222,7 +226,7 @@ class Edge:
         with up:
             if r.proxy_protocol:
                 up.sendall(proxy_header(addr, conn.sock.getsockname()))
-            pump(conn, up, r.idle_timeout)
+            pump(conn, up, r.idle_timeout, r.first_data_timeout)
 
     def client_context(self):
         """The originate context, rebuilt when its certificate, key or CA changed (renewals need no restart)."""

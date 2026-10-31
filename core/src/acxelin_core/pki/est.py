@@ -82,6 +82,11 @@ class Service:
                     raise HTTPError(400, "the body must be a base64 DER PKCS#10 request") from None
                 if not csr.is_signature_valid:
                     raise HTTPError(400, "the request's signature does not verify")
+                cn, names = names_of(csr)  # checked before anything is logged: a stranger's request cannot grow the audit log
+                if len(cn) > 64 or any(len(n) > 253 for n in names):
+                    raise HTTPError(400, "a name in the request is too long (64 characters for the common name, 253 for others)")
+                if len(names) > 100:
+                    raise HTTPError(400, "the request has too many names (at most 100)")
                 cert = self.renew(csr, conn) if path.endswith("reenroll") else self.enroll(csr, headers)
                 return 200, _pkcs7([cert] + self.chain()), PKCS7
             raise HTTPError(404, "no such EST endpoint")
@@ -125,17 +130,19 @@ class Service:
         current = conn.peer_certificate()
         if current is None:
             raise HTTPError(401, "re-enrollment needs the current certificate (mutual TLS)")
-        crl = Path(self.ca.root) / "crl.pem"
-        if crl.exists():
-            check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert, current.issuer)
-        rec = next((r for r in self.ca.records() if r.serial == format(current.serial_number, "x")), None)
-        cn, names = names_of(csr)
-        if not rec or rec.status != "valid":
-            raise CAError("the presenting certificate is not a valid certificate of this CA")
-        if cn != rec.common_name or not set(names) <= set(rec.names):
-            self.audit("renew_refused", serial=rec.serial, common_name=cn, names=names)
-            raise CAError(f"a renewal keeps its identity: {rec.common_name} {rec.names}")
-        cert, new = self.ca.sign(csr.public_key(), cn, rec.kind, names or rec.names)
+        with locked(self.ca.root):  # checked and signed in one step: a revocation cannot fall between them
+            crl = Path(self.ca.root) / "crl.pem"
+            if crl.exists():
+                check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert, current.issuer)
+            rec = next((r for r in self.ca.records() if r.serial == format(current.serial_number, "x")), None)
+            cn, names = names_of(csr)
+            if not rec or rec.status != "valid" or current.issuer != self.ca.cert.subject:
+                raise CAError("the presenting certificate is not a valid certificate of this CA")
+            if cn != rec.common_name or not set(names) <= set(rec.names):
+                self.audit("renew_refused", serial=rec.serial, common_name=cn, names=names)
+                raise CAError(f"a renewal keeps its identity: {rec.common_name} {rec.names}")
+            days = max(1, round((current.not_valid_after_utc - current.not_valid_before_utc).total_seconds() / 86400))
+            cert, new = self.ca.sign(csr.public_key(), cn, rec.kind, names or rec.names, days, replaces=rec.serial)
         self.audit("renewed", serial=new.serial, replaces=rec.serial, common_name=cn)
         return cert
 

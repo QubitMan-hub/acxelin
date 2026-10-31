@@ -106,3 +106,53 @@ def test_connect_reports_a_refused_client_instead_of_success(tmp_path):
             edge_commands.cmd_tls(a)
     finally:
         srv.stop()
+
+
+@pytest.mark.skipif(bool(REASON), reason=REASON or "")
+def test_one_network_cannot_take_every_slot_even_when_the_edge_is_quiet(tmp_path):
+    from acxelin_core import tls
+    from acxelin_core.pki import CA
+    from acxelin_core.server import Server
+    from acxelin_tls import policies
+    CA.init(tmp_path / "pki", "Root").issue("localhost", "server", ["127.0.0.1"], out=tmp_path / "srv")
+    make = lambda: tls.server_context(policies.policy("strict"), tmp_path / "srv/chain.pem", tmp_path / "srv/key.pem")
+    srv = Server(("127.0.0.1", 0), make, lambda c, a: None, max_connections=512, max_per_client=4, max_rate_per_client=0)
+    try:
+        for i in range(4):
+            assert srv._admit(f"203.0.113.{i + 2}") is None
+        assert "max_per_client" in srv._admit("203.0.113.200"), "a /24 counts as one client"
+        assert srv._admit("198.51.100.7") is None
+        for i in range(4):
+            assert srv._admit(f"2001:db8:1:2::{i + 1}") is None
+        assert "max_per_client" in srv._admit("2001:db8:1:2:ffff::9"), "a /64 counts as one client"
+        assert all(srv._admit("127.0.0.1") is None for _ in range(8)), "this machine is not held to it until the edge is half full"
+    finally:
+        srv.stop(0)
+
+
+@pytest.mark.skipif(bool(REASON), reason=REASON or "")
+def test_a_connection_that_sends_nothing_after_its_handshake_is_closed_early(tmp_path):
+    import socket
+    import threading
+    import time
+    from acxelin_core import tls
+    from acxelin_core.pki import CA
+    from acxelin_tls import policies
+    from acxelin_tls.edge import Edge
+    CA.init(tmp_path / "pki", "Root").issue("localhost", "server", ["127.0.0.1"], out=tmp_path / "srv")
+    up = socket.create_server(("127.0.0.1", 0))
+    e = Edge(route(target=f"127.0.0.1:{up.getsockname()[1]}", cert=str(tmp_path / "srv/chain.pem"), key=str(tmp_path / "srv/key.pem"),
+                   first_data_timeout=1.0)).bind()
+    threading.Thread(target=e.serve_forever, daemon=True).start()
+    try:
+        ctx = tls.client_context(policies.policy("strict"), tmp_path / "pki/ca.crt")
+        with tls.connect("127.0.0.1", e.server.port, ctx, "localhost", timeout=5) as c:
+            start = time.monotonic()
+            try:
+                c.recv(timeout=8)
+            except (tls.TLSError, OSError):
+                pass
+            assert time.monotonic() - start < 5
+    finally:
+        e.stop(0)
+        up.close()

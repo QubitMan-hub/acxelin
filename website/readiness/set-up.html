@@ -70,12 +70,12 @@ docker exec -it NAME acxelin-readiness console link</code></pre></li>
 <li><h2>Configure</h2>
 <p>Put settings in <code>.acxelin-readiness.toml</code> at the root of the folder you scan. Every key is optional.</p>
 <pre><code>exclude = ["generated", "*.min.js"]
-tls = ["api.example.com:443"]
 fail_on = "high"
 
 [policy]
 profiles = ["nist-ir-8547"]
 forbid = ["MD5", "SHA-1"]</code></pre>
+<p>Endpoints and AWS regions (<code>tls</code>, <code>ssh</code>, <code>aws</code>) are read from a settings file only when you name it with <code>--config</code>, so a repository you scan cannot choose what your machine connects to.</p>
 <p>Before you scan systems you do not own, read <a href="security.html">what Acxelin Readiness does with your code</a>, and get written permission for every endpoint.</p></li>
 </ol>
 </section>

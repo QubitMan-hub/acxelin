@@ -100,7 +100,9 @@ class DesktopTest(unittest.TestCase):
             (self.d / "Default" / "Preferences").write_text('{"profile": {"name": "kept"}}')
             self.desktop.open_window("http://127.0.0.1:1/#t", self.d)
         args = popen.call_args.args[0]
-        self.assertIn("--app=http://127.0.0.1:1/#t", args)
+        app_arg = next(a for a in args if a.startswith("--app="))
+        self.assertTrue(app_arg.startswith("--app=file:") and not any("#t" in a for a in args), "the ticket is on no command line")
+        self.assertIn("http://127.0.0.1:1/#t", (self.d / "console-launch.html").read_text())
         self.assertIn(f"--user-data-dir={self.d}", args)
         prefs = json.loads((self.d / "Default" / "Preferences").read_text())
         self.assertEqual((prefs["credentials_enable_service"], prefs["profile"]), (False, {"name": "kept", "password_manager_enabled": False}))

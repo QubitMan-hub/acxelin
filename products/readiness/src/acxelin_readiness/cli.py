@@ -59,7 +59,17 @@ def pacer_for(a, cfg, workers):
     return prof, pacing.Pacer(prof.rate)
 
 
+def stop_cleanly():
+    """SIGTERM (systemd, docker stop, a CI timeout) ends the run as Ctrl+C does, so downloaded and unpacked files are removed."""
+    import signal
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    except (ValueError, OSError, AttributeError):
+        pass  # not the main thread, or a platform without it
+
+
 def main(argv=None):
+    stop_cleanly()
     warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
     ap = argparse.ArgumentParser(prog="acxelin-readiness", description="Cryptographic inventory (CycloneDX 1.6 CBOM) and quantum migration planner")
     ap.add_argument("--version", action="version", version=f"acxelin-readiness {__version__}")
@@ -307,17 +317,36 @@ def record(home, run):
 
 
 def changed_files(root, ref):
-    """Paths changed since `ref` plus uncommitted and untracked ones, relative to `root`, from git."""
+    """Paths changed since `ref` plus uncommitted and untracked ones, relative to `root`, from git. Only git commands that never
+    start a program the repository's own settings name (fsmonitor, filters, external diff) are used: the commit-to-commit diff,
+    the index and the untracked list. Whether a tracked file changed on disk is decided here, by hashing it as git would."""
+    import hashlib
     import subprocess
     if not ref or ref.startswith("-"):
         sys.exit(f"acxelin-readiness: --changed-since needs a git ref such as main or HEAD~1, not {ref!r}")
-    git = lambda *args: subprocess.run(["git", "-C", str(root), "-c", "core.quotePath=false", *args], capture_output=True, check=True).stdout.decode("utf-8", "surrogateescape")
+    env = os.environ | {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_OPTIONAL_LOCKS": "0"}
+    safe = ["-c", "core.fsmonitor=false", "-c", "core.quotePath=false", "-c", "core.untrackedCache=false"]
+    git = lambda *args: subprocess.run(["git", "-C", str(root), *safe, *args], capture_output=True, check=True, env=env).stdout.decode("utf-8", "surrogateescape")
     run = lambda *args: [n for n in git(*args).split("\0") if n]  # -z: names exactly as stored, never quoted or split at newlines
     try:
         top = Path(git("rev-parse", "--show-toplevel").strip())
         git("rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}")
-        names = run("diff", "--name-only", "-z", "--end-of-options", ref) + run("ls-files", "-z", "--others", "--exclude-standard", "--full-name")
-    except (OSError, subprocess.CalledProcessError, IndexError) as err:
+        names = run("diff", "--cached", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--end-of-options", ref)  # the index against `ref`
+        names += run("ls-files", "-z", "--others", "--exclude-standard", "--full-name")
+        for entry in run("ls-files", "-z", "--stage", "--full-name"):
+            info, _, name = entry.partition("\t")
+            mode, oid = info.split()[:2]
+            if mode == "160000":
+                continue  # a submodule
+            try:
+                data = (os.readlink(top / name).encode("utf-8", "surrogateescape") if mode == "120000" else (top / name).read_bytes())
+            except OSError:
+                names.append(name)  # deleted
+                continue
+            h = (hashlib.sha256 if len(oid) == 64 else hashlib.sha1)(b"blob %d\0" % len(data) + data)
+            if h.hexdigest() != oid:
+                names.append(name)
+    except (OSError, subprocess.CalledProcessError, IndexError, ValueError) as err:
         sys.exit(f"acxelin-readiness: --changed-since needs a git repository and a valid ref ({err})")
     out = set()
     for n in names:
@@ -360,9 +389,14 @@ def settings(path, root):
     if f is None or (not path and not f.exists()):
         return {}
     try:
-        return workspace.read_settings(f)
+        cfg = workspace.read_settings(f)
     except ValueError as e:
         sys.exit(f"acxelin-readiness: {e}")
+    reach = [k for k in ("tls", "ssh", "aws") if cfg.get(k)] if not path else []
+    if reach:  # a repository someone else wrote must not choose the hosts and AWS regions this machine connects to
+        print(f"acxelin-readiness: {f}: {', '.join(reach)} not used from a scanned folder's settings; run with --config {f} to use them",
+              file=sys.stderr)
+    return {k: v for k, v in cfg.items() if k not in reach}
 
 
 def grade(a):

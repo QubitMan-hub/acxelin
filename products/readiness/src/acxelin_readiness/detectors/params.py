@@ -132,7 +132,7 @@ def resolve(lang, rebuilt):
 class _Ctx:
     """The minimal context a rule needs when it reads a rebuilt one-line call."""
     comment, path, line = False, "", 1
-    sink: list[Detection] = []
+    sink = ()
 
     def __init__(self, text):
         self.text, self.lines = text, [text]

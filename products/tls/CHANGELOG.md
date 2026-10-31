@@ -2,6 +2,18 @@
 
 ## 1.0.3
 
+- Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
+  `--allow-local-validation`; a challenge fetch has 15 seconds in all, so a server trickling its answer cannot hold it; at
+  most 32 validations run at once; an account holds at most 300 unfinished orders, and orders and authorizations 30 days
+  past their expiry are dropped from `state.json`.
+- Security (with core 1.1.1): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
+  configuration reload; one /24 or /64 holds at most `max_per_client` connections at any load; a connection where neither
+  side sends anything within `first_data_timeout` (30 seconds, new) after the handshake is closed, so idle connections cannot
+  hold every slot for the hour of `idle_timeout`.
+- Security: the ACME server allows 16 connections from one network and closes each 60 seconds after it opened, so one machine
+  trickling requests can no longer shut out every ACME client.
+- Security: the console removes `ACXELIN_TLS_CA_PASSPHRASE` from its environment once read, so the browser it opens and
+  everything that browser starts do not inherit it, and the launch ticket is no longer on the browser's command line.
 - Shadow mode: `shadow = true` (or `--shadow`) on a `strict` or `cnsa2` route serves every client as `transition` would and logs which
   ones the policy would refuse, with their address and what they offered (key exchange groups and signature schemes), so you can
   see who enforcing would break before it does. Counters in `/metrics`, `"shadow": true` in `/status`. It reads only the client's

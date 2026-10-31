@@ -15,9 +15,9 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 
+from acxelin_core.console import launch_page, open_in_browser
 from acxelin_core.files import write
 from . import app, platforms
 
@@ -83,7 +83,7 @@ def browser():
 def open_window(url, profile):
     exe = browser()
     if not exe:
-        return webbrowser.open(url)
+        return open_in_browser(url, profile)
     prefs = Path(profile) / "Default" / "Preferences"
     try:
         current = json.loads(prefs.read_text(encoding="utf-8"))
@@ -93,7 +93,7 @@ def open_window(url, profile):
     current["profile"] = current.get("profile", {}) | {"password_manager_enabled": False}
     prefs.parent.mkdir(parents=True, exist_ok=True)
     prefs.write_text(json.dumps(current), encoding="utf-8")
-    subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=540,780", "--no-first-run", "--no-default-browser-check"],
+    subprocess.Popen([exe, f"--app={launch_page(url, profile)}", f"--user-data-dir={profile}", "--window-size=540,780", "--no-first-run", "--no-default-browser-check"],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detached())
     return True
 

@@ -44,11 +44,6 @@ def secrets(rules):
     return tuple((r[0], float(r[3])) for r in rules if len(r) > 3 and r[3] != "")
 
 
-def owner_of(rules, path):
-    r = match(rules, path)
-    return r[1] if r else None
-
-
 def codeowners(root):
     """[(pattern, owners)] from the first CODEOWNERS file GitHub would use; [] when there is none."""
     for place in PLACES:
