@@ -21,7 +21,7 @@ def state(ca):
         except pki.CAError as e:
             verdicts[r.common_name] = "refused: revoked" if "revoked" in str(e) else f"refused: {e}"
     parsed = pki.x509.load_pem_x509_crl(crl)
-    return {"records": [vars(r) for r in ca.records()], "verdicts": verdicts, "crl_number": pki.crl_number(parsed)}
+    return {"records": [{k: v for k, v in vars(r).items() if v or k != "replaces"} for r in ca.records()], "verdicts": verdicts, "crl_number": pki.crl_number(parsed)}
 
 
 def revoked(ca, name):

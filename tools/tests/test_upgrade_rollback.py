@@ -121,7 +121,7 @@ def test_an_edge_config_written_for_the_old_release_loads_the_same_here(old_tls,
     rc, after, err = code(current("tls"), LOAD, f)
     assert rc == 0, err
     old, new = json.loads(before), json.loads(after)
-    assert [{k: v for k, v in r.items() if k != "shadow"} for r in new] == old
+    assert [{k: v for k, v in r.items() if k in o} for r, o in zip(new, old)] == old, "every setting the old release knew means the same here"
     assert all(r["shadow"] is False for r in new), "an existing route must not become a shadow route"
 
 
