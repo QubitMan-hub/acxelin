@@ -2,6 +2,17 @@
 
 ## 1.0.3
 
+- Security: everything a gateway sends that goes into the laptop's WireGuard configuration (address, routes, DNS, endpoint,
+  rotation) is checked to be exactly what it claims to be. A newline there used to add a command that wg-quick runs as root, so
+  whoever could answer as the gateway could run code on the laptop.
+- Security: revoking a person in the console happens under the CA lock that renewals take, so a renewal racing the revocation
+  cannot leave a valid certificate behind.
+- Security: `sudo acxelin-vpn join` hands the device folder back to the person without following links planted in it; before,
+  a link let a local user take ownership of any file.
+- A key agreement message must arrive within 5 seconds in all, so peers that send a byte at a time cannot hold the key
+  agreement service.
+- A failed call to the QKD key server no longer ends a site's key agreement for good; it is retried like any other failure.
+- Status and metrics on an address other than this machine's log a warning: they answer without a login and list every person.
 - Security fix: the tray app and `acxelin-vpn install` no longer run code that an ordinary user can change with administrator
   rights. When the VPN was installed for one user (the default of `install.sh` and `install.ps1`, or `pip install --user`), the
   tray started the VPN service as root or administrator from that user's own Python and folders, and passed it the user's

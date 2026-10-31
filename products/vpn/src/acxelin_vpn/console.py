@@ -17,7 +17,7 @@ from pathlib import Path
 
 from acxelin_core import console as core
 from acxelin_core import shell
-from acxelin_core.files import write
+from acxelin_core.files import locked, write
 from acxelin_core.http import explain
 from acxelin_core.pki import CA, CAError, encrypted
 
@@ -257,11 +257,12 @@ class VPNConsole:
     def revoke(self, body):
         name = _text(body, "name", "the person's name", NAME)
         ca = self._ca()
-        valid = [r for r in ca.records() if r.kind == "client" and r.common_name == name and r.status == "valid"]
-        if not valid:
-            raise ValueError(f"{name} has no valid certificate to revoke")
-        for r in valid:
-            ca.revoke(r.serial)
+        with locked(ca.root):  # renewals take the same lock, so none can slip a fresh certificate in between
+            valid = [r for r in ca.records() if r.kind == "client" and r.common_name == name and r.status == "valid"]
+            if not valid:
+                raise ValueError(f"{name} has no valid certificate to revoke")
+            for r in valid:
+                ca.revoke(r.serial)
         self.audit("revoke", {"name": name, "certificates": len(valid)})
         return 200, {"revoked": len(valid), "crl": str(self.ca_dir / "crl.pem")}
 

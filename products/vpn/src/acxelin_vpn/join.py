@@ -93,7 +93,16 @@ def enroll(inv, device, invitation, passphrase):
     cert = est.enroll(inv["enroll"], inv["token"], inv["name"], (), device, device / "ca.crt", passphrase=passphrase)
     write(device / "enroll.url", inv["enroll"].encode())  # where the certificate is renewed before it runs out
     write(Path(invitation), json.dumps({k: inv[k] for k in FIELDS if k in inv}, indent=1).encode(), secret=True)
-    if os.name != "nt" and os.geteuid() == 0 and os.environ.get("SUDO_UID"):  # run with sudo: leave the person's files theirs
-        for p in (Path(invitation), *device.rglob("*"), device):
-            os.chown(p, int(os.environ["SUDO_UID"]), int(os.environ.get("SUDO_GID", os.environ["SUDO_UID"])))
+    give_back(invitation, device)
     return cert
+
+
+def give_back(invitation, device):
+    """Run with sudo: leave the person's invitation and device folder theirs, never following a link they planted in it."""
+    if os.name == "nt" or os.geteuid() != 0 or not os.environ.get("SUDO_UID"):
+        return
+    uid = int(os.environ["SUDO_UID"])
+    gid = int(os.environ.get("SUDO_GID", uid))
+    for p in (Path(invitation), *Path(device).iterdir(), Path(device)):
+        if not p.is_symlink():
+            os.chown(p, uid, gid, follow_symlinks=False)

@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
@@ -411,6 +412,7 @@ class Client:
                 raise tls.TLSError("the gateway cannot read its revocation list, so it lets no one in: tell your administrator")
             if reply.get("ok") is not True or not valid_key(str(reply.get("gateway_public", ""))):
                 raise tls.TLSError("the gateway refused the key agreement (is this certificate allowed?)")
+            checked_reply(reply)
             peer = conn.peer_certificate()
             psk = agreement.wireguard_psk(conn, common_name(peer), self.name, tag, self.public, reply["gateway_public"])
             self.details = {"tls_group": conn.group, "gateway_certificate": algorithm_of(peer.public_key()), "gateway": common_name(peer)}
@@ -562,6 +564,31 @@ class Client:
         self.last = self.agreed_at = None
         self.failures = 0
         self.report({"state": "disconnected", "gateway": f"{self.host}:{self.port}", "device": self.name, "error": None, "updated": time.time()})
+
+
+HOST = re.compile(r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253}):\d{1,5}$")
+
+
+def checked_reply(reply):
+    """Every value the gateway sends that ends up in this computer's WireGuard configuration (run as root by wg-quick) must be
+    exactly what it claims to be: a stray newline would add a command to that file."""
+    try:
+        ipaddress.ip_interface(str(reply["address"]))
+        if not isinstance(reply["routes"], list) or not reply["routes"] or len(reply["routes"]) > 256:
+            raise ValueError("routes")
+        for r in reply["routes"]:
+            ipaddress.ip_network(str(r), strict=False)
+        if not isinstance(reply["dns"], list) or len(reply["dns"]) > 8:
+            raise ValueError("dns")
+        for d in reply["dns"]:
+            ipaddress.ip_address(str(d))
+        if not isinstance(reply["endpoint"], str) or not HOST.match(reply["endpoint"]) or not 0 < int(reply["endpoint"].rsplit(":", 1)[1]) < 65536:
+            raise ValueError("endpoint")
+        if not isinstance(reply["rotate_s"], int) or not 15 <= reply["rotate_s"] <= 86400:
+            raise ValueError("rotate_s")
+    except (KeyError, ValueError, TypeError) as e:
+        raise tls.TLSError(f"the gateway sent a malformed reply ({e}); nothing was configured") from None
+    return reply
 
 
 def wg_quick(private, reply, psk):

@@ -124,7 +124,7 @@ class Controller:
                         self.charon.initiate(peer.name)
                     self.counts["rotations" if t else "connects"] += 1
                 backoff = 5
-            except (tls.TLSError, CAError, CharonError, OSError, ValueError) as e:
+            except (tls.TLSError, CAError, CharonError, OSError, ValueError, qkd.QKDError) as e:
                 self.counts["failures"] += 1
                 log.warning("%s: %s; retrying in %ds", peer.name, explain(e), backoff)
                 self.stop.wait(backoff)

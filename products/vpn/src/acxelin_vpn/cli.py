@@ -30,6 +30,7 @@ def cmd_vpn(a):
         ctl.start()
         if site.metrics:
             serve_http(site.metrics, {"/metrics": (METRICS, ctl.metrics), "/status": (JSON, lambda: json.dumps(ctl.status(), default=str))})
+            exposed(site.metrics)
         again = threading.Event()
         watch = ConfigWatch(a.config, load_config, lambda new: new != site and (again.set(), ctl.shutdown()))
         run_until_signal(ctl.stop.wait, ctl.shutdown, watch.poke)
@@ -84,6 +85,15 @@ def cmd_setup(a):
     conf = setup.gateway(a.dir, a.name, a.address, a.pool, a.route, a.dns, a.full_tunnel, passphrase, a.force)
     print(setup.next_steps(conf, a.name))
     return 0
+
+
+def exposed(address):
+    """Status and metrics answer without a login and name every person, address and certificate: say so when they are not local."""
+    from acxelin_core.http import hostport
+    from acxelin_core.server import is_loopback
+    if not is_loopback(hostport(address, "127.0.0.1")[0]):
+        logging.getLogger("acxelin_vpn").warning("status and metrics on %s answer without a login and list every person, address and "
+                                                 "certificate: let only your monitoring reach that port", address)
 
 
 def cmd_invite(a):
@@ -197,6 +207,7 @@ def cmd_wireguard(a):
         print(f"WireGuard gateway {gw.cfg.name} on {gw.cfg.interface}, key agreement on {gw.cfg.keyring_listen}, public key {gw.public}")
         if gw.cfg.metrics:
             serve_http(gw.cfg.metrics, {"/metrics": (METRICS, gw.metrics), "/status": (JSON, lambda: json.dumps(gw.status(), default=str))})
+            exposed(gw.cfg.metrics)
         again = threading.Event()
         watch = ConfigWatch(a.config, wg.load_gateway, lambda new: gw.reconfigure(new) or (again.set(), gw.shutdown()))
         run_until_signal(gw.stop.wait, gw.shutdown, watch.poke)

@@ -125,17 +125,18 @@ class Service:
         current = conn.peer_certificate()
         if current is None:
             raise HTTPError(401, "re-enrollment needs the current certificate (mutual TLS)")
-        crl = Path(self.ca.root) / "crl.pem"
-        if crl.exists():
-            check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert, current.issuer)
-        rec = next((r for r in self.ca.records() if r.serial == format(current.serial_number, "x")), None)
-        cn, names = names_of(csr)
-        if not rec or rec.status != "valid":
-            raise CAError("the presenting certificate is not a valid certificate of this CA")
-        if cn != rec.common_name or not set(names) <= set(rec.names):
-            self.audit("renew_refused", serial=rec.serial, common_name=cn, names=names)
-            raise CAError(f"a renewal keeps its identity: {rec.common_name} {rec.names}")
-        cert, new = self.ca.sign(csr.public_key(), cn, rec.kind, names or rec.names)
+        with locked(self.ca.root):  # checked and signed in one step: a revocation cannot fall between them
+            crl = Path(self.ca.root) / "crl.pem"
+            if crl.exists():
+                check_revocation(current.serial_number, crl.read_bytes(), self.ca.cert, current.issuer)
+            rec = next((r for r in self.ca.records() if r.serial == format(current.serial_number, "x")), None)
+            cn, names = names_of(csr)
+            if not rec or rec.status != "valid":
+                raise CAError("the presenting certificate is not a valid certificate of this CA")
+            if cn != rec.common_name or not set(names) <= set(rec.names):
+                self.audit("renew_refused", serial=rec.serial, common_name=cn, names=names)
+                raise CAError(f"a renewal keeps its identity: {rec.common_name} {rec.names}")
+            cert, new = self.ca.sign(csr.public_key(), cn, rec.kind, names or rec.names)
         self.audit("renewed", serial=new.serial, replaces=rec.serial, common_name=cn)
         return cert
 
