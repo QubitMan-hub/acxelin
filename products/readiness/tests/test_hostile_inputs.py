@@ -221,3 +221,29 @@ class CSVTest(unittest.TestCase):
         for row in csv.reader(io.StringIO(text), delimiter=";"):
             self.assertFalse(any(c.lstrip('"').startswith("=") for c in row[1:]), row)
         self.assertEqual(list(csv.reader(io.StringIO(text)))[2], ["'=1+1"])
+
+
+class LimitsTest(unittest.TestCase):
+    def test_a_capture_over_the_size_limit_is_refused_before_it_is_read(self):
+        from acxelin_readiness.detectors import capture
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(capture, "MAX_CAPTURE", 1000):
+            p = Path(d) / "big.pcap"
+            p.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 2000)
+            with self.assertRaisesRegex(ValueError, "larger than"):
+                capture.scan(p)
+
+    def test_a_scan_stopped_by_the_service_manager_removes_its_unpacked_files(self):
+        import signal
+        import sys
+        if not hasattr(signal, "SIGTERM") or sys.platform == "win32":
+            self.skipTest("POSIX signals")
+        with tempfile.TemporaryDirectory() as d:
+            script = (f"import sys, tempfile, atexit, shutil, time; from acxelin_readiness import cli; cli.stop_cleanly(); "
+                      f"p = tempfile.mkdtemp(prefix='readiness-image-', dir={d!r}); atexit.register(shutil.rmtree, p, True); "
+                      f"print(p, flush=True); time.sleep(30)")
+            proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+            folder = Path(proc.stdout.readline().strip())
+            self.assertTrue(folder.exists())
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(10)
+            self.assertFalse(folder.exists(), "atexit ran on SIGTERM")

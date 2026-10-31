@@ -59,7 +59,17 @@ def pacer_for(a, cfg, workers):
     return prof, pacing.Pacer(prof.rate)
 
 
+def stop_cleanly():
+    """SIGTERM (systemd, docker stop, a CI timeout) ends the run as Ctrl+C does, so downloaded and unpacked files are removed."""
+    import signal
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    except (ValueError, OSError, AttributeError):
+        pass  # not the main thread, or a platform without it
+
+
 def main(argv=None):
+    stop_cleanly()
     warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
     ap = argparse.ArgumentParser(prog="acxelin-readiness", description="Cryptographic inventory (CycloneDX 1.6 CBOM) and quantum migration planner")
     ap.add_argument("--version", action="version", version=f"acxelin-readiness {__version__}")

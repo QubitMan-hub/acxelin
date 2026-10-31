@@ -2,9 +2,9 @@
 
 ## 1.0.3
 
+- The tray's app window is opened through the owner-only launch page too, so no launch ticket is on any command line.
 - Security: the console and `acxelin-vpn app` open the browser through an owner-only page, so the launch ticket is not on
-  the browser's command line, where other users of the machine could read it. (The tray's app window still receives it as
-  an argument.)
+  the browser's command line, where other users of the machine could read it.
 - Security: everything a gateway sends that goes into the laptop's WireGuard configuration (address, routes, DNS, endpoint,
   rotation) is checked to be exactly what it claims to be. A newline there used to add a command that wg-quick runs as root, so
   whoever could answer as the gateway could run code on the laptop.

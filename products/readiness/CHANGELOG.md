@@ -2,6 +2,10 @@
 
 ## 1.1.1
 
+- Security: a GitHub download follows redirects only to the same host or to GitHub's own hosts, never elsewhere on the
+  network. A capture over 512 MB is refused with advice instead of being read into memory. A scan stopped with SIGTERM
+  (systemd, `docker stop`, a CI timeout) removes its downloaded and unpacked files, as Ctrl+C does; a killed one (SIGKILL)
+  still cannot.
 - Security: `scan --changed-since` no longer runs anything the scanned repository's git settings name. It ran `git diff`
   against the working tree, which starts the repository's `core.fsmonitor` command and clean filters, so scanning a hostile
   repository with its `.git` folder ran its code. Changed files are now found from the index and by hashing files directly.

@@ -20,7 +20,6 @@ import secrets
 import socket
 import ssl
 import threading
-import urllib.request
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -41,15 +40,32 @@ CURVES = {"P-256": (ec.SECP256R1(), hashes.SHA256(), "ES256"), "P-384": (ec.SECP
           "P-521": (ec.SECP521R1(), hashes.SHA512(), "ES512")}
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """http-01 validation talks only to the identifier's own host and port: a redirect would let a client make this server
-    probe other (internal) addresses and read the answer from the error."""
-
-    def redirect_request(self, *args):
-        return None
+METADATA = {ipaddress.ip_address(a) for a in ("169.254.169.254", "169.254.170.2", "fd00:ec2::254", "fd20:ce::254", "100.100.100.200")}
 
 
-FETCH = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
+def fetch(ip, port, host, path, seconds=15):
+    """GET `path` from `ip` with `host` as its Host header: no proxy, no redirects, and at most `seconds` in all, so a server
+    that trickles its answer cannot hold a validation."""
+    conn = http.client.HTTPConnection(ip, port, timeout=seconds)
+
+    def cut():
+        try:
+            conn.sock and conn.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    timer = threading.Timer(seconds, cut)
+    timer.start()
+    try:
+        conn.request("GET", path, headers={"Host": host})
+        r = conn.getresponse()
+        if r.status != 200:
+            raise OSError(f"HTTP {r.status} {r.reason}")
+        return r.read(4096)
+    finally:
+        timer.cancel()
+        conn.close()
+
+
 REASONS = {0: "unspecified", 1: "keyCompromise", 3: "affiliationChanged", 4: "superseded", 5: "cessationOfOperation"}
 
 
@@ -125,6 +141,8 @@ def validation_address(host, port, allow_local=False):
         raise OSError(f"cannot resolve {host}: {e}") from None
     for a in found:
         a = getattr(a, "ipv4_mapped", None) or a
+        if a in METADATA:
+            raise OSError(f"{host} resolves to {a}, a cloud metadata address, which this CA never validates")
         if not allow_local and (a.is_loopback or a.is_link_local or a.is_multicast or a.is_unspecified or a.is_reserved):
             raise OSError(f"{host} resolves to {a}, which this CA does not validate (start it with --allow-local-validation to permit it)")
     return str(min(found, key=lambda a: a.version))
@@ -135,13 +153,16 @@ def _iso(t):
 
 
 class Service:
-    """The ACME resources. State lives in `<ca>/acme/state.json`; everything goes through one lock."""
+    """The ACME resources. State lives in `<ca>/acme/state.json`; everything goes through one lock. One account holds at most
+    MAX_OPEN_ORDERS unfinished orders, and orders and authorizations 30 days past their expiry are dropped."""
+    MAX_OPEN_ORDERS = 300
 
     def __init__(self, ca, base_url, allow=(), require_eab=False, http_port=80, validate_async=True, days=90, allow_local=False):
         self.ca, self.base, self.days, self.allow_local = ca, base_url.rstrip("/"), days, allow_local
         self.allow, self.require_eab, self.http_port, self.validate_async = list(allow), require_eab, http_port, validate_async
         self.dir = Path(ca.root) / "acme"
         self.lock = threading.RLock()
+        self.checking = threading.BoundedSemaphore(32)  # http-01 validations at once
         self.nonces = collections.OrderedDict()
         f = self.dir / "state.json"
         self.state = json.loads(f.read_text()) if f.exists() else {"accounts": {}, "orders": {}, "authz": {}, "certs": {}}
@@ -307,6 +328,9 @@ class Service:
             if not self.allowed(v):
                 raise Problem("rejectedIdentifier", f"this CA does not issue for {v}")
             clean.append({"type": t, "value": v})
+        self.prune()
+        if sum(o["account"] == account and o["status"] in ("pending", "ready", "processing") for o in self.state["orders"].values()) >= self.MAX_OPEN_ORDERS:
+            raise Problem("rateLimited", f"this account has {self.MAX_OPEN_ORDERS} unfinished orders; finish or let some expire first", 429)
         oid, expires = secrets.token_hex(8), now() + dt.timedelta(days=7)
         authz = []
         for ident in clean:
@@ -322,6 +346,12 @@ class Service:
         self.refresh(oid)
         self.save()
         return 201, self.order_view(oid), {"Location": self.url("order", oid)}
+
+    def prune(self):
+        old = _iso(now() - dt.timedelta(days=30))
+        self.state["orders"] = {k: o for k, o in self.state["orders"].items() if o.get("expires", "") > old}
+        used = {a for o in self.state["orders"].values() for a in o["authorizations"]}
+        self.state["authz"] = {k: a for k, a in self.state["authz"].items() if k in used or a.get("expires", "") > old}
 
     def refresh(self, oid):
         o = self.state["orders"][oid]
@@ -378,14 +408,22 @@ class Service:
     def challenge(self, aid, p, account):
         a = self._own("authz", aid, account)
         if p is not None and a["challenge_status"] == "pending" and a["status"] == "pending":
+            if self.validate_async and not self.checking.acquire(blocking=False):
+                raise Problem("rateLimited", "too many validations are running; try again in a minute", 429)
             a["challenge_status"] = "processing"
             self.save()
             key_authz = f"{a['token']}.{self.state['accounts'][account]['thumbprint']}"
             if self.validate_async:
-                threading.Thread(target=self.validate, args=(aid, key_authz), daemon=True).start()
+                threading.Thread(target=self._validate_then_release, args=(aid, key_authz), daemon=True).start()
             else:
                 self.validate(aid, key_authz)
         return 200, self.challenge_view(aid), {"Link": f'<{self.url("authz", aid)}>;rel="up"'}
+
+    def _validate_then_release(self, aid, key_authz):
+        try:
+            self.validate(aid, key_authz)
+        finally:
+            self.checking.release()
 
     def validate(self, aid, key_authz):
         a = self.state["authz"][aid]
@@ -394,9 +432,7 @@ class Service:
         url = f"http://{host}:{self.http_port}/.well-known/acme-challenge/{a['token']}"
         try:
             ip = validation_address(name, self.http_port, self.allow_local)
-            pinned = f"http://{f'[{ip}]' if ':' in ip else ip}:{self.http_port}/.well-known/acme-challenge/{a['token']}"
-            with FETCH.open(urllib.request.Request(pinned, headers={"Host": f"{host}:{self.http_port}"}), timeout=10) as r:
-                got = r.read(4096).decode(errors="replace").strip()
+            got = fetch(ip, self.http_port, f"{host}:{self.http_port}", f"/.well-known/acme-challenge/{a['token']}").decode(errors="replace").strip()
             ok, detail = got == key_authz, f"{url} answered something else"
         except (OSError, ValueError, http.client.HTTPException) as e:
             ok, detail = False, f"could not fetch {url}: {e or type(e).__name__}"

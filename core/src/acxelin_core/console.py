@@ -159,15 +159,20 @@ class Sessions:
         return bool(given) and any(hmac.compare_digest(given, t.encode()) for t in tokens)
 
 
-def refusal(headers):
+def refusal(headers, method=None, path=None):
     """The status that refuses this request before authentication, or None: loopback Host only (any port, so SSH forwards
     work, while DNS-rebinding names are refused), a same-origin Origin when present, and no fetch from another site or another
-    local port (same-site)."""
+    local port (same-site). The one exception is opening the page itself in a tab (GET /, a top-level navigation): the
+    owner-only launch page is a file:// page, so the browser calls that navigation cross-site. The page holds no secret and
+    every API call still has to be same-origin and carry a session token."""
     host = headers.get("Host") or ""
     name = host[1:].split("]")[0] if host.startswith("[") else host.rsplit(":", 1)[0] if host.count(":") == 1 else host
     if name not in LOOPBACK:
         return 421
-    if headers.get("Origin") not in (None, f"http://{host}") or headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none"):
+    opening = (method == "GET" and path == "/" and headers.get("Sec-Fetch-Mode") == "navigate"
+               and headers.get("Sec-Fetch-Dest") == "document")
+    sites = ("same-origin", "none", "cross-site", "same-site") if opening else ("same-origin", "none")
+    if headers.get("Origin") not in (None, f"http://{host}") or headers.get("Sec-Fetch-Site") not in (None, *sites):
         return 403
     return None
 
@@ -210,10 +215,10 @@ def serve(app, listen=("127.0.0.1", 0)):
             pass  # the default line holds the full request target; log_request above records it without query or fragment
 
         def route(self, method):
-            status = refusal(self.headers)
+            path = self.path.split("?")[0]
+            status = refusal(self.headers, method, path)
             if status:
                 return self.reply(status, {"error": "wrong host" if status == 421 else "requests from other sites are refused"})
-            path = self.path.split("?")[0]
             if method == "GET" and path == "/":
                 return self.reply(200, app.html, "text/html; charset=utf-8")
             if not path.startswith("/api/"):
@@ -268,16 +273,20 @@ def serve(app, listen=("127.0.0.1", 0)):
     return server
 
 
-def open_in_browser(url, folder):
-    """Open `url` through an owner-only page in `folder` that forwards to it: a URL handed to the browser is on its command
-    line, which every user of this machine can read, so the launch ticket travels in a file only this user can open."""
+def launch_page(url, folder):
+    """The file:// address of an owner-only page in `folder` that forwards to `url`: a URL handed to a browser is on its
+    command line, which every user of this machine can read, so the launch ticket travels in a file only this user can open."""
     import html
-    import webbrowser
     from pathlib import Path
     from .files import write
     page = Path(folder).resolve() / "console-launch.html"
     write(page, f'<!doctype html><meta http-equiv="refresh" content="0;url={html.escape(url)}"><title>Opening the console</title>'.encode(), secret=True)
-    return webbrowser.open(page.as_uri())
+    return page.as_uri()
+
+
+def open_in_browser(url, folder):
+    import webbrowser
+    return webbrowser.open(launch_page(url, folder))
 
 
 def link(sessions, port, tty=None):

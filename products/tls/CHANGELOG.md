@@ -2,6 +2,10 @@
 
 ## 1.0.3
 
+- Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
+  `--allow-local-validation`; a challenge fetch has 15 seconds in all, so a server trickling its answer cannot hold it; at
+  most 32 validations run at once; an account holds at most 300 unfinished orders, and orders and authorizations 30 days
+  past their expiry are dropped from `state.json`.
 - Security (with core 1.1.1): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
   configuration reload; one /24 or /64 holds at most `max_per_client` connections at any load; a connection where neither
   side sends anything within `first_data_timeout` (30 seconds, new) after the handshake is closed, so idle connections cannot

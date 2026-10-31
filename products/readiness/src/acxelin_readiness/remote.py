@@ -1,4 +1,5 @@
 """GitHub repositories by link: download the archive through the API and unpack it for scanning. Nothing in it is run."""
+import ipaddress
 import json
 import re
 import secrets
@@ -45,10 +46,27 @@ def label(url):
     return f"{owner}/{repo}" + (f"@{ref}" if ref else "")
 
 
+def _github(host):
+    return host in ("github.com", "githubusercontent.com") or host.endswith((".github.com", ".githubusercontent.com"))
+
+
+def _local(host):
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
 class Redirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to the same host or to GitHub's own download hosts: a redirect cannot make this machine fetch
+    from somewhere else on its network."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urlsplit(newurl).scheme != urlsplit(req.full_url).scheme:
+        old, new = urlsplit(req.full_url), urlsplit(newurl)
+        if new.scheme != old.scheme:
             raise Refused("GitHub's download was refused: it redirected away from HTTPS")
+        a, b = (old.hostname or "").lower(), (new.hostname or "").lower()
+        if not (b == a or _github(b) or _local(a) and _local(b)):
+            raise Refused(f"GitHub's download was refused: it redirected to {b}, which is not a GitHub host")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 

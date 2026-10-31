@@ -219,3 +219,17 @@ def test_a_local_folder_named_like_a_github_path_is_scanned_where_it_is(tmp_path
     with patch("acxelin_readiness.cli.remote.fetch", side_effect=AssertionError("downloaded")):
         assert cli.main(["scan", "github.com/acme/app", "--out", str(tmp_path / "out"), "--quiet"]) == 0
     assert "MD5" in (tmp_path / "out/cbom.json").read_text()
+
+
+@pytest.mark.parametrize("to,ok", [("https://codeload.github.com/a/b", True), ("https://objects.githubusercontent.com/x", True),
+                                   ("https://api.github.com/repos/a/b/tarball/v2", True), ("https://internal.corp/admin", False),
+                                   ("https://169.254.169.254/latest/meta-data", False), ("https://github.com.evil.example/x", False)])
+def test_a_download_follows_redirects_only_within_github(to, ok):
+    import urllib.request
+    handler = next(h for h in remote.opener().handlers if isinstance(h, remote.Redirects))
+    req = urllib.request.Request("https://api.github.com/repos/a/b/tarball")
+    if ok:
+        assert handler.redirect_request(req, None, 302, "Found", {}, to) is not None
+    else:
+        with pytest.raises(ValueError, match="GitHub"):
+            handler.redirect_request(req, None, 302, "Found", {}, to)

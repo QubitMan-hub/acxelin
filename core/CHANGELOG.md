@@ -2,6 +2,9 @@
 
 ## 1.1.1
 
+- Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level
+  navigation) is accepted from another site, since the browser calls a file:// redirect cross-site. Every API call still
+  has to be same-origin with a session token, and the page is still refused inside another site's frame.
 - Security: revoking a certificate also revokes every certificate renewed from it over EST, and the one it was renewed from.
   Before, a thief with a client's key could renew it, and revoking the stolen certificate left the renewed copy valid. A
   renewal now records the serial it replaces in `index.json` (the `replaces` field); certificates renewed before 1.1.1 carry
