@@ -80,14 +80,17 @@ def test_nothing_of_the_users_import_path_or_environment_reaches_the_elevated_pr
     assert "PYTHONPATH" not in " ".join(linux)
 
 
-def test_a_packaged_app_is_started_as_it_is_and_only_its_own_program_is_checked():
+def test_a_packaged_app_is_started_as_it_is_and_only_its_own_program_and_openssl_are_checked(monkeypatch):
     seen = []
+    monkeypatch.delenv("ACXELIN_OPENSSL", raising=False)
     with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(sys, "path", ["/home/ada/anything"]), \
             mock.patch.object(platforms, "protected_location", lambda paths, **k: seen.append(list(paths))):
         assert platforms.elevation_problem() is None
+        monkeypatch.setenv("ACXELIN_OPENSSL", "/opt/acxelin-vpn/openssl")
+        assert platforms.elevation_problem() is None
         with mock.patch.object(sys, "platform", "linux"), mock.patch("shutil.which", return_value="/usr/bin/pkexec"):
             assert desktop.elevated([sys.executable, "app"]) == ["pkexec", sys.executable, "app"]
-    assert seen == [[sys.executable]]
+    assert seen == [[sys.executable], [sys.executable, "/opt/acxelin-vpn/openssl"]]
 
 
 @posix
