@@ -15,10 +15,10 @@ and against one who holds a certificate you have revoked.
 | A man in the middle of the key agreement | TLS 1.3 with a hybrid ML-KEM group and ML-DSA certificates from your CA on both sides; a classical or wrong-role peer is refused |
 | Replaying a key agreement | keys come from that session's TLS exporter, bound to both names and a fresh tag (WireGuard also to both public keys) |
 | A revoked site or person | no new keys, and the tunnel is cut within 15 seconds of the CRL reaching the gateway; an expired CRL refuses everyone |
-| Traffic leaking while a full tunnel is down | the kill switch blocks it, and an upgrade swaps the suite's kill switch for the new one without a gap (`test_upgrade`, `test_vpn_platforms`) |
+| Traffic leaking while a full tunnel is down | the kill switch blocks it, and on Linux it fails closed at every instant while its rules change: the new chain is in place before the old one goes (`test_vpn_platforms::test_linux_fails_closed_while_the_rules_change`). The macOS anchor is checked by what it writes, not on a live system; Windows can lift for a moment (below). No test installs a new release over a running one yet |
 | Secrets in an export | the CBOM records PSK and PPK type and size only; a test searches it for every key, token and passphrase as bytes, hex, base64 and PEM (`test_inventory`) |
 | A web page attacking the console or the app window | loopback host names and same-origin requests only, no cookies, one-time launch links, lockout after ten wrong attempts (`test_console`, core console tests) |
-| An old gateway during an upgrade | old and new agree the same keys from the same session (`tools/tests/test_vpn_wire.py`) |
+| An old gateway during an upgrade | the exporter labels and contexts are pinned, and both ends of one session derive the same keys (`test_agreement::test_labels_and_contexts_are_pinned`, `test_agreement::test_one_session_gives_both_sides_the_same_keys`). This pins today's constants; no test runs a gateway from the previous release against this one yet |
 
 ## What is not covered
 
