@@ -1,6 +1,7 @@
 """The VPN window's server: only its own page, on its own host name and origin, with the key from its address."""
 import contextlib
 import http.client
+import html
 import io
 import json
 import threading
@@ -102,7 +103,9 @@ class SingleWindowTest(unittest.TestCase):
                 with mock.patch("webbrowser.open") as browser, contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
                     cli.main(["app", "--folder", d])
                 self.assertEqual(e.exception.code, 0)
-                url = browser.call_args.args[0]
+                page = browser.call_args.args[0]
+                self.assertNotIn("#", page, "the launch ticket is not on the browser's command line")
+                url = html.unescape((Path(d) / "console-launch.html").read_text().split("url=", 1)[1].split('"', 1)[0])
                 self.assertTrue(url.startswith(f"http://127.0.0.1:{port}/#"))
                 self.assertNotIn(window.token, url + out.getvalue(), "the session key never goes to a browser's command line")
                 self.assertTrue(window.redeem(url.split("#")[1]))

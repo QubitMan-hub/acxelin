@@ -239,7 +239,6 @@ Put settings in `.acxelin-readiness.toml` at the root of the scanned folder, so 
 
 ```
 exclude = ["generated", "*.min.js"]
-tls = ["api.example.com:443"]
 shelf_life = 10                       # years the protected data must stay secret
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a quantum computer can break today's keys
@@ -255,7 +254,8 @@ min_bits = {RSA = 3072}
 require_hybrid = true
 ```
 
-`config/example.toml` lists every setting. `grade` and `report` read `rate`, `workers` and `aggressive` from a file given with `--config`; a command-line option wins over the file.
+`tls`, `ssh` and `aws` in a scanned folder's own settings are not used, so a repository cannot choose which hosts or AWS
+accounts your machine reaches: give the file with `--config` to use them, or pass them as options. `config/example.toml` lists every setting. `grade` and `report` read `rate`, `workers` and `aggressive` from a file given with `--config`; a command-line option wins over the file.
 
 ### Scheduled scans
 

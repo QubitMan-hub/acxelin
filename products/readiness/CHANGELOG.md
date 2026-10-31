@@ -2,6 +2,20 @@
 
 ## 1.1.1
 
+- Security: `scan --changed-since` no longer runs anything the scanned repository's git settings name. It ran `git diff`
+  against the working tree, which starts the repository's `core.fsmonitor` command and clean filters, so scanning a hostile
+  repository with its `.git` folder ran its code. Changed files are now found from the index and by hashing files directly.
+- Changed: `tls`, `ssh` and `aws` in a scanned folder's own `.acxelin-readiness.toml` are not used, so a repository cannot
+  choose which hosts or AWS accounts your machine reaches. Give the file with `--config` to use them.
+- Security: hostile files are bounded instead of hanging or crashing a scan: a jar repeating a constant millions of times
+  (one finding per distinct constant, 4 MB per class, 512 MB and 50,000 entries per archive, and the console's stop and time
+  limit checked inside it); an OCI index that leads back to itself; a container image listing one layer many times or
+  unpacking past 512 MB or 50,000 files (the scan notes where it stopped); layer names that are not names; a damaged JKS
+  keystore; a pcapng with an empty interface block; a C# line that made a pattern backtrack for hours; CBOM fields of the
+  wrong type in `merge`.
+- Security: live probes have one deadline per probe, not per read, and an SSH banner or first packet has a size limit, so a
+  server sending a byte at a time or an endless banner cannot stall `grade` or `scan --tls`/`--ssh`.
+- CSV exports quote any cell holding a semicolon, so a spreadsheet that splits at semicolons cannot make a formula of part of it.
 - Security: a Python file with a line over 5,000 characters is split line by line instead of with the standard tokenizer. On
   Python 3.11 the tokenizer took 20 seconds for one 40,000-character line with an unterminated quote (twice that on a slower
   machine), so a hostile repository could stall a scan. The rest of the file is still read; docstrings in such a file are

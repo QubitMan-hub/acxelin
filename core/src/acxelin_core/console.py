@@ -268,6 +268,18 @@ def serve(app, listen=("127.0.0.1", 0)):
     return server
 
 
+def open_in_browser(url, folder):
+    """Open `url` through an owner-only page in `folder` that forwards to it: a URL handed to the browser is on its command
+    line, which every user of this machine can read, so the launch ticket travels in a file only this user can open."""
+    import html
+    import webbrowser
+    from pathlib import Path
+    from .files import write
+    page = Path(folder).resolve() / "console-launch.html"
+    write(page, f'<!doctype html><meta http-equiv="refresh" content="0;url={html.escape(url)}"><title>Opening the console</title>'.encode(), secret=True)
+    return webbrowser.open(page.as_uri())
+
+
 def link(sessions, port, tty=None):
     """Print a launch address for this console, but only to an interactive terminal (never into a log)."""
     if not (sys.stdout.isatty() if tty is None else tty):

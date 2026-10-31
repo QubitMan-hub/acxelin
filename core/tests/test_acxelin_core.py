@@ -365,3 +365,14 @@ def test_a_request_without_a_session_is_refused_before_its_body_is_read():
         assert answer.split(b" ")[1] == b"401" and time.monotonic() - start < 3, "no 15 MB is awaited, parsed or buffered without a session"
     finally:
         server.shutdown()
+
+
+def test_the_launch_ticket_never_appears_on_the_browsers_command_line(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    assert console.open_in_browser("http://127.0.0.1:8900/#secret-ticket", tmp_path)
+    assert "secret-ticket" not in opened[0] and opened[0].startswith("file:")
+    page = Path(opened[0].removeprefix("file://").lstrip("/") if os.name == "nt" else opened[0].removeprefix("file://"))
+    assert "secret-ticket" in page.read_text()
+    if os.name != "nt":
+        assert stat.S_IMODE(page.stat().st_mode) == 0o600

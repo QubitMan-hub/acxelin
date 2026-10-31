@@ -95,7 +95,7 @@ def read(data, path):
     def add(der, source):
         try:
             a, s = artifacts.cert_record(x509.load_der_x509_certificate(der), path, 1, source=source)
-        except ValueError:
+        except Exception:  # noqa: BLE001 - a damaged certificate fails in many ways (InvalidVersion, TypeError); the keystore is still reported
             return
         arts.append(a)
         sights.extend(s)

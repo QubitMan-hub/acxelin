@@ -139,7 +139,7 @@ def cmd_app(a):
     """The VPN window's service: a page on 127.0.0.1 behind a one-time address; this process holds the tunnel until stopped.
     With --session (how `vpn desktop` starts it, with administrator rights) the port and key come from the tray's file,
     output goes to a log next to it, and problems are shown in the window instead of ending the process."""
-    import webbrowser
+    from acxelin_core.console import open_in_browser
     from acxelin_core.files import write
     from . import app, join
     window = app.App(a.invitation, a.folder, interface=a.interface, apply=not a.no_apply)
@@ -150,7 +150,7 @@ def cmd_app(a):
         url = f"http://127.0.0.1:{running['port']}/#{app.request(running['port'], running['token'], 'POST', '/api/ticket')['ticket']}"
         print(f"The VPN window for {a.interface} is already running: {url}", flush=True)
         if not a.no_browser:
-            webbrowser.open(url)
+            open_in_browser(url, window.folder)
         return 0
     port, record = 0, window.folder / f"{a.interface}.app.json"
     if a.session:
@@ -174,7 +174,7 @@ def cmd_app(a):
         url = f"http://127.0.0.1:{port}/#{window.ticket()}"
         print(f"VPN window: {url}\nKeep this running; closing the window does not disconnect. Ctrl+C disconnects and stops it.", flush=True)
         if not a.no_browser:
-            webbrowser.open(url)
+            open_in_browser(url, window.folder)
     try:
         run_until_signal(srv.serve_forever, window.on_quit)
     finally:

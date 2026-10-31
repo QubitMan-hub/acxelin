@@ -262,7 +262,8 @@ class VPNConsole:
             if not valid:
                 raise ValueError(f"{name} has no valid certificate to revoke")
             for r in valid:
-                ca.revoke(r.serial)
+                if ca.find(r.serial).status == "valid":  # an earlier one may have taken its renewals with it
+                    ca.revoke(r.serial)
         self.audit("revoke", {"name": name, "certificates": len(valid)})
         return 200, {"revoked": len(valid), "crl": str(self.ca_dir / "crl.pem")}
 
@@ -294,12 +295,11 @@ def build(home, ca_dir=None):
 
 def run(home, port=8900, open_browser=True, ca_dir=None, host="127.0.0.1"):
     """Start the console and sign this browser in: the launch address carries a single-use ticket in its fragment."""
-    import webbrowser
     app = build(home, ca_dir)
     server = core.start(app, home, port, host)
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/#{app.sessions.ticket()}"
-    if open_browser and webbrowser.open(url):
+    if open_browser and core.open_in_browser(url, home):
         print(f"Acxelin VPN console is open in your browser (http://127.0.0.1:{port}). Press Ctrl+C to stop.")
     else:
         core.link_running(port, home)

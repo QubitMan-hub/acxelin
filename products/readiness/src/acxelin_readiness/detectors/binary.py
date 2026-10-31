@@ -26,6 +26,7 @@ MAGIC = (b"\x7fELF", b"MZ", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed
 ARCHIVES = {".jar", ".war", ".ear", ".aar"}
 CRYPTO_REFS = (b"javax/crypto", b"java/security", b"org/bouncycastle", b"javax/net/ssl")
 MAX = READ_LIMIT
+CLASS_MAX, ARCHIVE_BUDGET, ARCHIVE_ENTRIES = 4 << 20, 512 << 20, 50_000  # a class file over 4 MB is not code; an archive is read up to 512 MB
 
 
 def _version_tuple(v):
@@ -71,8 +72,11 @@ def scan_native(data, path, base):
 def scan_class(data, where, base):
     if not any(r in data for r in CRYPTO_REFS):
         return []
-    out = []
+    out, seen = [], set()
     for m in re.finditer(rb"[\x20-\x7e]{2,64}", data):
+        if m.group(0) in seen:
+            continue
+        seen.add(m.group(0))
         hits, prose = classify_literal(m.group(0).decode())
         for a, p in [] if prose else hits:
             if a:
@@ -81,18 +85,23 @@ def scan_class(data, where, base):
     return out
 
 
-def scan_archive(data, path, base, depth=0):
-    sights = []
+def scan_archive(data, path, base, depth=0, budget=None, checkpoint=None):
+    """Classes in a jar, and in the jars inside it, within one budget of decompressed bytes and entries for the whole archive."""
+    sights, budget = [], budget if budget is not None else [ARCHIVE_BUDGET, ARCHIVE_ENTRIES]
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
+    except (zipfile.BadZipFile, ValueError, OSError):
         return sights
     for info in z.infolist():
-        if info.file_size > MAX:
-            continue
         n = info.filename
         if not (n.endswith(".class") or depth == 0 and n.endswith(".jar")):
             continue
+        if info.file_size > (CLASS_MAX if n.endswith(".class") else MAX) or info.file_size > budget[0] or budget[1] <= 0:
+            continue
+        budget[0] -= info.file_size
+        budget[1] -= 1
+        if checkpoint:
+            checkpoint()
         try:
             entry = z.read(info)
         except Exception:
@@ -100,7 +109,7 @@ def scan_archive(data, path, base, depth=0):
         if n.endswith(".class"):
             sights += scan_class(entry, f"{path}!{n}", base)
         else:
-            sights += scan_archive(entry, f"{path}!{n}", base, 1)
+            sights += scan_archive(entry, f"{path}!{n}", base, 1, budget, checkpoint)
     return sights
 
 
@@ -123,7 +132,7 @@ def scan(root, scope=False):
         base = {"test"} if is_test(path) else set()
         n += 1
         if ext in ARCHIVES:
-            sights += scan_archive(data, path, base)
+            sights += scan_archive(data, path, base, checkpoint=scope.checkpoint if scope else None)
         elif ext == ".class":
             sights += scan_class(data, path, base)
         else:

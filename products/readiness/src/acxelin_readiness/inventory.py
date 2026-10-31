@@ -50,11 +50,32 @@ def estimate(algo, name):
 
 
 def prop(component, key):
-    """A CBOM property; for acxelin:* names, the old wolfpack:* name is read when the new one is absent (1.x)."""
-    props = {p.get("name"): p.get("value") for p in component.get("properties") or [] if isinstance(p, dict)}
-    if key in props:
-        return props[key]
-    return props.get("wolfpack:" + key.removeprefix("acxelin:")) if key.startswith("acxelin:") else None
+    """A CBOM property as text; for acxelin:* names, the old wolfpack:* name is read when the new one is absent (1.x)."""
+    props = component.get("properties")
+    props = {p.get("name"): p.get("value") for p in props if isinstance(p, dict)} if isinstance(props, list) else {}
+    v = props[key] if key in props else props.get("wolfpack:" + key.removeprefix("acxelin:")) if key.startswith("acxelin:") else None
+    return v if isinstance(v, str) else None
+
+
+def clean(c):
+    """A component from another tool with the shapes the rest of this module reads: fields of the wrong type are dropped."""
+    d = lambda v: v if isinstance(v, dict) else {}
+    out = c | {"name": str(c["name"]) if c.get("name") is not None else "?"}
+    if "cryptoProperties" in c:
+        cp = d(c["cryptoProperties"])
+        out["cryptoProperties"] = cp | {k: d(cp[k]) for k in ("algorithmProperties", "relatedCryptoMaterialProperties") if k in cp}
+        ap = out["cryptoProperties"].get("algorithmProperties", {})
+        if ap:
+            out["cryptoProperties"]["algorithmProperties"] = {k: v for k, v in ap.items() if isinstance(v, (str, int, float, bool))}
+    if "evidence" in c:
+        ev = d(c["evidence"])
+        if "occurrences" in ev:
+            occ = ev["occurrences"] if isinstance(ev["occurrences"], list) else []
+            ev = ev | {"occurrences": [o for o in occ if isinstance(o, dict) and isinstance(o.get("location", ""), str)]}
+        out["evidence"] = ev
+    if "properties" in c and not isinstance(c["properties"], list):
+        out["properties"] = []
+    return out
 
 
 def cbom_files(paths):
@@ -82,7 +103,7 @@ def load(path, taken):
     tools = meta.get("tools")
     tools = dicts(tools).get("components", []) if not isinstance(tools, list) else tools  # CycloneDX 1.5+ nests them; 1.4 lists them
     tool = next((f"{t.get('name')} {t.get('version', '')}".strip() for t in tools if isinstance(t, dict) and t.get("name")), "another tool")
-    components = [c | {"name": str(c["name"]) if c.get("name") is not None else "?"} for c in bom.get("components", []) if isinstance(c, dict)]
+    components = [clean(c) for c in bom.get("components", []) if isinstance(c, dict)]
     if any(str(p.get("name", "")).startswith("wolfpack:") for c in components for p in c.get("properties") or [] if isinstance(p, dict)):
         print(f"acxelin-readiness: {path}: read through the old wolfpack:* property names; scan again to write acxelin:* names", file=sys.stderr)
     assets = []

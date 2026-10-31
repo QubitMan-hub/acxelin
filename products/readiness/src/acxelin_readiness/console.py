@@ -590,12 +590,11 @@ def build(home):
 
 def run(home, port=8900, open_browser=True, host="127.0.0.1"):
     """Start the console and sign this browser in: the launch address carries a single-use ticket in its fragment."""
-    import webbrowser
     app = build(home)
     server = core.start(app, home, port, host)
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/#{app.sessions.ticket()}"
-    if open_browser and webbrowser.open(url):
+    if open_browser and core.open_in_browser(url, home):
         print(f"Acxelin Readiness console is open in your browser (http://127.0.0.1:{port}). Press Ctrl+C to stop.")
     else:
         core.link_running(port, home)

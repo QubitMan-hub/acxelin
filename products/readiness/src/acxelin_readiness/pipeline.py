@@ -1,6 +1,7 @@
 """The scan, start to finish: detectors report everything they see, verification keeps what the evidence supports, ranking orders what to migrate first."""
 import json
 import sys
+import struct
 import time
 import warnings
 from collections import Counter
@@ -113,7 +114,7 @@ def detect(root, scope=False, tls_targets=(), ssh_targets=(), captures=(), cache
     for f in captures:
         try:
             s, eps, n = capture.scan(f)
-        except (OSError, ValueError) as err:
+        except (OSError, ValueError, struct.error) as err:  # a damaged capture is a note, not the end of the scan
             h.notes.append(f"capture {f}: not read ({err})")
             continue
         h.detections += s

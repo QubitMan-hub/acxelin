@@ -3,6 +3,7 @@ import ipaddress
 import os
 import socket
 import struct
+import time
 
 from .. import pacing
 from ..catalog import pq_from_text
@@ -54,6 +55,20 @@ def client_hello(host, groups, version=None, suites=None):
     return b"\x16\x03\x01" + _u16(len(hs)) + hs
 
 
+class Timed:
+    """A connection whose reads share one deadline: a server sending a byte at a time cannot hold a probe past it."""
+
+    def __init__(self, sock, seconds):
+        self.sock, self.end = sock, time.monotonic() + seconds
+
+    def recv(self, n):
+        left = self.end - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("no complete answer in time")
+        self.sock.settimeout(left)
+        return self.sock.recv(n)
+
+
 def _recv(sock, n):
     buf = b""
     while len(buf) < n:
@@ -101,12 +116,13 @@ def _server_hello(host, port, groups, timeout, version, name, suites, dh):
     try:
         with sock:
             sock.sendall(client_hello(name or host, groups, version, suites))
-            hdr = _recv(sock, 5)
+            r = Timed(sock, 2 * timeout)
+            hdr = _recv(r, 5)
             if len(hdr) < 5:
                 return "closed", "connection closed"
             ctype, _, ln = hdr[0], hdr[1:3], struct.unpack(">H", hdr[3:5])[0]
-            rec = _recv(sock, ln)
-            bits = _dh_bits(sock, rec) if dh and ctype == 0x16 else None
+            rec = _recv(r, ln)
+            bits = _dh_bits(r, rec) if dh and ctype == 0x16 else None
     except (ConnectionResetError, BrokenPipeError):
         return "closed", "connection reset"
     except OSError as e:
@@ -174,9 +190,9 @@ def _namelist(b, i):
 
 
 def ssh_kexinit(host, port=22, timeout=6.0):
-    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as sock:
-        sock.sendall(b"SSH-2.0-acxelin_readiness_probe\r\n")
-        buf = b""
+    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw:
+        raw.sendall(b"SSH-2.0-acxelin_readiness_probe\r\n")
+        sock, buf, skipped = Timed(raw, 2 * timeout), b"", 0
         while b"\n" not in buf or not buf.lstrip().startswith(b"SSH-"):
             chunk = sock.recv(4096)
             if not chunk:
@@ -184,6 +200,10 @@ def ssh_kexinit(host, port=22, timeout=6.0):
             buf += chunk
             if b"SSH-" in buf:
                 buf = buf[buf.index(b"SSH-"):]
+            elif len(buf) > 8:
+                skipped, buf = skipped + len(buf) - 8, buf[-8:]  # keep only what could start "SSH-"
+            if skipped + len(buf) > 16384:
+                raise OSError("no SSH banner in the first 16 KB")
         line, _, rest = buf.partition(b"\n")
         banner = line.strip().decode("ascii", "replace")
         while len(rest) < 5:
@@ -192,6 +212,8 @@ def ssh_kexinit(host, port=22, timeout=6.0):
                 raise OSError("connection closed before KEXINIT")
             rest += chunk
         plen = struct.unpack(">I", rest[:4])[0]
+        if not 5 < plen <= 35000:
+            raise OSError(f"the server's first packet has an impossible length ({plen})")
         while len(rest) < 4 + plen:
             chunk = sock.recv(65536)
             if not chunk:

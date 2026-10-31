@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import socket
+import time
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,31 @@ class HTTPSListenerTest(unittest.TestCase):
         self.assertTrue(get(ssl.TLSVersion.TLSv1_3).startswith(b"HTTP/1.0 200"))
         with self.assertRaises(ssl.SSLError):
             get(ssl.TLSVersion.TLSv1_2)
+
+
+class SlowClientTest(unittest.TestCase):
+    def test_slow_requests_from_one_address_do_not_shut_out_other_acme_clients(self):
+        d = Path(tempfile.mkdtemp())
+        httpd = serve(Service(CA.init(d / "pki", "Root"), "http://localhost"), "127.0.0.1:0")
+        httpd.deadline = 2
+        port = start(httpd, self)
+        slow = []
+        for _ in range(httpd.max_connections):
+            s = socket.create_connection(("127.0.0.1", port), timeout=5)
+            s.sendall(b"GET /dir")
+            slow.append(s)
+        self.addCleanup(lambda: [s.close() for s in slow])
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=5, source_address=("127.0.0.2", 0))
+        except OSError:
+            self.skipTest("this machine has no 127.0.0.2")
+        with s:
+            s.sendall(b"GET /directory HTTP/1.0\r\n\r\n")
+            self.assertTrue(s.recv(200).startswith(b"HTTP/1.0 200"), "another address is served while one holds its share")
+        start_ = time.monotonic()
+        for x in slow[:httpd.per_client]:
+            self.assertEqual(x.recv(1), b"")
+        self.assertLess(time.monotonic() - start_, 5, "the slow requests ran out of time")
 
 
 @unittest.skipIf(REASON, REASON)

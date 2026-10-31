@@ -6,6 +6,7 @@ import zlib
 from pathlib import Path, PurePosixPath
 
 MAX_FILE = 64_000_000
+MAX_BYTES, MAX_FILES, MAX_LAYERS = 512_000_000, 50_000, 256  # for the whole image, as for a downloaded repository
 
 
 def is_image(p):
@@ -30,15 +31,27 @@ def _json(outer, name):
 
 
 def layers(outer):
-    """Layer member names, bottom first."""
+    """Layer member names, bottom first, each once. ValueError for a manifest that is not one: names that are not text, an
+    index that leads back to itself or nests too deep, or more than MAX_LAYERS layers."""
     names = set(outer.getnames())
+    blob = lambda d: "blobs/" + d.replace(":", "/") if isinstance(d, str) else None
     if "manifest.json" in names:
-        return _json(outer, "manifest.json")[0]["Layers"]
-    blob = lambda d: "blobs/" + d.replace(":", "/")
-    man = _json(outer, "index.json")
-    while "manifests" in man:
-        man = _json(outer, blob(man["manifests"][0]["digest"]))
-    return [blob(x["digest"]) for x in man["layers"]]
+        found = _json(outer, "manifest.json")[0]["Layers"]
+    else:
+        man, seen = _json(outer, "index.json"), set()
+        while isinstance(man, dict) and "manifests" in man:
+            digest = man["manifests"][0]["digest"]
+            if digest in seen or len(seen) >= 8:
+                raise ValueError("the image's manifests lead back to themselves or nest too deep")
+            seen.add(digest)
+            man = _json(outer, blob(digest))
+        found = [blob(x["digest"]) for x in man["layers"]]
+    if not isinstance(found, list) or not all(isinstance(n, str) for n in found):
+        raise ValueError("the image's manifest lists layers that are not names")
+    found = list(dict.fromkeys(found))
+    if len(found) > MAX_LAYERS:
+        raise ValueError(f"the image has more than {MAX_LAYERS} layers")
+    return found
 
 
 def _parts(name):
@@ -54,9 +67,14 @@ def _remove(p):
         p.unlink()
 
 
-def apply(layer, dest):
-    """Regular files and folders only: links, devices and oversized files are left out, so nothing can point outside `dest`."""
-    root = dest.resolve()
+class Full(Exception):
+    pass
+
+
+def apply(layer, dest, budget=None):
+    """Regular files and folders only: links, devices and oversized files are left out, so nothing can point outside `dest`.
+    `budget` is [bytes, files] left for the whole image; Full is raised when a file would go over it."""
+    root, budget = dest.resolve(), budget if budget is not None else [MAX_BYTES, MAX_FILES]
     for m in layer:
         parts = _parts(m.name)
         if not parts:
@@ -75,6 +93,10 @@ def apply(layer, dest):
             elif m.isdir():
                 (where / base).mkdir(parents=True, exist_ok=True)
             elif m.isreg() and m.size <= MAX_FILE:
+                if m.size > budget[0] or budget[1] <= 0:
+                    raise Full
+                budget[0] -= m.size
+                budget[1] -= 1
                 where.mkdir(parents=True, exist_ok=True)
                 with layer.extractfile(m) as src, open(where / base, "wb") as out:
                     shutil.copyfileobj(src, out)
@@ -84,13 +106,17 @@ def apply(layer, dest):
 
 def unpack(archive, dest):
     """Returns notes on layers that could not be read (zstd compression, for one)."""
-    notes, dest = [], Path(dest)
+    notes, dest, budget = [], Path(dest), [MAX_BYTES, MAX_FILES]
     with tarfile.open(archive) as outer:
         names = layers(outer)
         for name in names:
             try:
                 with tarfile.open(fileobj=outer.extractfile(name), mode="r:*") as layer:
-                    apply(layer, dest)
+                    apply(layer, dest, budget)
+            except Full:
+                notes.append(f"stopped at layer {name}: the image unpacks to more than the limit of {MAX_BYTES // 1_000_000} MB "
+                             f"or {MAX_FILES} files, so later files were not scanned")
+                break
             except (tarfile.TarError, KeyError, OSError, EOFError, zlib.error) as e:
                 notes.append(f"layer {name} not read: {e}")
     return [f"container image {Path(archive).name}: {len(names)} layer(s) unpacked and scanned as one filesystem"] + notes

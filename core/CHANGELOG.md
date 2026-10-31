@@ -2,6 +2,22 @@
 
 ## 1.1.1
 
+- Security: revoking a certificate also revokes every certificate renewed from it over EST, and the one it was renewed from.
+  Before, a thief with a client's key could renew it, and revoking the stolen certificate left the renewed copy valid. A
+  renewal now records the serial it replaces in `index.json` (the `replaces` field); certificates renewed before 1.1.1 carry
+  no link. A renewal keeps the presented certificate's lifetime, and only a certificate this CA issued can renew.
+- Security: EST refuses a request whose common name is over 64 characters, or with names over 253 characters or more than 100
+  of them, before anything is written to the audit log; strangers could fill the CA's disk through it without a token.
+- Security: connections still open when a server stops accepting (an edge route changed by a configuration reload) are
+  checked against the CRL until they end; before, a revoked client stayed connected.
+- Security: connection caps count a whole /24 (IPv4) or /64 (IPv6) as one client, and apply at all times to other machines,
+  not only once half the connections are taken. This machine's own connections are held to them only from half full.
+- Security: `serve_http` (CRL publishing, metrics, status) and `GuardedHTTPServer` allow 128 connections, 16 from one
+  network, and close each 30 seconds after it opened, so a few machines trickling requests cannot take every thread or file.
+- Security: console launch tickets reach the browser through an owner-only page (`console.open_in_browser`), not on its
+  command line, where other users of the machine could read them.
+- The accept loop survives an unexpected error, and a connection that cannot get a thread gives its slot back; the CRL caches
+  shared by connection threads are locked.
 - Security: an EST renewal checks the presented certificate and signs its replacement in one step under the CA lock, so a
   revocation can no longer fall between the check and the signature and leave a freshly signed certificate valid.
 - `files.protected_location` says whether code is where only administrators can write it, with `files.windows_protected` for the

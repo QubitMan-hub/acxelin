@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -231,6 +232,22 @@ class TLSTest(unittest.TestCase):
             self.assertEqual(a.recv(timeout=3), b"still here")
         self.assertEqual(s.stats.snapshot()["revoked_closed"], 1)
 
+    def test_a_revoked_client_is_cut_off_after_its_route_stopped_accepting(self):
+        trudy, rec = self.ca.issue("trudy", "client")
+        s = self.server(mtls=True)
+        with tls.connect("127.0.0.1", s.port, self.client(trudy), "localhost", timeout=3) as t:
+            t.sendall(b"ping")
+            self.assertEqual(t.recv(timeout=3), b"ping")
+            s.stop(grace=0)  # what a configuration reload does to a changed route
+            self.ca.revoke(rec.serial, "keyCompromise")
+            time.sleep(3)
+            try:
+                t.sendall(b"ping2")
+                echoed = t.recv(timeout=3)
+            except (tls.TLSError, OSError):
+                echoed = b""
+            self.assertEqual(echoed, b"", "connections left running after a reload are still checked against the CRL")
+
     @unittest.skipIf(os.name == "nt", "Windows has no per-process limit on open sockets")
     def test_the_open_file_limit_is_raised_and_a_shortfall_named(self):
         import resource
@@ -254,13 +271,45 @@ class TLSTest(unittest.TestCase):
         self.assertIsNone(s._admit("198.51.100.7"), "another address is not affected")
         self.assertTrue(all(s._admit("127.0.0.1") is None for _ in range(30)), "this machine is not rate-limited")
         s.rate = 0
-        s.threads, s.open["192.0.2.9"] = set(range(32)), s.per_client
+        s.threads, s.open["192.0.2.0/24"] = set(range(32)), s.per_client
         self.assertIn("max_per_client", s._admit("192.0.2.9"))
-        self.assertIsNone(s._admit("192.0.2.10"))
+        self.assertIn("max_per_client", s._admit("192.0.2.10"), "its neighbours in the same /24 count with it")
+        self.assertIsNone(s._admit("198.51.100.20"))
         with self.assertLogs(level="WARNING") as logs:
             for _ in range(200):
                 s._refuse("203.0.113.5", "it opens more than 5 connections a second")
         self.assertEqual(len(logs.output), 1)
+
+    def test_an_unexpected_error_does_not_stop_the_route_accepting(self):
+        s = Server(("127.0.0.1", 0), lambda: support_tls.server_context(self.srv / "chain.pem", self.srv / "key.pem", key_passphrase=b"server-pass"), echo)
+        with mock.patch.object(s, "close_revoked", side_effect=[RuntimeError("dictionary changed size during iteration")] + [None] * 10000), \
+                self.assertLogs(level="ERROR"):
+            s.start()
+            self.addCleanup(s.stop, 1)
+            with tls.connect("127.0.0.1", s.port, self.client(), "localhost", timeout=5) as c:
+                c.sendall(b"still here")
+                self.assertEqual(c.recv(timeout=3), b"still here")
+        self.assertEqual(s.stats.snapshot()["accept_loop_failed"], 1)
+
+    def test_a_connection_with_no_thread_left_gives_its_slot_back(self):
+        s = Server(("127.0.0.1", 0), lambda: support_tls.server_context(self.srv / "chain.pem", self.srv / "key.pem", key_passphrase=b"server-pass"),
+                   echo, max_connections=2)
+        real = threading.Thread.start
+        with mock.patch.object(threading.Thread, "start", autospec=True, side_effect=lambda t: (_ for _ in ()).throw(RuntimeError("can't start new thread"))
+                               if t._target == s._run else real(t)):
+            s.start()
+            self.addCleanup(s.stop, 1)
+            for _ in range(3):
+                try:
+                    with tls.connect("127.0.0.1", s.port, self.client(), "localhost", timeout=2):
+                        pass
+                except (tls.TLSError, OSError):
+                    pass
+        with tls.connect("127.0.0.1", s.port, self.client(), "localhost", timeout=5) as c:
+            c.sendall(b"a slot was free")
+            self.assertEqual(c.recv(timeout=3), b"a slot was free")
+        support_tls.wait(lambda: not s.open)
+        self.assertEqual(dict(s.open), {})
 
     def test_mutual_tls_clients_can_resume_and_a_revoked_one_still_cannot(self):
         from acxelin_core.openssl import lib

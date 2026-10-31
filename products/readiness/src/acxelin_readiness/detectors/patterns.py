@@ -28,7 +28,7 @@ P = {
         "go": r"\bInsecureSkipVerify\s*:\s*true\b",
         "java": r"\bALLOW_ALL_HOSTNAME_VERIFIER\b|\bNoopHostnameVerifier\b|\bsetHostnameVerifier\s*\(\s*\(?[\w\s,]*\)?\s*->\s*true\b"
                 r"|\bcheckServerTrusted\s*\([^)]*\)\s*(?:throws\s+[\w.]+\s*)?\{\s*\}",
-        "csharp": r"\w*ValidationCallback\s*\+?=\s*\(?[\w\s,]*\)?\s*=>\s*true\b|\bDangerousAcceptAnyServerCertificateValidator\b",
+        "csharp": r"\b\w*ValidationCallback\s*\+?=\s*\(?[\w\s,]*\)?\s*=>\s*true\b|\bDangerousAcceptAnyServerCertificateValidator\b",
         "c": r"\bSSL_CTX_set_verify\s*\([^,]+,\s*SSL_VERIFY_NONE\b|\bCURLOPT_SSL_VERIFY(?:PEER|HOST)\s*,\s*(?:0L?|false)\b",
         "rust": r"\bdanger_accept_invalid_(?:certs|hostnames)\s*\(\s*true\s*\)",
         "hash": r"\bVERIFY_NONE\b|--insecure\b|\bverify_mode\s*[:=]>?\s*OpenSSL::SSL::VERIFY_NONE",

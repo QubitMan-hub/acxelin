@@ -25,6 +25,7 @@ crl = "pki/crl.pem"
 proxy_protocol = false              # true: tell the upstream the real client address (nginx, HAProxy)
 max_connections = 512
 idle_timeout = 3600                  # seconds without traffic before a connection is closed
+first_data_timeout = 30             # seconds after the handshake for either side to send something (frees slots held by silent connections)
 
 # Let a legacy client on this machine reach a remote edge over post-quantum TLS.
 [[edge]]

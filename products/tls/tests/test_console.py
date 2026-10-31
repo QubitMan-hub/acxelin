@@ -198,6 +198,7 @@ def test_a_passphrase_in_the_environment_unlocks_without_being_typed(tmp_path, h
     monkeypatch.setenv("ACXELIN_TLS_CA_PASSPHRASE", PASS)
     app = tc.build(home, ca_dir=tmp_path / "pki")
     assert call(app, "GET", "/api/status")[1]["unlocked"] is True
+    assert "ACXELIN_TLS_CA_PASSPHRASE" not in os.environ, "the browser and everything it starts would inherit it"
     assert issue(app)["common_name"] == "web.example.invalid"
     monkeypatch.setenv("ACXELIN_TLS_CA_PASSPHRASE", "wrong")
     assert call(tc.build(home, ca_dir=tmp_path / "pki"), "GET", "/api/status")[1]["unlocked"] is False

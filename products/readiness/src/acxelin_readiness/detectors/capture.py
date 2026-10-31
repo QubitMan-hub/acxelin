@@ -47,7 +47,7 @@ def _pcapng(data):
         if btype == 0x0A0D0D0A:
             order = "<" if body[:4] == b"\x4d\x3c\x2b\x1a" else ">"
             links = []
-        elif btype == 1:
+        elif btype == 1 and len(body) >= 2:
             links.append(struct.unpack(order + "H", body[:2])[0])
         elif btype == 6 and len(body) >= 20:
             iface, cap = struct.unpack(order + "I", body[:4])[0], struct.unpack(order + "I", body[12:16])[0]

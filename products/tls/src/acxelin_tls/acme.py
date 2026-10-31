@@ -21,7 +21,7 @@ import socket
 import ssl
 import threading
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from cryptography import x509
@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
-from acxelin_core.http import HTTP_IDLE, content_length, http_server
+from acxelin_core.http import HTTP_IDLE, GuardedHTTPServer, content_length, http_server
 from acxelin_core.pki import CAError, cert_pem, general_names, generate, key_pem, locked, now, write
 
 from . import NAME, __version__
@@ -487,33 +487,17 @@ def create_eab(root, note=""):
 
 def serve(service, listen, tls_cert=None, tls_key=None, handshake_timeout=10, max_connections=128):
     """An HTTP(S) server for the ACME service; TLS uses Python's ssl module, so give it a certificate ACME clients accept."""
-    class Server(ThreadingHTTPServer):
-        context = None
+    class Server(GuardedHTTPServer):
+        context, deadline = None, 60.0
 
-        def __init__(self, *args, **kwargs):
-            self.slots = threading.BoundedSemaphore(max_connections)
-            super().__init__(*args, **kwargs)
+        def wrap(self, request):
+            if self.context:
+                request.settimeout(handshake_timeout)
+                request = self.context.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
+                request.do_handshake()
+            return request
 
-        def process_request(self, request, address):
-            if not self.slots.acquire(blocking=False):
-                return self.shutdown_request(request)
-            try:
-                super().process_request(request, address)
-            except BaseException:
-                self.slots.release()
-                raise
-
-        def process_request_thread(self, request, address):
-            try:
-                if self.context:
-                    request.settimeout(handshake_timeout)
-                    request = self.context.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
-                    request.do_handshake()
-                super().process_request_thread(request, address)
-            except OSError:
-                self.shutdown_request(request)
-            finally:
-                self.slots.release()
+    Server.max_connections = max_connections
 
     class Handler(BaseHTTPRequestHandler):
         timeout = HTTP_IDLE
