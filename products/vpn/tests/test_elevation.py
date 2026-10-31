@@ -85,12 +85,16 @@ def test_a_packaged_app_is_started_as_it_is_and_only_its_own_program_and_openssl
     monkeypatch.delenv("ACXELIN_OPENSSL", raising=False)
     with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(sys, "path", ["/home/ada/anything"]), \
             mock.patch.object(platforms, "protected_location", lambda paths, **k: seen.append(list(paths))):
-        assert platforms.elevation_problem() is None
+        first = platforms.elevation_problem()
+        if os.name == "nt":
+            assert "PATH" in first, "on Windows OpenSSL must come from a named folder"
+        else:
+            assert first is None
         monkeypatch.setenv("ACXELIN_OPENSSL", "/opt/acxelin-vpn/openssl")
         assert platforms.elevation_problem() is None
         with mock.patch.object(sys, "platform", "linux"), mock.patch("shutil.which", return_value="/usr/bin/pkexec"):
             assert desktop.elevated([sys.executable, "app"]) == ["pkexec", sys.executable, "app"]
-    assert seen == [[sys.executable], [sys.executable, "/opt/acxelin-vpn/openssl"]]
+    assert seen == ([] if os.name == "nt" else [[sys.executable]]) + [[sys.executable, "/opt/acxelin-vpn/openssl"]]
 
 
 @posix
@@ -159,7 +163,7 @@ def test_the_windows_boot_script_lives_in_program_files_not_in_program_data(monk
     monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
     monkeypatch.setenv("ProgramData", r"C:\ProgramData")
     path = platforms.service([r"C:\Program Files\Acxelin VPN\acxelin-vpn.exe", "connect"], "Windows")[0]
-    assert path.parts[0] == r"C:\Program Files" and "ProgramData" not in str(path)
+    assert str(path).startswith(r"C:\Program Files") and "ProgramData" not in str(path)
 
 
 def test_the_interpreter_of_the_boot_service_is_isolated_and_a_packaged_app_is_left_alone():

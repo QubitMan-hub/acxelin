@@ -98,10 +98,12 @@ class ConsoleDefaultTest(unittest.TestCase):
         here = os.getcwd()
         with tempfile.TemporaryDirectory() as d:
             os.chdir(d)
-            self.addCleanup(os.chdir, here)
-            Path("pki").mkdir()
-            Path("pki/ca.crt").write_text("x")
-            args = mock.Mock(home=d, action="", ca=None, port=0, no_browser=True, container=False)
-            with mock.patch.object(console, "run") as run:
-                console.cmd_console(args)
-            self.assertEqual(run.call_args.kwargs["ca_dir"], "pki")
+            try:
+                Path("pki").mkdir()
+                Path("pki/ca.crt").write_text("x")
+                args = mock.Mock(home=d, action="", ca=None, port=0, no_browser=True, container=False)
+                with mock.patch.object(console, "run") as run:
+                    console.cmd_console(args)
+                self.assertEqual(run.call_args.kwargs["ca_dir"], "pki")
+            finally:
+                os.chdir(here)  # Windows cannot delete the folder it is standing in

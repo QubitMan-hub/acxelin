@@ -243,3 +243,12 @@ def test_a_crypto_const_module_does_not_pull_in_every_other_package_s_const_impo
     (tmp_path / "light/const.py").write_text("DOMAIN = 'light'\n")
     (tmp_path / "fan/const.py").write_text("DOMAIN = 'fan'\n")
     assert set(pyflow.Index(tmp_path).modules) == {"lock/const.py", "lock/sensor.py"}
+
+
+def test_a_hostile_long_line_in_a_python_file_costs_little_and_hides_nothing_else(tmp_path):
+    import time
+    (tmp_path / "a.py").write_text("import hashlib\nhashlib.md5(b'x')  # not a password\n" + '"' + '\\"' * 20000 + "\n")
+    start = time.monotonic()
+    names = {a["name"] for a in workspace.scan(tmp_path)["assets"]}
+    assert time.monotonic() - start < 3, "Python 3.11's tokenizer matched the rest of the line again for every character"
+    assert "MD5" in names

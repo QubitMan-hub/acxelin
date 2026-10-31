@@ -42,7 +42,7 @@ def test_relative_paths_are_read_from_the_config_files_folder(tmp_path):
         (r,), _ = load_config(tmp_path / "etc" / "edge.toml")
     finally:
         os.chdir(here)
-    assert r.cert == str(tmp_path / "etc" / "web" / "chain.pem") and Path(r.key) == Path("/abs/key.pem").resolve()
+    assert r.cert == str(tmp_path / "etc" / "web" / "chain.pem") and Path(r.key).is_absolute() and Path(r.key).parts[-2:] == ("abs", "key.pem") and str(tmp_path) not in r.key
 
 
 def test_an_ipv4_client_on_a_dual_stack_listener_gets_an_ipv4_proxy_header():

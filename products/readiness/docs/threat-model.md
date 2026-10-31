@@ -13,6 +13,7 @@ The scanned repository, image or capture may be hostile.
 | Huge files | Source files over 2 MB are skipped and named in the report |
 | Huge trees | Project scans stop at 50,000 files, 512 MB or 300 seconds, with a clear message |
 | Deep nesting | Python too deeply nested to analyse is read for strings and comments only, and named in the report |
+| One very long line | A Python file with a line over 5,000 characters skips the standard tokenizer, whose cost on Python 3.11 grew with the square of the line (`test_engine_fixes::test_a_hostile_long_line_in_a_python_file_costs_little_and_hides_nothing_else`, `test_engine_fixes::test_unterminated_strings_are_scanned_in_linear_time`) |
 | Container layers | Archives are unpacked with path checks; entries that escape the target folder are refused |
 
 ## Network

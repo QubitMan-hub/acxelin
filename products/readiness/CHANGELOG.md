@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Security: a Python file with a line over 5,000 characters is split line by line instead of with the standard tokenizer. On
+  Python 3.11 the tokenizer took 20 seconds for one 40,000-character line with an unterminated quote (twice that on a slower
+  machine), so a hostile repository could stall a scan. The rest of the file is still read; docstrings in such a file are
+  not told apart from other strings. Python 3.12 and later were not affected.
 - Breaking: live probes (`scan --tls` and `--ssh`, `watch`, `grade`, `report --targets`, the console's endpoint scans) are paced by
   default. Each host and port gets at most 2 new connections in any second and one at a time, and `grade`, `report` and the console
   probe 4 endpoints at once (was 16, unpaced). Grading one TLS endpoint opens about twenty connections, so it now takes about ten

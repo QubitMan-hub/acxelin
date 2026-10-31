@@ -77,8 +77,16 @@ def split_hash(text):
     return "".join(code), "".join(com), strings
 
 
+MAX_TOKENIZED_LINE = 5000  # characters
+
+
 def split_python(text):
     lines = text.splitlines(keepends=True)
+    if max(map(len, lines), default=0) > MAX_TOKENIZED_LINE:
+        # Python 3.11's tokenizer matches the rest of a line again for every character after an unterminated quote: one 40,000-character
+        # line took 20 seconds. Minified or hostile lines get the line-based split every other language gets; the rest of the file is read.
+        c, m, s = split_hash(text)
+        return c, m, s, set()
     code = [list(l) for l in lines]
     com = [[c if c == "\n" else " " for c in l] for l in lines]
     strings, docs = [], set()

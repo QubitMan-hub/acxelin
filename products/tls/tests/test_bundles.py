@@ -36,7 +36,7 @@ class BundleTest(unittest.TestCase):
             out = create("mqtt", Path(d) / "mqtt", "broker.corp", ca_dir=ca.root, require_client_cert=True)
             r = load_config(out / "edge.toml")[0][0]
             self.assertTrue(r.require_client_cert)
-            self.assertEqual(Path(r.crl), Path("/pki/crl.pem").resolve())  # an absolute path on this system: C:\\pki\\crl.pem on Windows
+            self.assertTrue(Path(r.crl).is_absolute() and Path(r.crl).parts[-2:] == ("pki", "crl.pem"), r.crl)  # C:\\pki\\crl.pem on Windows
             self.assertTrue((ca.root / "ca.key").exists())
             self.assertIn("mosquitto_passwd", (out / "README.txt").read_text())
 

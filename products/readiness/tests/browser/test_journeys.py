@@ -13,6 +13,7 @@ from acxelin_core import console as core
 from acxelin_readiness import console as rc
 
 sync = pytest.importorskip("playwright.sync_api")
+expect = sync.expect
 AXE = Path(__file__).resolve().parents[4] / "tools/browser/node_modules/axe-core/axe.min.js"
 
 
@@ -166,7 +167,7 @@ def test_endpoints_changes_since_the_last_check_and_cbom_download(page, console,
             page.get_by_label("Hosts to check").fill("127.0.0.1:1")
             page.get_by_role("button", name="Check endpoints").click()
             page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).wait_for()
-            page.wait_for_function("!document.querySelector('#check').disabled")
+            expect(page.locator("#check")).to_be_enabled()
         page.get_by_role("heading", name="Changed since the scan before").wait_for()
         assert "127.0.0.1:1: F → A" in page.content()
     with page.expect_download(timeout=60000) as d:
@@ -203,7 +204,7 @@ def test_keyboard_only_reaches_setup_and_submits(page, console, repos):
     page.keyboard.type(str(repos))
     page.keyboard.press("Enter")
     page.get_by_label("Folder path").wait_for(state="detached")
-    page.wait_for_function("document.activeElement && document.activeElement.id === 'tab-projects'")
+    expect(page.locator("#tab-projects")).to_be_focused()
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement !== document.body")
 
@@ -262,7 +263,7 @@ def test_a_finding_shows_where_it_is_and_the_priority_chips_filter_the_list(page
     table = page.locator("#pj-result table")
     table.get_by_text("MD5", exact=True).wait_for()
     page.get_by_role("button", name="Show only critical").click()
-    page.wait_for_function("!document.querySelector('#pj-result table').innerText.includes('RSA-2048')")
+    expect(page.locator("#pj-result table")).not_to_contain_text("RSA-2048")  # not wait_for_function: its polling is an eval, which the console's CSP refuses
     assert table.get_by_text("MD5", exact=True).is_visible()
     page.get_by_role("button", name="Show every priority").click()
     table.get_by_text("RSA-2048").wait_for()
@@ -384,7 +385,7 @@ def test_the_readiness_score_and_its_trend_show_for_projects_and_endpoints(page,
             page.get_by_label("Hosts to check").fill("127.0.0.1:1")
             page.get_by_role("button", name="Check endpoints").click()
             page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).wait_for()
-            page.wait_for_function("!document.querySelector('#check').disabled")
+            expect(page.locator("#check")).to_be_enabled()
     assert page.locator(".score").inner_text().startswith("Readiness 100 of 100, up 100 since ")
     assert page.locator("figure.trend .axis span").last.inner_text().endswith(": 100")
     assert "from 0 to 100" in page.locator("figure.trend svg").get_attribute("aria-label")
@@ -503,7 +504,7 @@ def test_coverage_shows_beside_the_score_and_a_fall_in_coverage_is_called_out(pa
             page.get_by_label("Hosts to check").fill("127.0.0.1:1\n127.0.0.1:2")
             page.get_by_role("button", name="Check endpoints").click()
             page.locator("#ep-result td .pill", has_text=re.compile(f"^{g}:")).first.wait_for()
-            page.wait_for_function("!document.querySelector('#check').disabled")
+            expect(page.locator("#check")).to_be_enabled()
     page.get_by_text("Coverage 50%: 1 of 2 endpoints could be graded.").wait_for()
     assert "Coverage fell from 100% to 50%" in page.locator("#ep-result").inner_text(), "the score rose to 100 only because one endpoint went dark"
 

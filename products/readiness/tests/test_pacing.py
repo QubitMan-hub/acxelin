@@ -109,7 +109,7 @@ def test_one_connection_at_a_time_to_a_host_even_when_the_rate_would_allow_more(
     start = time.monotonic()
     [t.start() for t in threads]
     [t.join(10) for t in threads]
-    assert seen[0] == 1 and time.monotonic() - start >= 8 * 0.02, errors
+    assert seen[0] == 1 and time.monotonic() - start >= 8 * 0.02 * 0.75, errors  # sleep() rounds down on Windows clocks; the one-at-a-time check is the point
 
 
 def test_other_hosts_and_other_ports_do_not_wait_for_each_other():

@@ -1,6 +1,7 @@
 """Inputs that broke the command line in review: hostile git refs, other tools' CBOMs, odd servers and unwritable paths."""
 import datetime as dt
 import json
+import os
 import socket
 import struct
 import subprocess
@@ -163,8 +164,10 @@ def test_the_action_does_not_expand_globs_in_its_args(tmp_path):
     fake.mkdir()
     (fake / "acxelin-readiness").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n')
     (fake / "acxelin-readiness").chmod(0o755)
-    env = {"PATH": f"{fake}:/usr/bin:/bin", "SCAN_PATH": ".", "OUT": "out", "ARGS": "--exclude *.min.js", "GITHUB_OUTPUT": str(tmp_path / "o"),
-           "CAPTURE": str(tmp_path / "argv")}
+    # a Windows drive letter has a colon, so the folders are joined with the system's separator and Git Bash keeps its own tools
+    path = os.pathsep.join([str(fake), os.environ["PATH"]]) if os.name == "nt" else f"{fake}:/usr/bin:/bin"
+    env = ({k: v for k, v in os.environ.items() if k != "PATH"} if os.name == "nt" else {}) | {
+        "PATH": path, "SCAN_PATH": ".", "OUT": "out", "ARGS": "--exclude *.min.js", "GITHUB_OUTPUT": str(tmp_path / "o"), "CAPTURE": str(tmp_path / "argv")}
     subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, check=True)
     assert (tmp_path / "argv").read_text().split("\n")[-3:-1] == ["--exclude", "*.min.js"]
 
