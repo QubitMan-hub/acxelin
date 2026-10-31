@@ -65,7 +65,7 @@ Same table as [core.md](core.md) for the CA, leaf keys and EST tokens. Specific 
 ## Claims with no test found
 
 - A **large post-quantum ClientHello** passes load balancers, proxies and inspection devices. Nothing is tested over a real
-  network path.
+  network path. (Shadow mode, `test_shadow`, now reports what a client offers, which helps find the clients that cannot.)
 - Behaviour of **many workers** under a revocation: `test_tls::test_workers_share_the_port_and_the_metrics_add_up` covers metrics, not
   that every worker applies a new CRL at the same moment.
 - An **edge restart** under load drops its connections after the grace period; no test measures the effect on clients.

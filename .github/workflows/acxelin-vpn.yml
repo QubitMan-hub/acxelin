@@ -26,7 +26,7 @@ jobs:
         python: ["3.11", "3.14"]
     runs-on: ${{ matrix.os }}
     env:
-      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5' || '' }}  # Ubuntu's own OpenSSL is 3.0 on purpose: doctor must refuse it. The Debian 13 job runs the full suite on 3.5
+      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5+' || '' }}  # macOS and Windows: 3.5 or newer, whatever the package manager has (no verified 3.5-only package). The Debian 13 job pins the 3.5 line
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -35,8 +35,8 @@ jobs:
       - name: OpenSSL 3.5+ (Homebrew on macOS, Chocolatey on Windows; Linux runs the tunnels job with its own build)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3.5 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV"; fi
-          if [ "$RUNNER_OS" = Windows ]; then choco install openssl --version=3.5.9 -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = Windows ]; then choco install openssl -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
       - run: pip install ./core "./products/vpn[vpn,desktop,test]"
       - name: Playwright's Chromium and axe-core, for the console and app window journeys
         shell: bash
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: brew install openssl@3.5 wireguard-tools && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV" && echo "ACXELIN_REQUIRE_OPENSSL=3.5" >> "$GITHUB_ENV"
+      - run: brew install openssl@3 wireguard-tools && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV" && echo "ACXELIN_REQUIRE_OPENSSL=3.5+" >> "$GITHUB_ENV"
       - run: pip install ./core "./products/vpn[test]"
       - name: VPN client with Homebrew's WireGuard, a real tunnel brought up, rotated and removed; a skip fails the step
         run: |

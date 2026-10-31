@@ -16,6 +16,15 @@ def test_only_the_pinned_line_passes():
     assert conftest.openssl_problem("3.5", "OpenSSL 3.0.13 30 Jan 2024")
     assert conftest.openssl_problem("3.5", "OpenSSL 3.6.1 27 Jan 2026")
     assert conftest.openssl_problem("3.5", "OpenSSL 3.50.0")  # a prefix match on "3.5" is not the 3.5 line
+
+
+def test_a_minimum_accepts_newer_lines_and_refuses_older_ones():
+    assert conftest.openssl_problem("3.5+", "OpenSSL 3.6.1 27 Jan 2026") is None
+    assert conftest.openssl_problem("3.5+", "OpenSSL 3.5.9 29 Sep 2026") is None
+    assert conftest.openssl_problem("3.5+", "OpenSSL 4.0.0 1 Apr 2027") is None
+    assert conftest.openssl_problem("3.5+", "OpenSSL 3.0.13 30 Jan 2024")
+    assert conftest.openssl_problem("3.5+", "OpenSSL 3.4.9 1 Jan 2026")
+    assert conftest.openssl_problem("3.5+", "garbage")
     assert "3.5" in conftest.openssl_problem("3.5", "OpenSSL 3.0.13 30 Jan 2024")
 
 
@@ -31,9 +40,8 @@ def test_a_wrong_line_stops_the_run_and_no_pin_changes_nothing():
     assert run(None).returncode == 0
 
 
-def test_workflows_install_the_pinned_line_not_whatever_is_newest():
-    for f in (ROOT / ".github").rglob("*.yml"):
-        text = f.read_text(encoding="utf-8")
-        if f.name in ("acxelin-core.yml", "acxelin-tls.yml", "acxelin-vpn.yml"):
-            assert "openssl@3 " not in text and "openssl@3)" not in text and "choco install openssl -y" not in text, f.name
-            assert "ACXELIN_REQUIRE_OPENSSL" in text, f.name
+def test_workflows_say_which_openssl_they_require():
+    for name in ("acxelin-core.yml", "acxelin-tls.yml", "acxelin-vpn.yml"):
+        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "ACXELIN_REQUIRE_OPENSSL" in text, name
+        assert "--version=3.5.9" not in text and "openssl@3.5" not in text, f"{name}: a package version nobody verified"

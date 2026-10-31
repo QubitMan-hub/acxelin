@@ -20,7 +20,7 @@ from acxelin_core.config import build, env_passphrase, read_toml
 from acxelin_core.http import JSON, METRICS, explain, file_stamp, hostport, serve_http
 from acxelin_core.server import Server, Stats, is_loopback
 
-from . import policies
+from . import policies, shadow
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ class Route:
     handshake_timeout: float = 10.0
     fallback_cert: str = ""
     fallback_key: str = ""
+    shadow: bool = False  # serve like `transition`, and report who `policy` (strict or cnsa2) would refuse
 
     def passphrase(self):
         try:
@@ -64,8 +65,12 @@ class Route:
             raise ValueError(f"{self.name}: terminate needs cert and key")
         if bool(self.fallback_cert) != bool(self.fallback_key):
             raise ValueError(f"{self.name}: fallback_cert and fallback_key go together")
-        if self.fallback_cert and (self.mode != "terminate" or self.policy != "transition"):
-            raise ValueError(f"{self.name}: a fallback certificate is for terminate routes with policy = \"transition\"")
+        if self.shadow and self.mode != "terminate":
+            raise ValueError(f"{self.name}: shadow is for terminate routes: it looks at the clients that connect")
+        if self.shadow and self.policy not in ("strict", "cnsa2"):
+            raise ValueError(f"{self.name}: shadow reports who strict or cnsa2 would refuse, so policy must be strict or cnsa2, not {self.policy}")
+        if self.fallback_cert and (self.mode != "terminate" or (self.policy != "transition" and not self.shadow)):
+            raise ValueError(f"{self.name}: a fallback certificate is for terminate routes with policy = \"transition\" (or shadow = true)")
         if self.crl_url and not (self.mode == "terminate" and self.crl and self.ca):
             raise ValueError(f"{self.name}: crl_url needs a terminate route with crl (where the copy is kept) and ca")
         if self.crl_every < 5:
@@ -129,6 +134,7 @@ class Edge:
         self.route = route
         self.stats = Stats()
         self.server = self.listener = self.crl_follow = None
+        self.shadow_told = {}
 
     def bind(self, reuse_port=False):
         """Open the listening socket now, so start() and stop() cannot race the serving thread."""
@@ -138,17 +144,21 @@ class Edge:
                 from acxelin_core.pki import follow_crl
                 self.crl_follow = follow_crl(r.crl_url, r.crl, r.ca, r.crl_every)
             fallback = (r.fallback_cert, r.fallback_key) if r.fallback_cert else None
-            make = lambda: tls.server_context(policies.policy(r.policy), r.cert, r.key, r.ca or None, r.require_client_cert, r.passphrase(), fallback=fallback)
+            served = policies.policy("transition" if r.shadow else r.policy)  # shadow serves everyone and only reports
+            make = lambda: tls.server_context(served, r.cert, r.key, r.ca or None, r.require_client_cert, r.passphrase(), fallback=fallback)
             try:
                 self.server = Server(hostport(r.listen), make, self._terminate, watch=[r.cert, r.key, r.ca, r.fallback_cert, r.fallback_key],
                                      crl=r.crl or None, ca=r.ca or None, max_connections=r.max_connections, max_per_client=r.max_per_client, max_rate_per_client=r.max_rate_per_client,
-                                     handshake_timeout=r.handshake_timeout, name=r.name, reuse_port=reuse_port)
+                                     handshake_timeout=r.handshake_timeout, name=r.name, reuse_port=reuse_port, hello=self._shadow if r.shadow else None)
             except BaseException:
                 if self.crl_follow:
                     self.crl_follow.set()
                 raise
             self.stats = self.server.stats
             self.port = self.server.port
+            if r.shadow:
+                log.warning("%s: shadow mode: nothing is refused for policy %s; clients it would refuse are served and reported "
+                            "(set shadow = false to enforce)", r.name, r.policy)
         else:
             self.watch = [p for p in (r.ca, r.cert, r.key) if p]
             self.stamps = [file_stamp(p) for p in self.watch]
@@ -173,6 +183,33 @@ class Edge:
         self.bind()
         threading.Thread(target=self.serve_forever, daemon=True, name=self.route.name).start()
         return self
+
+    def _shadow(self, host, record):
+        """Count the client, and say once in a while which ones `policy` would refuse and what they offered: the address, the key
+        exchange groups, the signature schemes. No name, certificate, key share or application byte is read or kept."""
+        r = self.route
+        try:
+            offered = shadow.parse(record) if record else None
+            if offered is None:
+                self.stats.add("shadow_unreadable")
+                return
+            why = shadow.reasons(r.policy, offered)
+            if not why:
+                self.stats.add("shadow_ok")
+                return
+            self.stats.add("shadow_would_refuse")
+            for reason in why:
+                self.stats.add("shadow_would_refuse_" + shadow.slug(reason))
+            now = time.monotonic()
+            if now - self.shadow_told.get(host, -10.0) >= 10.0:  # one line per address every ten seconds
+                if len(self.shadow_told) > 10000:
+                    self.shadow_told = {h: t for h, t in self.shadow_told.items() if now - t < 10.0}
+                self.shadow_told[host] = now
+                log.warning("%s: %s would be refused under %s (%s); groups offered: %s; signature schemes offered: %s", r.name, host,
+                            r.policy, "; ".join(why), ", ".join(offered["groups"]) or "none", ", ".join(offered["sigalgs"]) or "none")
+        except Exception as e:  # noqa: BLE001  a report must never cost a connection
+            self.stats.add("shadow_failed")
+            log.error("%s: shadow report failed (%s)", r.name, type(e).__name__)
 
     def _terminate(self, conn, addr):
         r = self.route
@@ -375,7 +412,7 @@ def metrics_text(edges, workers=None):
 
 def serve_metrics(address, edges, workers=None):
     status = lambda: json.dumps({e.route.name: {"mode": e.route.mode, "listen": e.route.listen, "target": e.route.target,
-                                                "policy": e.route.policy, **totals(e, workers)} for e in edges})
+                                                "policy": e.route.policy, "shadow": e.route.shadow, **totals(e, workers)} for e in edges})
     httpd = serve_http(address, {"/metrics": (METRICS, lambda: metrics_text(edges, workers)), "/status": (JSON, status)})
     log.info("metrics on http://%s:%d/metrics", *httpd.server_address[:2])
     if not is_loopback(httpd.server_address[0]):

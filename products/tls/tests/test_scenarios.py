@@ -135,13 +135,17 @@ class Scenario(unittest.TestCase):
             lines.append(f"{k} = {str(v).lower() if isinstance(v, bool) else v if isinstance(v, (int, float)) else repr(str(v))}")
         return "\n".join(lines) + "\n"
 
+    def crl(self, mtls):
+        """A CRL only takes effect with client certificates, and a route that sets one without them is refused."""
+        return {"crl": self.d / "pki" / "crl.pem"} if mtls else {}
+
     def tunnel(self, upstream, mtls=True):
         """An originate edge on the client side and a terminate edge in front of the service: what a branch office runs."""
         srv, _ = self.ca.issue("service.internal", "server", ["127.0.0.1"], out=self.d / "srv")
         cli, _ = self.ca.issue("branch", "client", out=self.d / "branch")
         front, local = free_port(), free_port()
         self.edge(self.route("front", "terminate", front, upstream, cert=srv / "chain.pem", key=srv / "key.pem",
-                             ca=self.d / "pki" / "ca.crt", require_client_cert=mtls, crl=self.d / "pki" / "crl.pem"), "front")
+                             ca=self.d / "pki" / "ca.crt", require_client_cert=mtls, **self.crl(mtls)), "front")
         wait_port(front)
         self.edge(self.route("local", "originate", local, front, server_name="service.internal", ca=self.d / "pki" / "ca.crt",
                              cert=cli / "chain.pem", key=cli / "key.pem"), "local")
@@ -179,7 +183,7 @@ class WebTest(Scenario):
         self.metrics = free_port()
         cfg = f'[metrics]\nlisten = "127.0.0.1:{self.metrics}"\n' + self.route(
             "web", "terminate", port, self.nginx(), policy=policy, cert=out / "chain.pem", key=out / "key.pem",
-            ca=self.d / "pki" / "ca.crt", require_client_cert=mtls, crl=self.d / "pki" / "crl.pem", **extra)
+            ca=self.d / "pki" / "ca.crt", require_client_cert=mtls, **self.crl(mtls), **extra)
         self.edge(cfg, "web")
         wait_port(port)
         return port

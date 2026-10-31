@@ -11,6 +11,7 @@ mode = "terminate"
 listen = "0.0.0.0:8443"
 target = "127.0.0.1:8080"
 policy = "strict"                   # "transition" also accepts classical clients while you migrate
+# shadow = true                     # with strict or cnsa2: serve everyone as transition would, and log who the policy would refuse (nothing is refused)
 cert = "pki/issued/edge/chain.pem"
 key = "pki/issued/edge/key.pem"
 key_passphrase_env = "EDGE_KEY_PASSPHRASE"

@@ -1,5 +1,6 @@
 """On GitHub Actions, each failing test becomes an annotation, so a failure can be read from the checks API without the log."""
 import os
+import re
 
 import pytest
 
@@ -19,10 +20,16 @@ def pytest_runtest_logreport(report):
 
 
 def openssl_problem(want, version):
-    """Why the OpenSSL the products loaded is not the line CI pins (ACXELIN_REQUIRE_OPENSSL=3.5), or None. A machine whose
-    OpenSSL is too old would otherwise skip the tests that need 3.5 and pass, which proves nothing about the line customers run."""
-    return None if version.split()[1:2] and version.split()[1].startswith(want + ".") else \
-        f"ACXELIN_REQUIRE_OPENSSL={want}, but the products loaded {version!r}; point ACXELIN_OPENSSL (and LD_LIBRARY_PATH on Linux) at an OpenSSL {want} lib folder"
+    """Why the OpenSSL the products loaded is not what CI requires (ACXELIN_REQUIRE_OPENSSL), or None. "3.5" is the 3.5 line, "3.5+" is
+    3.5 or newer. A machine whose OpenSSL is too old would otherwise skip the tests that need 3.5 and pass, which proves nothing."""
+    found = version.split()[1] if len(version.split()) > 1 else ""
+    if want.endswith("+"):
+        numbers = tuple(int(n) for n in re.findall(r"\d+", found)[:2])
+        wanted = tuple(int(n) for n in re.findall(r"\d+", want)[:2])
+        ok = len(numbers) == 2 and numbers >= wanted
+    else:
+        ok = found.startswith(want + ".")
+    return None if ok else f"ACXELIN_REQUIRE_OPENSSL={want}, but the products loaded {version!r}; point ACXELIN_OPENSSL (and LD_LIBRARY_PATH on Linux) at an OpenSSL {want} lib folder"
 
 
 def pytest_sessionstart(session):

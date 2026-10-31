@@ -227,6 +227,26 @@ ca = "pki/ca.crt"
 | `transition` | also classical clients while you migrate; use it with `fallback_cert` for browsers, which cannot verify ML-DSA yet |
 | `cnsa2` | NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only |
 
+### Find out who `strict` would break, before you enforce it
+
+Put `shadow = true` on a `strict` or `cnsa2` route (or `--shadow` on the command line). The route then serves every client as
+`transition` would, and reports the ones its policy would have refused:
+
+```
+web: 203.0.113.9 would be refused under strict (no post-quantum key exchange offered); groups offered: x25519, secp256r1; signature schemes offered: ecdsa_secp256r1_sha256, rsa_pss_rsae_sha256
+```
+
+That line has the client's address, what it offered for key exchange and for signatures, and why. It is written once per address
+every ten seconds. Nothing else of the client is read or kept: not the server name, the certificate, the key shares or any
+application data. `/metrics` counts `shadow_ok` and `shadow_would_refuse` (and one counter per reason), and `/status` shows
+`"shadow": true`. Watch for a few days, fix or exempt the clients that appear, then remove `shadow` to enforce.
+
+**Shadow mode does not enforce anything.** Classical clients are served, and they are as exposed to a recorded session as
+before. A client that cannot verify ML-DSA certificates still fails the handshake unless the route has a `fallback_cert` (a
+route in shadow mode may have one). The report is made from the client's first message, so it is correct whether or not the
+handshake then succeeds. Clients that send their hello in several records, or something that is not TLS, are counted as
+`shadow_unreadable`.
+
 ## 7. The console
 
 ```

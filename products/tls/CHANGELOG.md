@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Shadow mode: `shadow = true` (or `--shadow`) on a `strict` or `cnsa2` route serves every client as `transition` would and logs which
+  ones the policy would refuse, with their address and what they offered (key exchange groups and signature schemes), so you can
+  see who enforcing would break before it does. Counters in `/metrics`, `"shadow": true` in `/status`. It reads only the client's
+  first message and keeps no name, certificate, key share or data. It enforces nothing. Off by default; nothing changes unless set.
 - Security: `edge --mode originate` listens on 127.0.0.1 by default, and warns when told to listen elsewhere: anyone who
   reaches an originate port is tunnelled in with the edge's client certificate. It listened on every interface before.
 - Security: revocation follows core: a certificate an intermediate CA revoked is refused even when the root's CRL is the one

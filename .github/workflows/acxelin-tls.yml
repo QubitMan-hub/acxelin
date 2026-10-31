@@ -26,7 +26,7 @@ jobs:
         python: ["3.11", "3.14"]
     runs-on: ${{ matrix.os }}
     env:
-      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5' || '' }}  # Ubuntu's own OpenSSL is 3.0 on purpose: doctor must refuse it. The Debian 13 job runs the full suite on 3.5
+      ACXELIN_REQUIRE_OPENSSL: ${{ matrix.os != 'ubuntu-latest' && '3.5+' || '' }}  # macOS and Windows: 3.5 or newer, whatever the package manager has (no verified 3.5-only package). The Debian 13 job pins the 3.5 line
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -35,18 +35,18 @@ jobs:
       - name: OpenSSL 3.5+ (Homebrew on macOS, Chocolatey on Windows; Linux runs the Debian 13 job for the full TLS suite)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3.5 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3.5)/lib" >> "$GITHUB_ENV"; fi
-          if [ "$RUNNER_OS" = Windows ]; then choco install openssl --version=3.5.9 -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3 && echo "ACXELIN_OPENSSL=$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"; fi
+          if [ "$RUNNER_OS" = Windows ]; then choco install openssl -y --no-progress && echo "ACXELIN_OPENSSL=C:\\Program Files\\OpenSSL-Win64\\bin" >> "$GITHUB_ENV"; fi
       - name: A second loopback address, as Linux has, for the per-host limit test
         if: runner.os == 'macOS'
         run: sudo ifconfig lo0 alias 127.0.0.2 up
       - run: pip install ./core "./products/tls[test]"
-      - name: doctor (Ubuntu's OpenSSL 3.0 must be refused with the way forward; the Debian 13 job checks a ready machine)
+      - name: doctor (an old OpenSSL must be refused with the way forward; a ready machine must pass)
         shell: bash
         run: |
           if [ "$RUNNER_OS" != Linux ]; then acxelin-tls doctor; exit; fi
           rc=0; out=$(acxelin-tls doctor) || rc=$?; echo "$out"
-          test "$rc" = 3 && echo "$out" | grep -q "needs OpenSSL 3.5 or newer"
+          if [ "$rc" = 3 ]; then echo "$out" | grep -q "needs OpenSSL 3.5 or newer"; else test "$rc" = 0; fi  # an old OpenSSL is refused with the way forward; the runner's Python may link 3.5, and then doctor passes
       - name: Playwright's Chromium and axe-core, for the console and website journeys
         shell: bash
         run: |

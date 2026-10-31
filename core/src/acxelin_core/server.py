@@ -120,6 +120,33 @@ class Stats:
             return {"active": self.active, **self.counts, "groups": dict(self.groups)}
 
 
+def peek_client_hello(sock, timeout=3.0):
+    """The first TLS record the client sent (a ClientHello fits in one), read without taking it off the socket, so the handshake that
+    follows sees every byte. None when nothing sensible arrives within `timeout`, the client hangs up, or it is not a TLS handshake record."""
+    deadline, previous = time.monotonic() + timeout, sock.gettimeout()
+    try:
+        while (left := deadline - time.monotonic()) > 0:
+            sock.settimeout(left)
+            data = sock.recv(16384 + 5, socket.MSG_PEEK)
+            if not data:
+                return None
+            if len(data) >= 5:
+                size = int.from_bytes(data[3:5], "big")
+                if data[0] != 0x16 or data[1] != 3 or not 4 <= size <= 16384:
+                    return None
+                if len(data) >= 5 + size:
+                    return data[:5 + size]
+            time.sleep(0.01)  # a peek returns what is there at once; wait for the rest instead of spinning
+    except OSError:
+        return None
+    finally:
+        try:
+            sock.settimeout(previous)
+        except OSError:
+            pass
+    return None
+
+
 class Server:
     """Accepts TCP connections, runs the PQC handshake, and hands each verified Connection to `handler(conn, address)`.
 
@@ -128,7 +155,7 @@ class Server:
     """
 
     def __init__(self, address, make_context, handler, watch=(), crl=None, ca=None, max_connections=512,
-                 handshake_timeout=10.0, name="tls", reuse_port=False, max_per_client=0, max_rate_per_client=50.0):
+                 handshake_timeout=10.0, name="tls", reuse_port=False, max_per_client=0, max_rate_per_client=50.0, hello=None):
         self.address, self.make_context, self.handler, self.name = address, make_context, handler, name
         self.ctx = make_context()
         self.watch = {p: file_stamp(p) for p in watch if p}
@@ -138,7 +165,7 @@ class Server:
         self.per_client = max_per_client or max(16, max_connections // 8)
         self.lock, self.handshaking, self.open = threading.Lock(), Counter(), Counter()
         self.rate, self.buckets, self.warned = max_rate_per_client, {}, {}
-        self.handshake_timeout = handshake_timeout
+        self.handshake_timeout, self.hello = handshake_timeout, hello  # hello(address, first TLS record or None): a product's look at who is asking
         self.stats = Stats()
         self.stopping = threading.Event()
         self.threads = set()
@@ -276,6 +303,11 @@ class Server:
         peer = f"{addr[0]}:{addr[1]}"
         conn = None
         try:
+            if self.hello:
+                try:
+                    self.hello(addr[0], peek_client_hello(sock, min(self.handshake_timeout, 3.0)))
+                except Exception:  # noqa: BLE001  a report about the client must never stop it from being served
+                    log.exception("%s: the hello hook failed", self.name)
             try:
                 conn = ctx.wrap(sock, timeout=self.handshake_timeout)
                 cert = conn.peer_certificate()
