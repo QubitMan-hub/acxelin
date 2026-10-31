@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A CA key can live in a PKCS#11 token (`signer.json` type `pkcs11`, `acxelin_core.pki.pkcs11`): the token signs with ML-DSA (`CKM_ML_DSA`), the key is made sensitive and not extractable, and the PIN is read from an environment variable and refused in the file. Tested against SoftHSM2 built from its development branch; not against a hardware HSM.
+
 ## 1.1.1
 
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level

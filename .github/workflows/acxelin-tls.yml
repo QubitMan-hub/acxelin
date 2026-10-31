@@ -117,6 +117,26 @@ jobs:
       - run: pip install ./core ./products/tls && products/tls/tests/interop/run.sh
       - name: How fast the edge is
         run: python products/tls/tests/interop/bench.py 5
+  pkcs11:
+    # The CA key inside a PKCS#11 token. SoftHSM2 release 2.7.0 has no ML-DSA; its development branch does, so it is built from a pinned commit
+    runs-on: ubuntu-latest
+    container: python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+    env:
+      ACXELIN_REQUIRE_OPENSSL: "3.5"
+      ACXELIN_REQUIRE_SOFTHSM: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates autoconf automake libtool g++ make pkg-config libssl-dev
+      - name: Build SoftHSM2 with ML-DSA from a pinned commit of its development branch
+        run: |
+          git clone https://github.com/softhsm/SoftHSMv2 /tmp/softhsm && cd /tmp/softhsm
+          git checkout 9ad87341c94ffdf1364ecf27b715475e0d80b0dd
+          sh autogen.sh && ./configure --prefix=/opt/softhsm --enable-mldsa --disable-gost --with-migrate=no && make -j4 && make install
+      - run: pip install ./core "./products/tls[test]"
+      - name: PKCS#11 tests (a missing module is a failure, not a skip)
+        env:
+          ACXELIN_SOFTHSM_MODULE: /opt/softhsm/lib/softhsm/libsofthsm2.so
+        run: python -m pytest -q core/tests/test_pkcs11_signer.py products/tls/tests/test_pkcs11_cli.py
   lint:
     runs-on: ubuntu-latest
     steps:
