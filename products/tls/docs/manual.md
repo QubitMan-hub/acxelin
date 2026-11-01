@@ -351,6 +351,27 @@ With `--metrics HOST:PORT`, an edge serves `/healthz`, `/metrics` (Prometheus) a
 
 Every enrollment attempt is written to an owner-only audit log that never contains the token's secret.
 
+### People, with their company sign-in (OIDC)
+
+A person can get a client certificate in their own name with the ID token their identity provider issues, instead of a one-time token you hand out.
+
+```
+acxelin-tls ca oidc --dir pki --issuer https://idp.corp.example --audience acxelin-enroll \
+    --jwks-file idp-keys.json --domain corp.example --group pki-users
+```
+
+`--issuer` and `--audience` must match the `iss` and `aud` in the tokens. Give the provider's signing keys as a saved file (`--jwks-file`, which you refresh when the provider rotates its keys) or as an https address (`--jwks-url`, fetched at enrolment and kept for five minutes; if it cannot be reached, enrolment is refused). Without `--domain` or `--group`, any account at the provider can enrol, so set at least one.
+
+The person runs, with the token in the environment so it is not on a command line:
+
+```
+acxelin-tls ca enroll https://ca.corp.example:9443 --oidc --cn ana@corp.example --ca-fingerprint SHA256 --out ana
+```
+
+The certificate's name must be exactly the name the provider vouches for (the `email` claim, or the claim you chose with `--name-claim`). A token works once. The token must be RS256 or ES256 and signed by one of the provider's keys, for this issuer and audience, not expired, with a verified email; any other algorithm, including `none`, is refused. The CA keeps only a hash of each used token and never writes a token to its logs.
+
+What this does not do: it does not open a browser or run the sign-in for the person; they get the ID token from your provider's own tools. It has been tested against tokens signed by a stand-in provider, not against a real Okta, Entra ID or Keycloak. The token and its signature are classical (RSA or ECDSA); they are checked on the CA, and the certificate it leads to is ML-DSA. Revoking an employee's access at the provider stops new enrolments, not certificates already issued: revoke those with `ca revoke`.
+
 ## 10. How a connection is decided
 
 1. **Key exchange.** Under `strict`, the client must offer a post-quantum group: X25519MLKEM768, SecP384r1MLKEM1024 or SecP256r1MLKEM768. A client that offers only classical groups is refused.

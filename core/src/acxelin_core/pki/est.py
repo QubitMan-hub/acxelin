@@ -19,6 +19,7 @@ from cryptography.x509.oid import NameOID
 
 from .. import tls
 from ..http import hostport
+from . import oidc
 from . import CA, CAError, USAGE, algorithm_of, cert_pem, check_revocation, append, general_names, generate, key_pem, locked, names_of, now, write
 from ..https import HTTPError, request
 
@@ -93,8 +94,41 @@ class Service:
         except CAError as e:
             raise HTTPError(403, str(e)) from None
 
+    def enroll_oidc(self, csr, token):
+        policy = oidc.load(self.ca.root)
+        cn, names = names_of(csr)
+        if policy is None:
+            self.audit("enroll_refused", reason="oidc not set up", common_name=cn)
+            raise HTTPError(401, "enrolment with an identity token is not set up on this CA (see `ca oidc`)")
+        try:
+            who, expires = oidc.verify(token, policy)
+        except CAError as e:
+            self.audit("enroll_refused", reason=f"identity token: {e}", common_name=cn)
+            raise HTTPError(401, str(e)) from None
+        if cn != who or not set(names) <= {who}:
+            self.audit("enroll_refused", reason="name differs from the identity token", common_name=cn, names=names, person=who)
+            raise CAError(f"this token is for {who}, not {cn} {names}")
+        if not algorithm_of(csr.public_key()):
+            raise CAError("the request must carry an ML-DSA key; the token was not used")
+        seen = oidc.digest(token)
+        with locked(self.ca.root):
+            used = oidc.spent(self.ca.root)
+            if seen in used:
+                self.audit("enroll_refused", reason="identity token already used", common_name=cn)
+                raise HTTPError(401, "this identity token was already used: sign in again")
+            oidc.spend(self.ca.root, used, seen, expires)  # spent on disk before anything is signed
+            try:
+                cert, rec = self.ca.sign(csr.public_key(), cn, "client", [])
+            except Exception:
+                oidc.spend(self.ca.root, used, seen, None)
+                raise
+        self.audit("oidc_enrolled", serial=rec.serial, common_name=cn)
+        return cert
+
     def enroll(self, csr, headers):
         auth = headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            return self.enroll_oidc(csr, auth.removeprefix("Bearer ").strip())
         try:
             tid, _, secret = base64.b64decode(auth.removeprefix("Basic ")).decode().partition(":")
         except ValueError:
@@ -219,16 +253,20 @@ def _save(out, key, certs, ca_cert, passphrase):
     write(out / "ca.crt", cert_pem(ca_cert))
 
 
-def enroll(url, token, common_name, names=(), out=".", ca=None, algorithm="ML-DSA-65", passphrase=None, server_name=None):
-    """First enrollment with a one-time token. Writes key.pem, cert.pem, chain.pem and ca.crt into `out`."""
+def enroll(url, token, common_name, names=(), out=".", ca=None, algorithm="ML-DSA-65", passphrase=None, server_name=None, oidc=False):
+    """First enrollment with a one-time token, or with an OIDC ID token when `oidc`. Writes key.pem, cert.pem, chain.pem and
+    ca.crt into `out`."""
     if (Path(out) / "key.pem").exists():
         raise CAError(f"{out} already holds a key; renew it with 'ca enroll URL --renew {out}', or choose another --out")
     ca_cert = x509.load_pem_x509_certificate(Path(ca).read_bytes())
     key = generate(algorithm)
-    tid, _, secret = token.partition(".")
-    auth = base64.b64encode(f"{tid}:{secret}".encode()).decode()
+    if oidc:
+        auth = f"Bearer {token}"
+    else:
+        tid, _, secret = token.partition(".")
+        auth = "Basic " + base64.b64encode(f"{tid}:{secret}".encode()).decode()
     body = _call(url, tls.client_context(PROFILE, ca), "/simpleenroll", _csr(key, common_name, names),
-                 {"Content-Type": "application/pkcs10", "Authorization": f"Basic {auth}"}, server_name)
+                 {"Content-Type": "application/pkcs10", "Authorization": auth}, server_name)
     certs = _parse_certs(body, key)
     _save(out, key, certs, ca_cert, passphrase)
     return certs[0]

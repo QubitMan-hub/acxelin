@@ -31,7 +31,7 @@ def cmd_ca(a):
         what = f"intermediate CA under '{parent.cert.subject.rfc4514_string()}'" if parent else "root"
         print(f"created {ca.algorithm} {what} '{a.name}' in {a.dir} (serial {ca.cert.serial_number:x}); clients trust {ca.anchor}, servers check {Path(a.dir) / 'crl.pem'}")
         return 0
-    ca = CA(a.dir, None if a.ca_cmd in ("list", "publish") else ca_passphrase(a.dir))
+    ca = CA(a.dir, None if a.ca_cmd in ("list", "publish", "oidc") else ca_passphrase(a.dir))
     if a.ca_cmd == "issue":
         out, r = ca.issue(a.common_name, a.kind, a.san, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
         print(f"issued {r.kind} certificate {r.serial} for {r.common_name} ({r.algorithm}), valid until {r.not_after}")
@@ -57,6 +57,12 @@ def cmd_ca(a):
         from acxelin_core.pki.est import create_token
         t = create_token(ca, a.common_name, a.kind, a.san, a.hours)
         print(f"one-time enrollment token for {a.common_name} ({a.kind}), valid {a.hours} h. It is shown only once:\n{t}")
+    elif a.ca_cmd == "oidc":
+        from acxelin_core.pki.oidc import configure
+        s = configure(ca, a.issuer, a.audience, a.jwks_file, a.jwks_url, a.name_claim, a.domain, a.groups_claim, a.group)
+        limits = ", ".join(x for x in (f"domains {', '.join(s['domains'])}" if s["domains"] else "", f"groups {', '.join(s['groups'])}" if s["groups"] else "") if x)
+        print(f"people signed in at {s['issuer']} can now enrol for a client certificate named by their {s['name_claim']} claim" + (f" ({limits})" if limits else " (any account at the provider: add --domain or --group to limit it)"))
+        print("start `ca serve` as before; they run `acxelin-tls ca enroll URL --oidc --cn THEIR-NAME` with their ID token in ACXELIN_TLS_OIDC_TOKEN")
     elif a.ca_cmd == "serve":
         from cryptography.x509 import load_pem_x509_certificate
         from acxelin_core.pki.est import fingerprint, serve
@@ -137,7 +143,12 @@ def cmd_enroll(a):
         print(f"{a.renew}: " + (f"renewed, new serial {cert.serial_number:x}, valid until {cert.not_valid_after_utc.date()}" if cert
                                 else f"still valid for more than {a.within_days} days, nothing to do"))
         return 0
-    token = a.token or os.environ.get("ACXELIN_TLS_ENROLL_TOKEN")
+    if a.oidc:
+        token = os.environ.get("ACXELIN_TLS_OIDC_TOKEN") or (getpass.getpass("ID token from your identity provider: ") if sys.stdin.isatty() else "")
+        if not (token and a.common_name):
+            raise CAError("enrolling with an ID token needs the token in ACXELIN_TLS_OIDC_TOKEN and --cn (your name as the provider gives it)")
+    else:
+        token = a.token or os.environ.get("ACXELIN_TLS_ENROLL_TOKEN")
     if not (token and a.common_name):
         raise CAError("first enrollment needs the token (ACXELIN_TLS_ENROLL_TOKEN, or --token) and --cn (renewal needs --renew FOLDER)")
     ca = a.ca
@@ -146,7 +157,7 @@ def cmd_enroll(a):
             raise CAError("give --ca FILE or --ca-fingerprint SHA256 (from `acxelin-tls ca serve`) so the CA can be trusted")
         ca = Path(a.out) / "ca.crt"
         est.fetch_ca(a.url, a.ca_fingerprint, ca, a.server_name)
-    cert = est.enroll(a.url, token, a.common_name, a.san, a.out, ca, passphrase=key_passphrase, server_name=a.server_name)
+    cert = est.enroll(a.url, token, a.common_name, a.san, a.out, ca, passphrase=key_passphrase, server_name=a.server_name, oidc=a.oidc)
     print(f"enrolled {a.common_name}: serial {cert.serial_number:x}, valid until {cert.not_valid_after_utc.date()}, files in {a.out}")
     print(f"renew it daily from cron: acxelin-tls ca enroll {a.url} --renew {a.out} --within-days 30")
     return 0
@@ -204,6 +215,15 @@ def add(sub, common):
     p.add_argument("common_name")
     p.add_argument("--san", action="append", default=[])
     p.add_argument("--hours", type=positive(float), default=24, help="how long the token can be used (default: 24)")
+    p = ca.add_parser("oidc", parents=[common], help="let people enrol for a client certificate with their identity provider's ID token")
+    p.add_argument("--issuer", required=True, help="the provider's https address, as it appears in its tokens (iss)")
+    p.add_argument("--audience", required=True, help="the client ID your provider issues tokens for (aud)")
+    p.add_argument("--jwks-file", help="the provider's signing keys, saved as a file (you refresh it when the provider rotates)")
+    p.add_argument("--jwks-url", help="or the https address of the provider's signing keys, fetched at enrolment")
+    p.add_argument("--name-claim", default="email", help="the claim that becomes the certificate name (default: email)")
+    p.add_argument("--domain", action="append", default=[], help="only emails at this domain (repeatable)")
+    p.add_argument("--groups-claim", default="groups")
+    p.add_argument("--group", action="append", default=[], help="only members of this group (repeatable)")
     p = ca.add_parser("publish", parents=[common], help="serve crl.pem and ca.crt over HTTP, for edges and gateways to follow (crl_url)")
     p.add_argument("--listen", default="0.0.0.0:8080", help="host:port (default: every interface, port 8080)")
     p = ca.add_parser("serve", parents=[common], help="EST enrollment service (RFC 7030) over post-quantum TLS")
@@ -218,6 +238,7 @@ def add(sub, common):
     p.add_argument("url", nargs="?", help="https://ca.example.com:9443")
     p.add_argument("--guide", action="store_true", help="interactive enrollment with pinned CA trust and an encrypted local key")
     p.add_argument("--token", help="one-time token from `ca token`; better in ACXELIN_TLS_ENROLL_TOKEN, since other users can read command lines")
+    p.add_argument("--oidc", action="store_true", help="enrol with an ID token from your identity provider (ACXELIN_TLS_OIDC_TOKEN) instead of a one-time token")
     p.add_argument("--cn", dest="common_name")
     p.add_argument("--san", action="append", default=[])
     p.add_argument("--out", default=".")
