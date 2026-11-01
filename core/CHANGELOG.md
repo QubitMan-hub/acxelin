@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- OCSP stapling: `acxelin_core.pki.ocsp` signs an OCSP answer (good, or revoked with time and reason) for a certificate with the CA's key (ML-DSA, through OpenSSL 3.5, checked end to end) and checks one (signature, certificate, validity); `Context.set_staple` sends an answer in the handshake to clients that ask, `Context.request_staple` and `Connection.staple` are the client side. A provider that fails never fails a handshake. KMS and signing-command CAs are not supported yet.
 - OIDC enrolment (`acxelin_core.pki.oidc`): EST accepts `Authorization: Bearer <ID token>` as the credential for a client certificate in the person's own name. The token (RS256 or ES256 only) is checked against the provider's keys, issuer, audience, expiry, verified email, allowed domains and groups; the name in the request must be the name the token vouches for; a token works once (a hash is kept until it would have expired). Without `oidc.json` a bearer token is refused. Tested with a stand-in provider; no real provider has been used.
 - `Router`, `client_names` and `Server(bind=False)` / `Server.adopt`: several servers behind one listening address, chosen per connection by the server name and application protocol in the ClientHello (read without consuming it). Used by Acxelin TLS for routes that share a port. `Server.adopt` is the part of the accept loop that applies the connection limits and starts the handshake.
 

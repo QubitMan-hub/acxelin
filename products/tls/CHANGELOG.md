@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- OCSP stapling: `ca ocsp` writes a signed answer about a certificate and a route's `ocsp_staple` sends it to clients that ask, following the file as it is refreshed and never sending a stale, forged or wrong-certificate one. Fails open (no staple) and says why in the log. It does not replace the CRL for client certificates.
 - Enrol with a company sign-in: `ca oidc` sets up the identity provider (issuer, audience, signing keys, allowed domains and groups) and `ca enroll --oidc` takes the ID token from `ACXELIN_TLS_OIDC_TOKEN` (never from the command line) and gets a client certificate named by the person's email. See the manual, section 9, for what is and is not covered.
 - One port, several services: routes that listen on the same address are chosen per connection by the server name (`sni`, exact or `*.example.com`) and application protocol (`alpn`) in the ClientHello, which is read without being consumed. The most specific route wins, one route may be the default, each keeps its own certificate, policy, client-certificate rule and limits, a name nothing serves is closed and counted, and routes can be changed while running. Mistakes (two routes asking for the same thing, two defaults, a bad name) are named when the configuration loads. A route alone on its port with no `sni` or `alpn` is served exactly as before.
 

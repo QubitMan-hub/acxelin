@@ -57,6 +57,19 @@ def cmd_ca(a):
         from acxelin_core.pki.est import create_token
         t = create_token(ca, a.common_name, a.kind, a.san, a.hours)
         print(f"one-time enrollment token for {a.common_name} ({a.kind}), valid {a.hours} h. It is shown only once:\n{t}")
+    elif a.ca_cmd == "ocsp":
+        from cryptography import x509
+        from acxelin_core.pki import write
+        from acxelin_core.pki.ocsp import respond
+        try:
+            cert = x509.load_pem_x509_certificate(Path(a.cert).read_bytes())
+        except (OSError, ValueError) as e:
+            raise CAError(f"{a.cert} is not a certificate file: {e}") from None
+        der = respond(ca, cert, a.hours)
+        write(Path(a.out), der)
+        status = "revoked" if ca.find(format(cert.serial_number, "x")).status == "revoked" else "good"
+        print(f"{cert.subject.rfc4514_string()} is {status}; the answer is valid for {a.hours:g} hours and is in {a.out}")
+        print(f"repeat this before it ends (daily from cron is enough for 24 hours) and point the edge at it with ocsp_staple = \"{a.out}\"")
     elif a.ca_cmd == "oidc":
         from acxelin_core.pki.oidc import configure
         s = configure(ca, a.issuer, a.audience, a.jwks_file, a.jwks_url, a.name_claim, a.domain, a.groups_claim, a.group)
@@ -215,6 +228,10 @@ def add(sub, common):
     p.add_argument("common_name")
     p.add_argument("--san", action="append", default=[])
     p.add_argument("--hours", type=positive(float), default=24, help="how long the token can be used (default: 24)")
+    p = ca.add_parser("ocsp", parents=[common], help="write a signed OCSP answer for one certificate, for an edge to staple (ocsp_staple)")
+    p.add_argument("--cert", required=True, help="the certificate (a chain.pem works: its first certificate is used)")
+    p.add_argument("--out", required=True)
+    p.add_argument("--hours", type=positive(float), default=24, help="how long the answer is valid, 1 to 168 (default: 24)")
     p = ca.add_parser("oidc", parents=[common], help="let people enrol for a client certificate with their identity provider's ID token")
     p.add_argument("--issuer", required=True, help="the provider's https address, as it appears in its tokens (iss)")
     p.add_argument("--audience", required=True, help="the client ID your provider issues tokens for (aud)")
