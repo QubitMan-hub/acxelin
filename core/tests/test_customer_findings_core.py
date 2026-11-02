@@ -37,3 +37,26 @@ class SettingsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FullDiskTest(unittest.TestCase):
+    def test_a_disk_that_fills_mid_issue_says_the_certificate_was_recorded_and_how_to_finish(self):
+        import errno
+        from unittest import mock
+        from acxelin_core import pki
+        real = pki.write
+
+        def full(path, data, secret=False):
+            if Path(path).name == "chain.pem":
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real(path, data, secret)
+        with tempfile.TemporaryDirectory() as d:
+            ca = CA.init(Path(d) / "pki", "Root")
+            with mock.patch.object(pki, "write", full), self.assertRaises(CAError) as caught:
+                ca.issue("pay.test", "server", out=Path(d) / "pay")
+            rec = next(r for r in ca.records() if r.common_name == "pay.test")
+            msg = str(caught.exception)
+            for part in ("No space left on device", rec.serial[:12], "ca renew", "--out", "ca revoke"):
+                self.assertIn(part, msg)
+            out, again = ca.renew(rec.serial[:12], out=Path(d) / "pay")  # the advice works once there is room
+            self.assertTrue((out / "chain.pem").exists())

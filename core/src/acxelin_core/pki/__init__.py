@@ -276,9 +276,15 @@ class CA:
             # recorded before any file holds it: a crash in between leaves a record without files, which can still be revoked,
             # never a certificate on disk that the CA does not know about
             rec = self._record(cert, common_name, kind, algorithm, not_after, names, str(out.resolve()))
-            write(out / "key.pem", key_pem(key, passphrase), secret=True)
-            write(out / "cert.pem", cert_pem(cert))
-            write(out / "chain.pem", cert_pem(cert) + self.chain())
+            try:
+                write(out / "key.pem", key_pem(key, passphrase), secret=True)
+                write(out / "cert.pem", cert_pem(cert))
+                write(out / "chain.pem", cert_pem(cert) + self.chain())
+            except OSError as e:
+                short = rec.serial[:12]
+                raise CAError(f"certificate {short} for {common_name} is recorded, but its files could not be written to {out}: "
+                              f"{e.strerror or e}. Once that is fixed, write them with `ca renew {short} --out {out}`, "
+                              f"or withdraw it with `ca revoke {short}`") from None
         return out, rec
 
     def sign_csr(self, csr_pem, kind, days=397):
