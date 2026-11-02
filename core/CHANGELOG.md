@@ -4,6 +4,7 @@
 
 - A CA key can live in a PKCS#11 token (`signer.json` type `pkcs11`, `acxelin_core.pki.pkcs11`): the token signs with ML-DSA (`CKM_ML_DSA`), the key is made sensitive and not extractable, and the PIN is read from an environment variable and refused in the file. Tested against SoftHSM2 built from its development branch; not against a hardware HSM.
 - `CA.issue(hours=...)` and `CA.renew(hours=...)` for short-lived certificates; `CA.maintain` without a window renews a certificate when `CA.due` says so (the last 30 days of its life, or the last third if shorter), and takes `renew_within_hours`. A renewal of a certificate that lived up to 7 days (`SHORT_LIVED`) keeps its lifetime; longer ones renew for 397 days as before. `CA.lifetime`, `CA.remaining` and `CA.due` are new. `CA.issue` and `CA.renew` now take `days=None` where they took `397`; passing `days` and `hours` together is an error.
+- `Router`, `client_names` and `Server(bind=False)` / `Server.adopt`: several servers behind one listening address, chosen per connection by the server name and application protocol in the ClientHello (read without consuming it). Used by Acxelin TLS for routes that share a port. `Server.adopt` is the part of the accept loop that applies the connection limits and starts the handshake.
 
 ## 1.1.1
 

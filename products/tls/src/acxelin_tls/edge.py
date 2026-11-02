@@ -6,23 +6,27 @@ originate  plain local clients -> edge -> PQC TLS remote (usually another edge i
 import json
 import logging
 import os
+import re
 import select
 import socket
 import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from acxelin_core import tls
 from acxelin_core.config import build, env_passphrase, read_toml
 from acxelin_core.http import JSON, METRICS, explain, file_stamp, hostport, serve_http
-from acxelin_core.server import Server, Stats, is_loopback
+from acxelin_core.server import Router, Server, Stats, is_loopback
 
 from . import policies, shadow
 
 log = logging.getLogger(__name__)
+
+
+SNI = re.compile(r"(?:\*\.)?[a-z0-9_](?:[a-z0-9_.-]{0,251}[a-z0-9_])?")
 
 
 @dataclass
@@ -51,6 +55,9 @@ class Route:
     fallback_cert: str = ""
     fallback_key: str = ""
     shadow: bool = False  # serve like `transition`, and report who `policy` (strict or cnsa2) would refuse
+    sni: list = field(default_factory=list)   # server names this route serves when it shares its port with others (exact, or *.example.com)
+    alpn: list = field(default_factory=list)  # application protocols this route serves (h2, http/1.1, mqtt, ...)
+    shared: bool = False  # set from the configuration: this route is chosen per connection by sni and alpn on a port it shares
 
     def passphrase(self):
         try:
@@ -61,6 +68,12 @@ class Route:
     def validate(self):
         if self.mode not in ("terminate", "originate"):
             raise ValueError(f"{self.name}: mode must be terminate or originate")
+        if (self.sni or self.alpn) and self.mode != "terminate":
+            raise ValueError(f"{self.name}: sni and alpn choose among routes that terminate TLS on one port; originate routes have their own port")
+        if not isinstance(self.sni, list) or not all(isinstance(n, str) and SNI.fullmatch(n.lower()) for n in self.sni):
+            raise ValueError(f"{self.name}: sni must be a list of server names such as \"pay.example.com\" or \"*.example.com\"; {next((n for n in self.sni if not isinstance(n, str) or not SNI.fullmatch(n.lower())), '')!r} is not a server name")
+        if not isinstance(self.alpn, list) or not all(isinstance(a, str) and 0 < len(a) <= 255 and a.isascii() and a.isprintable() and " " not in a for a in self.alpn):
+            raise ValueError(f"{self.name}: alpn must be a list of application protocol names such as \"h2\" or \"http/1.1\"")
         hostport(self.listen), hostport(self.target)
         if self.mode == "terminate" and not (self.cert and self.key):
             raise ValueError(f"{self.name}: terminate needs cert and key")
@@ -137,7 +150,7 @@ class Edge:
         route.validate()
         self.route = route
         self.stats = Stats()
-        self.server = self.listener = self.crl_follow = None
+        self.server = self.listener = self.crl_follow = self.router = None
         self.shadow_told = {}
 
     def bind(self, reuse_port=False):
@@ -153,13 +166,16 @@ class Edge:
             try:
                 self.server = Server(hostport(r.listen), make, self._terminate, watch=[r.cert, r.key, r.ca, r.fallback_cert, r.fallback_key],
                                      crl=r.crl or None, ca=r.ca or None, max_connections=r.max_connections, max_per_client=r.max_per_client, max_rate_per_client=r.max_rate_per_client,
-                                     handshake_timeout=r.handshake_timeout, name=r.name, reuse_port=reuse_port, hello=self._shadow if r.shadow else None)
+                                     handshake_timeout=r.handshake_timeout, name=r.name, reuse_port=reuse_port, hello=self._shadow if r.shadow else None, bind=not r.shared)
+                if r.shared:  # the port is shared: a router picks the route per connection from the name and protocol in the ClientHello
+                    self.router = Router.at(hostport(r.listen), reuse_port)
+                    self.router.add(self.server, r.sni, r.alpn)
             except BaseException:
                 if self.crl_follow:
                     self.crl_follow.set()
                 raise
             self.stats = self.server.stats
-            self.port = self.server.port
+            self.port = self.router.port if r.shared else self.server.port
             if r.shadow:
                 log.warning("%s: shadow mode: nothing is refused for policy %s; clients it would refuse are served and reported "
                             "(set shadow = false to enforce)", r.name, r.policy)
@@ -277,6 +293,8 @@ class Edge:
     def stop(self, grace=10.0):
         if self.crl_follow:
             self.crl_follow.set()
+        if self.router:
+            self.router.remove(self.server)
         if self.server:
             self.server.stop(grace)
         elif self.listener:
@@ -303,6 +321,19 @@ def load_config(path):
         raise ValueError(f"{path}: route names must be unique")
     for r in routes:
         r.validate()
+    groups = {}
+    for r in routes:
+        if r.mode == "terminate":
+            groups.setdefault(hostport(r.listen), []).append(r)
+    for address, rs in groups.items():
+        seen = {}
+        for r in rs:
+            key = (tuple(sorted(n.lower() for n in r.sni)), tuple(sorted(r.alpn)))
+            if len(rs) > 1 and key in seen:
+                what = "as the default (no sni and no alpn)" if key == ((), ()) else "for the same sni and alpn"
+                raise ValueError(f"{path}: routes {seen[key]!r} and {r.name!r} both listen on {r.listen} {what}: give each its own sni names or alpn protocols, and at most one the default")
+            seen[key] = r.name
+            r.shared = len(rs) > 1 or bool(r.sni or r.alpn)
     return routes, doc.get("metrics", {}).get("listen")
 
 

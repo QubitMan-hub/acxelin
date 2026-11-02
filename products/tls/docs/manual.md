@@ -232,6 +232,42 @@ ca = "pki/ca.crt"
 
 `config/example.toml` lists every setting. Saving the file reloads it without a restart, and certificates are re-read when their files change.
 
+### One port, several services (server name and protocol)
+
+Routes that listen on the same address share the port. The edge reads which server name (SNI) and application protocol (ALPN) the client asks for, before the handshake, and hands the connection to the most specific route:
+
+```
+[[edge]]
+name = "payments"
+listen = "0.0.0.0:443"
+target = "10.1.0.10:8080"
+sni = ["payments.bank.example"]
+cert = "pay/chain.pem"
+key = "pay/key.pem"
+ca = "pki/ca.crt"
+require_client_cert = true
+
+[[edge]]
+name = "api"
+listen = "0.0.0.0:443"
+target = "10.1.0.20:8080"
+sni = ["*.api.bank.example"]
+alpn = ["h2"]
+cert = "api/chain.pem"
+key = "api/key.pem"
+
+[[edge]]
+name = "everything-else"
+listen = "0.0.0.0:443"
+target = "10.1.0.30:8080"
+cert = "web/chain.pem"
+key = "web/key.pem"
+```
+
+An exact name beats a wildcard, which beats no name; asking for a protocol adds to it. A route with neither is the default for the port, and there can be only one. Each route keeps its own certificate, policy, client-certificate rule, CRL and limits. A client that asks for a name no route serves, with no default to catch it, is closed and counted (`unrouted` in the status). A client that sends no readable hello within a few seconds is closed (`unreadable`).
+
+Limits: a client that sends no server name reaches only routes without `sni`. Changing one route while running leaves the others on the port untouched. The routing decision reads only the name and protocol, never a certificate or any application data. Routes in `originate` mode have their own ports.
+
 ### Policies
 
 | Policy | Allows |
