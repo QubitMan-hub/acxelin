@@ -338,6 +338,11 @@ class Readiness:
         added = [self.github({"url": u})[1]["project"] for u in new[:room]]
         return 200, {"added": len(added), "projects": added, "left_out": len(new) - len(added)}
 
+    def coverage(self, body):
+        """What Readiness tracks: kinds of asset, every algorithm with its verdict, and every place it looks."""
+        from .coverage import summary
+        return 200, summary()
+
     def overview(self, body):
         """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
         with self.lock:
@@ -584,7 +589,7 @@ def build(home):
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv,
-              ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
+              ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("GET", "/api/coverage"): r.coverage, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
     return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000, ("POST", "/api/projects/owners"): 2_000_000})  # a CBOM can be large; read only after sign-in
 
 

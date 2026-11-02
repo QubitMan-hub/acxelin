@@ -446,6 +446,10 @@ the host GitHub redirects the download to, and never shown again. **Remove token
 A downloaded repository's own `.acxelin-readiness.toml` is ignored, so a stranger's repository cannot choose which hosts
 your computer probes. Pass `--config` to use settings you trust.
 
+### What it tracks
+
+The **What it tracks** tab lists the five kinds of asset Readiness records (algorithms, protocols, certificates, keys and key material, libraries), every algorithm it knows with its verdict, strength and replacement, and every place it looks. The website shows the same list.
+
 ### Full TLS handshakes
 
 Grades, accepted groups and SSH algorithms need nothing extra. To read the certificate of a server that offers only post-quantum key exchange, Acxelin Readiness completes a real TLS 1.3 handshake through OpenSSL 3.5 or newer, in `scan --tls` and in `grade`. Point `ACXELIN_OPENSSL` at the folder that holds it; `doctor` says whether it is found. Without it, the report says those certificates were not observed. It never marks them as passing.
