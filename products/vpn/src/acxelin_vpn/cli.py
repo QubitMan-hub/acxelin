@@ -298,6 +298,24 @@ def describe_vpn(s, details=False):
     return "\n".join(lines)
 
 
+def cmd_access(a):
+    from . import access, wireguard as wg
+    cfg = wg.load_gateway(a.config)
+    state = Path(cfg.state)
+    leases = json.loads(state.read_text(encoding="utf-8")) if state.exists() else {}
+    if a.action == "show":
+        if not cfg.access:
+            print("nobody is restricted: every user gets all the routes. To limit someone, add her to [wireguard.access] (see the manual)")
+            return 0
+        for name, nets in sorted(cfg.access.items()):
+            print(f"{name}: {', '.join(nets)} (tunnel address {leases.get(name, 'not leased yet')})")
+        others = [u for u in cfg.users if u not in cfg.access] if cfg.users else []
+        print(f"everyone else{' (' + ', '.join(others) + ')' if others else ''} gets all routes: {', '.join(cfg.routes) or 'none'}")
+        return 0
+    print(access.ruleset(cfg.interface, {n: (leases[n], nets) for n, nets in cfg.access.items() if n in leases}), end="")
+    return 0
+
+
 def cmd_inventory(a):
     from acxelin_core.files import write
     from . import inventory
@@ -439,10 +457,14 @@ def parser():
     p.add_argument("--config", action="append", required=True, metavar="FILE", help="a site or gateway configuration (repeatable)")
     p.add_argument("--cbom", default="cbom.json", metavar="FILE", help="where to write it (default: cbom.json)")
     p.add_argument("--name", default="Acxelin VPN", help="what the CBOM is about, e.g. \"Acme VPN\" (default: Acxelin VPN)")
+    p = v.add_parser("access", help="what each person may reach through the gateway: show it, or print the packet-filter rules that enforce it")
+    p.add_argument("action", choices=["show", "rules"], help="show: who is limited to what; rules: the nftables text for the leases the gateway holds now")
+    p.add_argument("--config", required=True, help="the gateway configuration (see config/gateway.toml)")
     for name, c in v.choices.items():
-        if name not in ("doctor", "inventory"):
+        if name not in ("doctor", "inventory", "access"):
             c.set_defaults(func=cmd_vpn)
     v.choices["inventory"].set_defaults(func=cmd_inventory)
+    v.choices["access"].set_defaults(func=cmd_access)
     ca_commands.add(v, common)
     from . import console
     console.add(v)

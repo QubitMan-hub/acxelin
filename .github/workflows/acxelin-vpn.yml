@@ -142,7 +142,9 @@ jobs:
             --enable-revocation && make -j4 && sudo make install && sudo chmod -R a+rX /opt/pqc
       - run: pip install ./core "./products/vpn[vpn,test]"
       - name: Real application for VPN traffic checks
-        run: sudo apt-get update && sudo apt-get install -y redis-server wireguard-tools
+        run: sudo apt-get update && sudo apt-get install -y redis-server wireguard-tools nftables
+      - name: Per-user access rules against real packets in network namespaces
+        run: sudo -E env "PATH=$PATH" ACXELIN_REQUIRE_NETNS=1 python -m pytest products/vpn/tests/test_access_enforcement.py -v -rs
       - name: Two sites in network namespaces, real ESP traffic
         run: |
           sudo modprobe -a esp4 xfrm_user || true

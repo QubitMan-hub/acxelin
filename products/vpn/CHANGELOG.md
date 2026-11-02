@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Per-user route sets: `[wireguard.access]` limits a person to some of the gateway's `routes`. She is told only those networks, and a Linux gateway that manages its interface loads nftables rules that drop everything else from her tunnel address (forwarded traffic and traffic to the gateway itself) before she hears her address; if the rules cannot be loaded she is refused, and the gateway will not start without `nft`. `acxelin-vpn access show` and `access rules` show who is limited and print the rules for a firewall you run yourself. Changes apply while running; one whose rules cannot be loaded is not applied. People with no entry are unchanged. The refusal a laptop sees when the gateway says no now lists the usual reasons.
+
 ## 1.0.3
 
 - A revoked laptop is told it was revoked on Windows too: the gateway now reads the laptop's request before it refuses, because closing with it unread makes Windows reset the connection and drop the refusal (the laptop saw "key agreement message missing").

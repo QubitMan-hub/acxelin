@@ -25,3 +25,6 @@ metrics = "127.0.0.1:9101"
 
 [wireguard.sites]                       # clients that are branch sites, and the subnets behind them
 "branch.acme.example" = ["192.168.20.0/24"]
+
+[wireguard.access]                      # optional: give a person only some of the routes (and keep her away from other people and the gateway). Linux gateways enforce it with nftables
+# "alice@acme.example" = ["192.168.10.0/24"]
