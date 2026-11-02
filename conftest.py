@@ -43,3 +43,28 @@ def pytest_sessionstart(session):
         pytest.exit(f"ACXELIN_REQUIRE_OPENSSL={want}, but OpenSSL did not load: {e}", returncode=4)
     if problem := openssl_problem(want, version):
         pytest.exit(problem, returncode=4)
+
+
+POOL = 24  # SoftHSM lists the tokens that exist when the module first starts in a process, so every token any test will use is made before the first is opened
+
+
+@pytest.fixture(scope="session")
+def softhsm_tokens(tmp_path_factory):
+    """Labels of fresh, initialised SoftHSM tokens (PIN 7391), shared by every test in the run: the module starts once per process."""
+    import subprocess
+    import uuid
+    module = os.environ.get("ACXELIN_SOFTHSM_MODULE")
+    if not module:
+        pytest.fail("ACXELIN_REQUIRE_SOFTHSM=1 but ACXELIN_SOFTHSM_MODULE is not set")
+    home = tmp_path_factory.mktemp("softhsm")
+    (home / "tokens").mkdir()
+    (home / "softhsm2.conf").write_text(f"directories.tokendir = {home / 'tokens'}\nobjectstore.backend = file\nlog.level = ERROR\n", encoding="utf-8")
+    os.environ["SOFTHSM2_CONF"] = str(home / "softhsm2.conf")
+    util = os.environ.get("ACXELIN_SOFTHSM_UTIL") or str(__import__("pathlib").Path(module).parents[2] / "bin" / "softhsm2-util")
+    labels = []
+    for i in range(POOL):
+        label = f"acx-{i}-{uuid.uuid4().hex[:6]}"
+        r = subprocess.run([util, "--init-token", "--free", "--label", label, "--so-pin", "12345678", "--pin", "7391"], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        labels.append(label)
+    return labels
