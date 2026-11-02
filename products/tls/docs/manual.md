@@ -328,6 +328,18 @@ With `--metrics HOST:PORT`, an edge serves `/healthz`, `/metrics` (Prometheus) a
 
 Every enrollment attempt is written to an owner-only audit log that never contains the token's secret.
 
+### Names no web server answers for, and wildcards (ACME dns-01)
+
+By default the ACME service proves a name by fetching a file over HTTP (http-01), which needs a web server on that name and cannot prove a wildcard. Give the service a command that looks up DNS TXT records and it also offers dns-01, which proves control by a record at `_acme-challenge.NAME` and is the only way to get a wildcard such as `*.corp.example`:
+
+```
+acxelin-tls ca acme --dir pki --allow "*.corp.example" --dns-command dig +short TXT
+```
+
+The service appends the name (`_acme-challenge.corp.example`) to your command, which must print the TXT records it finds, one per line (quotes are fine). Any resolver your bank trusts will do; a script that asks your internal DNS is a normal choice. On Windows use `--dns-command powershell -NoProfile -File lookup.ps1`.
+
+The client publishes the record, as certbot does with its manual or DNS hooks. Limits: the command runs without a shell, for at most 15 seconds, may print at most 64 KB, and receives only `PATH`, `HOME` and variables you start with `ACXELIN_DNS_`, never the CA passphrase. If it fails, the client is told to see the CA's log, not what the command said. Names are limited to ASCII letters, digits, hyphens and dots (write international names in punycode). Wildcards need `--allow` to list them. dns-01 is not offered for IP addresses.
+
 ## 10. How a connection is decided
 
 1. **Key exchange.** Under `strict`, the client must offer a post-quantum group: X25519MLKEM768, SecP384r1MLKEM1024 or SecP256r1MLKEM768. A client that offers only classical groups is refused.

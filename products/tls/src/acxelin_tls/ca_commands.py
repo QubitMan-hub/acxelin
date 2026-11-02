@@ -115,7 +115,7 @@ def cmd_acme(a):
     ca = CA(a.dir, ca_passphrase(a.dir))
     ca.signer  # a wrong passphrase fails now, not at the first order
     base = a.base_url or f"{'https' if a.tls_cert else 'http'}://{a.listen}"
-    httpd = acme.serve(acme.Service(ca, base, a.allow, a.require_eab, a.http_port, days=a.days, allow_local=a.allow_local_validation), a.listen, a.tls_cert, a.tls_key)
+    httpd = acme.serve(acme.Service(ca, base, a.allow, a.require_eab, a.http_port, days=a.days, allow_local=a.allow_local_validation, dns_command=a.dns_command), a.listen, a.tls_cert, a.tls_key)
     print(f"ACME directory: {base}/directory (issuing ML-DSA certificates from {ca.cert.subject.rfc4514_string()})")
     run_until_signal(httpd.serve_forever, lambda: threading.Thread(target=httpd.shutdown).start())
     return 0
@@ -254,6 +254,7 @@ def add(sub, common):
     p.add_argument("--allow", action="append", default=[], help="names or patterns this CA issues for, e.g. '*.corp.example' (repeatable)")
     p.add_argument("--require-eab", action="store_true", help="clients need an external account binding key (see `ca eab`)")
     p.add_argument("--http-port", type=int, default=80, help="port for http-01 validation")
+    p.add_argument("--dns-command", nargs="+", metavar="ARG", help="turn on dns-01 and wildcard names: a command that prints the TXT records of the name it is given, one per line (for example `dig +short TXT`); it runs without a shell and without this service's secrets")
     p.add_argument("--allow-local-validation", action="store_true",
                    help="let http-01 validation reach loopback and link-local addresses (refused by default; private networks are allowed)")
     p.add_argument("--days", type=int, default=90, help="lifetime of issued certificates")
