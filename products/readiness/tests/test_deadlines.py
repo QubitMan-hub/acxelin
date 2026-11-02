@@ -16,7 +16,7 @@ def test_the_deadlines_follow_the_countries_and_sectors_chosen():
     assert [d["year"] for d in compliance.deadlines(["in"], ["enterprise"], 2026)] == [2033]
     assert compliance.deadlines(["ca"], ["enterprise"], 2026) == []  # Canada's roadmap is for federal departments
     assert [d["year"] for d in compliance.deadlines(["ca"], ["government"], 2026)] == [2031, 2035]
-    assert compliance.deadlines(["us"], ["national-security"], 2026)[0]["year"] == 2030
+    assert compliance.deadlines(["us"], ["national-security"], 2026)[0]["year"] == 2027  # CNSA 2.0 in new acquisitions
     assert compliance.deadlines(["uk", "in"], ["critical-infrastructure"], 2030)[0]["passed"]
     with pytest.raises(ValueError):
         compliance.deadlines(["xx"], [], 2026)

@@ -29,9 +29,9 @@ A key agreement that cannot meet the VPN's policy (TLS 1.3, hybrid ML-KEM, ML-DS
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v1.1.0) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/vpn-v1.1.1) and save them in one folder:
 
-- `acxelin-vpn-1.1.0-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
+- `acxelin-vpn-1.1.1-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
 - `SHA256SUMS`: a fingerprint of every file in the release
 
 The desktop installers for people's computers are on the same page; section "The desktop app, for people" below covers them.
@@ -51,24 +51,24 @@ You should see the file's name followed by `OK`.
 On macOS:
 
 ```
-shasum -a 256 acxelin-vpn-1.1.0-wheelhouse.tar.gz
+shasum -a 256 acxelin-vpn-1.1.1-wheelhouse.tar.gz
 ```
 
 On Windows:
 
 ```
-Get-FileHash .\acxelin-vpn-1.1.0-wheelhouse.tar.gz
+Get-FileHash .\acxelin-vpn-1.1.1-wheelhouse.tar.gz
 ```
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.1.0-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-vpn-1.1.1-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
 ```
-tar xzf acxelin-vpn-1.1.0-wheelhouse.tar.gz
-cd acxelin-vpn-1.1.0-wheelhouse
+tar xzf acxelin-vpn-1.1.1-wheelhouse.tar.gz
+cd acxelin-vpn-1.1.1-wheelhouse
 ```
 
 **Step 3: install.** Still in that folder:
@@ -83,7 +83,7 @@ On Windows, the first command tells Windows you trust this downloaded script, an
 The installer checks your Python, finds OpenSSL 3.5, puts `acxelin-vpn` on your PATH and runs a health check. A laptop prints:
 
 ```
-acxelin-vpn 1.1.0, Python 3.11.15
+acxelin-vpn 1.1.1, Python 3.11.15
 ok    OpenSSL 3.5.9 29 Sep 2026 can agree keys over post-quantum mutual TLS
 WARN  This machine is not set up as an IPsec gateway (fine for a laptop)
 ```
@@ -95,8 +95,8 @@ If OpenSSL 3.5 is in a folder of its own, run `ACXELIN_OPENSSL=/path/to/openssl-
 **With Docker (recommended):** each release publishes a gateway image with strongSwan 6.1, OpenSSL 3.5 and WireGuard's tools. IPsec and WireGuard live in the host's kernel, so the container shares the host's network:
 
 ```
-docker pull ghcr.io/acxelinquantum/acxelin-vpn:1.1.0
-docker tag ghcr.io/acxelinquantum/acxelin-vpn:1.1.0 acxelin-vpn
+docker pull ghcr.io/acxelinquantum/acxelin-vpn:1.1.1
+docker tag ghcr.io/acxelinquantum/acxelin-vpn:1.1.1 acxelin-vpn
 docker run --rm acxelin-vpn doctor
 ```
 
@@ -114,9 +114,9 @@ Section 8 says which unit runs what.
 
 | System | File | How to install |
 |---|---|---|
-| Windows 10/11 (x64) | `Acxelin-VPN-1.1.0-Setup.exe` | Run it and follow the steps. Leave **Show Acxelin VPN in the tray when I log in** ticked to start it at login. Install [WireGuard for Windows](https://www.wireguard.com/install/) too; the installer reminds you if it is missing. |
-| macOS (Apple silicon) | `Acxelin-VPN-1.1.0.dmg` | Open it and drag Acxelin VPN to Applications. Install WireGuard's tools with `brew install wireguard-tools`. |
-| Ubuntu, Debian (x64) | `acxelin-vpn_1.1.0_amd64.deb` | `sudo apt install ./acxelin-vpn_1.1.0_amd64.deb`, which also installs WireGuard's tools. |
+| Windows 10/11 (x64) | `Acxelin-VPN-1.1.1-Setup.exe` | Run it and follow the steps. Leave **Show Acxelin VPN in the tray when I log in** ticked to start it at login. Install [WireGuard for Windows](https://www.wireguard.com/install/) too; the installer reminds you if it is missing. |
+| macOS (Apple silicon) | `Acxelin-VPN-1.1.1.dmg` | Open it and drag Acxelin VPN to Applications. Install WireGuard's tools with `brew install wireguard-tools`. |
+| Ubuntu, Debian (x64) | `acxelin-vpn_1.1.1_amd64.deb` | `sudo apt install ./acxelin-vpn_1.1.1_amd64.deb`, which also installs WireGuard's tools. |
 
 The installers are not code-signed yet, so the first launch shows a warning. Check the installer first, the same way as in Step 1 above, with its own file name. On Windows, SmartScreen says "Windows protected your PC": choose **More info**, then **Run anyway**. On macOS, open **System Settings > Privacy & Security** and choose **Open Anyway**.
 
@@ -284,7 +284,7 @@ fallback_ppk_file = "/etc/acxelin-vpn/partner.ppk"   # optional: an RFC 8784 PPK
 
 The tunnel uses the best the partner can do, in this order: hybrid ML-KEM (quantum safe), then classical with the PPK, then plain classical. Anything below hybrid is **NOT QUANTUM SAFE**, and the product says so: one warning line in the log when the tunnel reaches it, `"quantum_safe": false` and the tier in `/status`, `acxelin_vpn_tunnel_quantum_safe` 0 and `acxelin_vpn_tunnel_tier` in the metrics, the `acxelin:quantum-safe` = false property on the tunnel in the CBOM, and a red **Not quantum safe** badge in the console.
 
-What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with `profile = "cnsa2"`. Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
+What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with a CNSA 2.0 profile (`cnsa2-rfc9370` or `cnsa2`). Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
 
 ### Profiles
 
@@ -292,12 +292,15 @@ What you take on: the keys are static files, agreed with the partner out of band
 |---|---|---|
 | `standard` (default) | X25519 + ML-KEM-768 | AES-256-GCM |
 | `high` | P-384 + ML-KEM-1024 | AES-256-GCM |
-| `cnsa2` (strict, government grade) | ML-KEM-1024 only | AES-256-GCM, SHA-384 |
+| `cnsa2-rfc9370` (CNSA 2.0) | P-384, then ML-KEM-1024: NSA's CNSA 2.0 form for IKEv2 | AES-256-GCM, SHA-384 |
+| `cnsa2` (older) | ML-KEM-1024 only; kept so running sites keep their tunnels, with a warning | AES-256-GCM, SHA-384 |
 
 Set `profile` per `[[peer]]`. Both sides of a tunnel must use the same one.
 
-`cnsa2` keeps to the NSA's CNSA 2.0 suite on every layer: no classical key exchange in IKE or ESP, and the key agreement
-between gateways allows only ML-KEM-1024, ML-DSA-87 certificates and AES-256. Every peer of the site must use it (they share
+`cnsa2-rfc9370` is the form NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) gives for IKEv2 (p. 29): a P-384 exchange first, then ML-KEM-1024 (RFC 9370), because ML-KEM-1024's
+large key does not fit IKEv2's first, unencrypted message well. The key agreement between gateways allows only ML-KEM-1024, ML-DSA-87
+certificates and AES-256. The older `cnsa2` uses ML-KEM-1024 alone, which is not NSA's IKEv2 form; it still works, the gateway
+warns at start, and both gateways of a tunnel move to `cnsa2-rfc9370` together. Every peer of the site must use a CNSA 2.0 profile (they share
 one key agreement service), and both gateways need ML-DSA-87 certificates: `acxelin-vpn ca issue site NAME --algorithm ML-DSA-87`.
 A gateway with another certificate refuses to start and says why. WireGuard remote access cannot meet CNSA 2.0 (Curve25519
 and ChaCha20 are outside the suite), so a CNSA 2.0 network leaves it off.

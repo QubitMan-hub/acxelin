@@ -189,7 +189,7 @@ def client_cells(peers, pki, edges):
     if "openssl" in p:
         base = lambda port, *x: [p["openssl"]["cmd"], "s_client", "-connect", f"127.0.0.1:{port}", "-servername", "localhost", "-verify_hostname", "localhost", "-CAfile", trust, "-tls1_3", *x]
         rows.append(("openssl", p["openssl"]["label"] + ", default groups", p["openssl"], lambda port: base(port), True))
-        rows.append(("openssl-1024", p["openssl"]["label"] + ", -groups SecP384r1MLKEM1024", p["openssl"], lambda port: base(port, "-groups", "SecP384r1MLKEM1024"), True))
+        rows.append(("openssl-1024", p["openssl"]["label"] + ", -groups MLKEM1024", p["openssl"], lambda port: base(port, "-groups", "MLKEM1024"), True))
     if "node" in p:
         rows.append(("node", p["node"]["label"], p["node"], lambda port: ["node", str(HERE / "client.js"), f"https://localhost:{port}/", trust], False))
     if "curl" in p:
@@ -199,14 +199,15 @@ def client_cells(peers, pki, edges):
     return rows
 
 
-def client_expectation(caps, mode, offers_1024):
-    """(should the handshake succeed, should the negotiated group be post-quantum)."""
+def client_expectation(caps, mode, only_1024):
+    """(should the handshake succeed, should the negotiated group be post-quantum). `only_1024`: the client offers pure MLKEM1024 alone,
+    which only cnsa2 serves."""
     if mode == "strict":
-        ok = caps["pq"] and caps["mldsa"]
+        ok = caps["pq"] and caps["mldsa"] and not only_1024
         return ok, ok
     if mode == "transition":
-        return True, caps["pq"]
-    ok = caps["mldsa"] and offers_1024
+        return not only_1024, caps["pq"] and not only_1024
+    ok = caps["mldsa"] and only_1024
     return ok, ok
 
 
@@ -322,7 +323,7 @@ def markdown(peers, clients, servers, when):
         lines += ["", "## Not run", ""] + [f"- {name}: {why}" for name, why in sorted(peers.missing.items())]
     lines += ["", "## How to read it", "",
               "- `strict` needs a post-quantum key exchange and ML-DSA certificates: only peers on OpenSSL 3.5+ can pass. `transition` serves everyone, post-quantum where the peer can, "
-              "with a classical fallback certificate. `cnsa2` needs SecP384r1MLKEM1024 or MLKEM1024 and an ML-DSA-87 certificate, which no default client offers.",
+              "with a classical fallback certificate. `cnsa2` needs pure MLKEM1024 (the CNSA 2.0 FAQ names no TLS hybrid) and an ML-DSA-87 certificate, which no default client offers.",
               "- The group in the edge rows is read from the edge's own counters. The group in the server rows is what the Acxelin client reports for the connection.",
               "- Not covered: Chromium/BoringSSL, strongSwan and WireGuard peers (IPsec needs root and a second machine), and any peer not installed here.", ""]
     return "\n".join(lines)

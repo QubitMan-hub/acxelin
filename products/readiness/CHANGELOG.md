@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+- **Behaviour change:** CNSA 2.0 follows NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026). The dated milestones are 2027 (new acquisitions), 2030 (equipment that cannot do it phased out) and 2031 (mandatory), replacing NSA's 2022 dates of 2030 and 2033; the default `cnsa_deadline` is 2031, not 2033. For TLS only pure ML-KEM-1024 counts as CNSA 2.0, not the SecP384r1MLKEM1024 hybrid. The evidence report counts LMS and XMSS as compliant for signing firmware and software only, and no longer counts XMSS^MT as XMSS (a name prefix match).
+
 ## 1.2.0
 
 - **Behaviour change:** only folders named `test`, `tests`, `__tests__` and `spec`, matched as whole folder names, count as test code by themselves. Before, many other names and parts of names did (`benchmark`, `examples`, `fixtures`, `testing`, `testcode` through `benchmark`, `*_test.go` and more), which could lower critical findings in production code. Add your own with `test_paths` in `.acxelin-readiness.toml` or `--test-path`. Test code still only lowers priority; nothing is hidden. Precision and recall on the labelled corpus are unchanged.

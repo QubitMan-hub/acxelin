@@ -38,6 +38,6 @@ Generated 2026-10-31 22:54 UTC by `products/tls/tests/interop/matrix.py` on linu
 
 ## How to read it
 
-- `strict` needs a post-quantum key exchange and ML-DSA certificates: only peers on OpenSSL 3.5+ can pass. `transition` serves everyone, post-quantum where the peer can, with a classical fallback certificate. `cnsa2` needs SecP384r1MLKEM1024 or MLKEM1024 and an ML-DSA-87 certificate, which no default client offers.
+- `strict` needs a post-quantum key exchange and ML-DSA certificates: only peers on OpenSSL 3.5+ can pass. `transition` serves everyone, post-quantum where the peer can, with a classical fallback certificate. `cnsa2` needs pure MLKEM1024 (the CNSA 2.0 FAQ names no TLS hybrid) and an ML-DSA-87 certificate, which no default client offers.
 - The group in the edge rows is read from the edge's own counters. The group in the server rows is what the Acxelin client reports for the connection.
 - Not covered: Chromium/BoringSSL, strongSwan and WireGuard peers (IPsec needs root and a second machine), and any peer not installed here.

@@ -24,9 +24,9 @@ A connection that cannot meet your policy ends. Nothing falls back silently to a
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/tls-v1.1.0) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/tls-v1.1.1) and save them in one folder:
 
-- `acxelin-tls-1.1.0-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
+- `acxelin-tls-1.1.1-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access
 - `SHA256SUMS`: a fingerprint of every file in the release
 
 Then open a terminal in that folder. On Windows, use PowerShell.
@@ -44,24 +44,24 @@ You should see the file's name followed by `OK`.
 On macOS:
 
 ```
-shasum -a 256 acxelin-tls-1.1.0-wheelhouse.tar.gz
+shasum -a 256 acxelin-tls-1.1.1-wheelhouse.tar.gz
 ```
 
 On Windows:
 
 ```
-Get-FileHash .\acxelin-tls-1.1.0-wheelhouse.tar.gz
+Get-FileHash .\acxelin-tls-1.1.1-wheelhouse.tar.gz
 ```
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-tls-1.1.0-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-tls-1.1.1-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
 ```
-tar xzf acxelin-tls-1.1.0-wheelhouse.tar.gz
-cd acxelin-tls-1.1.0-wheelhouse
+tar xzf acxelin-tls-1.1.1-wheelhouse.tar.gz
+cd acxelin-tls-1.1.1-wheelhouse
 ```
 
 **Step 3: install.** Still in that folder:
@@ -76,7 +76,7 @@ On Windows, the first command tells Windows you trust this downloaded script, an
 The installer checks your Python, finds OpenSSL 3.5, puts `acxelin-tls` on your PATH and runs a health check. A ready machine prints:
 
 ```
-acxelin-tls 1.1.0, Python 3.11.15
+acxelin-tls 1.1.1, Python 3.11.15
 ok    cryptography 50.0.2 issues ML-DSA certificates
 ok    OpenSSL 3.5.4 30 Sep 2025 can do post-quantum TLS 1.3
 ```
@@ -88,8 +88,8 @@ To remove it, run `sh install.sh --uninstall` (or `install.ps1 -Uninstall`). You
 **With Docker instead:** each release publishes an image with OpenSSL 3.5 included. Pull it and give it a short name, which the rest of this manual uses:
 
 ```
-docker pull ghcr.io/acxelinquantum/acxelin-tls:1.1.0
-docker tag ghcr.io/acxelinquantum/acxelin-tls:1.1.0 acxelin-tls
+docker pull ghcr.io/acxelinquantum/acxelin-tls:1.1.1
+docker tag ghcr.io/acxelinquantum/acxelin-tls:1.1.1 acxelin-tls
 docker run --rm acxelin-tls doctor
 ```
 
@@ -291,7 +291,7 @@ Limits: a client that sends no server name reaches only routes without `sni`. Ch
 |---|---|
 | `strict` (default) | post-quantum key exchange and ML-DSA certificates only |
 | `transition` | also classical clients while you migrate; use it with `fallback_cert` for browsers, which cannot verify ML-DSA yet |
-| `cnsa2` | NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only |
+| `cnsa2` | NSA CNSA 2.0: pure ML-KEM-1024 (no hybrid: NSA's CNSA 2.0 FAQ names none for TLS), ML-DSA-87 and AES-256 only |
 
 ### Find out who `strict` would break, before you enforce it
 
@@ -454,7 +454,7 @@ Wireshark 4.2 does not have names for most post-quantum code points, so it shows
 | Number | Name |
 |---|---|
 | 0x11EC (4588) | X25519MLKEM768 |
-| 0x11ED (4589) | SecP384r1MLKEM1024 (what `cnsa2` chooses when the client offers it) |
+| 0x11ED (4589) | SecP384r1MLKEM1024 |
 | 0x11EB (4587) | SecP256r1MLKEM768 |
 | 0x0202 (514) | MLKEM1024 (`cnsa2`; Wireshark 4.2 shows "frodo976aes") |
 | 0x0904, 0x0905, 0x0906 | ML-DSA-44, ML-DSA-65, ML-DSA-87 signature schemes |

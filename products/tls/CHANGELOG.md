@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- **Behaviour change:** policy `cnsa2` offers and accepts pure ML-KEM-1024 (`MLKEM1024`) only, no longer `SecP384r1MLKEM1024`: NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) counts a hybrid as CNSA 2.0 only where NSA named it, and it names no TLS hybrid. A client that offers only the P-384 hybrid is refused by a `cnsa2` route, and shadow mode says so.
+
 ## 1.1.0
 
 - Found in a first-time customer test: `doctor` fails a route whose certificate its policy cannot use (cnsa2 with an ML-DSA-65 certificate passed `doctor` and then stopped the edge), and warns when a stapled OCSP answer is missing or ends within a day; `ca renew` says when the folder the certificate was issued to still holds the old one and how to renew in place; `connect` shows the stapled OCSP answer.

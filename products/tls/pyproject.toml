@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acxelin-tls"
-version = "1.1.0"
+version = "1.1.1"
 description = "Acxelin TLS: post-quantum TLS 1.3 and mTLS in front of the services you already run, with its own certificate authority"
 readme = "README.md"
 requires-python = ">=3.11"
