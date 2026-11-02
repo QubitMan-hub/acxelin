@@ -83,7 +83,7 @@ def test_a_cbom_from_any_system_becomes_rows_that_cite_locations_and_callers(tmp
     by = {r["name"]: r for r in rows}
     assert [by[n]["status"] for n in ("RSA-1024", "AES-256-GCM", "<script>alert(1)</script>")] == ["action", "ready", "plan"]
     assert "keys.py:7" in by["RSA-1024"]["detail"] and "checkout.py#enroll" in by["RSA-1024"]["detail"]
-    assert (by["AES-256-GCM"]["cnsa2"], by["RSA-1024"]["cnsa2_deadline"]) == ("compliant", 2033)
+    assert (by["AES-256-GCM"]["cnsa2"], by["RSA-1024"]["cnsa2_deadline"]) == ("compliant", 2031)
     assert "client.py:3" in by["P001 Certificate verification switched off"]["detail"]
     assert not any(r["name"].startswith("P002") for r in rows), "low-severity patterns are not compliance rows"
     assert evidence.code(tmp_path / "cbom.json")[0]["name"] == "RSA-1024"

@@ -107,12 +107,13 @@ class DowngradeTest(unittest.TestCase):
                    "transition": support_tls.client_context(self.d / "both.crt", policy_name="transition"),
                    "cnsa2": support_tls.client_context(self.cafile, policy_name="cnsa2"),
                    "classical": Context(False, CLASSICAL, None, CIPHERSUITES, ca=str(self.d / "both.crt"))}
-        pq65, pq87, weak = ("X25519MLKEM768", "ML-DSA-65"), ("SecP384r1MLKEM1024", "ML-DSA-87"), ("x25519", "ML-DSA-65")
+        pq65, pq87, weak = ("X25519MLKEM768", "ML-DSA-65"), ("MLKEM1024", "ML-DSA-87"), ("x25519", "ML-DSA-65")
         expected = {
             ("strict", "strict"): pq65, ("strict", "transition"): pq65, ("strict", "cnsa2"): REFUSED, ("strict", "classical"): REFUSED,
             ("transition", "strict"): pq65, ("transition", "transition"): ("X25519MLKEM768", None), ("transition", "cnsa2"): REFUSED,
             ("transition", "classical"): ("x25519", None),
-            ("cnsa2", "strict"): pq87, ("cnsa2", "transition"): pq87, ("cnsa2", "cnsa2"): pq87, ("cnsa2", "classical"): REFUSED,
+            ("cnsa2", "strict"): REFUSED, ("cnsa2", "transition"): REFUSED, ("cnsa2", "cnsa2"): pq87,  # only pure ML-KEM-1024 is CNSA 2.0
+             ("cnsa2", "classical"): REFUSED,
             ("classical", "strict"): REFUSED, ("classical", "transition"): weak, ("classical", "cnsa2"): REFUSED,
             ("classical", "classical"): weak,
         }
@@ -126,9 +127,10 @@ class DowngradeTest(unittest.TestCase):
 
     def test_cnsa2_client_certificates_must_be_ml_dsa_87(self):
         port = self.serve(support_tls.server_context(self.s87 / "chain.pem", self.s87 / "key.pem", self.cafile, True, "cnsa2"))
-        ok = support_tls.client_context(self.cafile, self.c87 / "chain.pem", self.c87 / "key.pem", "strict")
-        small = support_tls.client_context(self.cafile, self.c65 / "chain.pem", self.c65 / "key.pem", "strict")
-        self.assertEqual(self.attempt(port, ok), ("SecP384r1MLKEM1024", "ML-DSA-87"))
+        def client(name):  # offers what cnsa2 needs, so only the client certificate decides
+            return Context(False, "MLKEM1024", "mldsa87", "TLS_AES_256_GCM_SHA384", str(self.d / name / "chain.pem"), str(self.d / name / "key.pem"), ca=str(self.cafile))
+        ok, small = client("c87"), client("c65")
+        self.assertEqual(self.attempt(port, ok), ("MLKEM1024", "ML-DSA-87"))
         self.assertEqual(self.attempt(port, small), REFUSED)
 
     def test_certificates_only_work_in_their_own_role(self):

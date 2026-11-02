@@ -69,8 +69,10 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(len(shadow.reasons("strict", both)), 2)
 
     def test_cnsa2_wants_ml_kem_1024_ml_dsa_87_and_aes_256(self):
-        ok = shadow.parse(hello(groups=(0x11ED,), sigalgs=(0x0906,), suites=(0x1302,)))
+        ok = shadow.parse(hello(groups=(0x0202,), sigalgs=(0x0906,), suites=(0x1302,)))
         self.assertEqual(shadow.reasons("cnsa2", ok), [])
+        hybrid = shadow.parse(hello(groups=(0x11ED,), sigalgs=(0x0906,), suites=(0x1302,)))
+        self.assertEqual(len(shadow.reasons("cnsa2", hybrid)), 1)
         weaker = shadow.parse(hello(groups=(0x11EC,), sigalgs=(0x0905,), suites=(0x1301,)))
         self.assertEqual(len(shadow.reasons("cnsa2", weaker)), 3)
 

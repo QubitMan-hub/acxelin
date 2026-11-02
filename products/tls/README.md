@@ -57,7 +57,7 @@ The manual (`docs/manual.md`) covers every task, including how to watch the post
 |---|---|
 | `strict` (default) | post-quantum key exchange and ML-DSA certificates only |
 | `transition` | also classical clients while you migrate; use it with `fallback_cert` for browsers, which cannot verify ML-DSA yet |
-| `cnsa2` | NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only |
+| `cnsa2` | NSA CNSA 2.0: pure ML-KEM-1024, ML-DSA-87 and AES-256 only |
 
 ## The console
 

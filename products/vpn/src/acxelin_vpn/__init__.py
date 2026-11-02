@@ -1,12 +1,13 @@
 """Acxelin VPN: post-quantum site-to-site IPsec, and WireGuard remote access for people.
 
-Key exchange is IKEv2 with a hybrid classical + ML-KEM exchange (RFC 9370), on the initial exchange and on every rekey; the
-strict `cnsa2` profile uses ML-KEM-1024 alone, with only CNSA 2.0 algorithms everywhere.
+Key exchange is IKEv2 with a hybrid classical + ML-KEM exchange (RFC 9370), on the initial exchange and on every rekey. The
+`cnsa2-rfc9370` profile is NSA's CNSA 2.0 form for IKEv2 (P-384, then ML-KEM-1024); the older `cnsa2` uses ML-KEM-1024 alone.
 strongSwan cannot yet authenticate with ML-DSA, so authentication is anchored in ML-DSA another way: the gateways agree keys
 over post-quantum mutual TLS (ML-DSA certificates from our CA, X25519MLKEM768) and derive, from that session's exporter,
 the IKE pre-shared key and an RFC 8784 post-quantum pre-shared key (PPK). Both rotate; a revoked gateway gets no new keys.
 """
 import ipaddress
+import logging
 import re
 from dataclasses import dataclass, field
 
@@ -20,8 +21,12 @@ __version__ = "1.1.0"
 PROFILES = {
     "standard": ("aes256gcm16-prfsha384-x25519-ke1_mlkem768", "aes256gcm16-x25519-ke1_mlkem768"),
     "high": ("aes256gcm16-prfsha512-ecp384-ke1_mlkem1024", "aes256gcm16-ecp384-ke1_mlkem1024"),
-    "cnsa2": ("aes256gcm16-prfsha384-mlkem1024", "aes256gcm16-mlkem1024"),  # NSA CNSA 2.0: ML-KEM-1024, AES-256, SHA-384
+    # NSA's CNSA 2.0 profile for IKEv2 (CNSA 2.0 FAQ ver. 2.2, p. 29): a P-384 exchange, then ML-KEM-1024 (RFC 9370)
+    "cnsa2-rfc9370": ("aes256gcm16-prfsha384-ecp384-ke1_mlkem1024", "aes256gcm16-ecp384-ke1_mlkem1024"),
+    "cnsa2": ("aes256gcm16-prfsha384-mlkem1024", "aes256gcm16-mlkem1024"),  # ML-KEM-1024 alone: kept for 1.x, not NSA's IKEv2 form
 }
+CNSA2_PROFILES = {"cnsa2", "cnsa2-rfc9370"}
+log = logging.getLogger(NAME)
 
 
 @dataclass
@@ -48,8 +53,8 @@ class Peer:
             if self.fallback_psk_file or self.fallback_ppk_file:
                 raise ValueError(f"{self.name}: fallback_psk_file and fallback_ppk_file do nothing without classical_fallback = true on this peer")
             return
-        if self.profile == "cnsa2":
-            raise ValueError(f"{self.name}: classical_fallback cannot be used with profile = \"cnsa2\": CNSA 2.0 allows nothing classical")
+        if self.profile in CNSA2_PROFILES:
+            raise ValueError(f"{self.name}: classical_fallback cannot be used with profile = \"{self.profile}\": a CNSA 2.0 profile has no fallback")
         if self.keyring or self.qkd_sae_id:
             raise ValueError(f"{self.name}: classical_fallback is for a partner without Acxelin's key agreement, so it has no keyring and no qkd_sae_id")
         if not self.fallback_psk_file:
@@ -119,8 +124,12 @@ def validate(site):
     for p in site.peers:
         if p.profile not in PROFILES:
             raise ValueError(f"{p.name}: profile must be one of {', '.join(PROFILES)}")
-    if len({p.profile == "cnsa2" for p in site.peers}) > 1:
-        raise ValueError("profile = \"cnsa2\" must be set on every peer of a site or none: they share one key agreement service")
+    if len({p.profile in CNSA2_PROFILES for p in site.peers}) > 1:
+        raise ValueError("a CNSA 2.0 profile (cnsa2-rfc9370 or cnsa2) must be set on every peer of a site or none: they share one key agreement service")
+    for p in site.peers:
+        if p.profile == "cnsa2":
+            log.warning("%s: profile = \"cnsa2\" uses ML-KEM-1024 alone in IKEv2, which is not NSA's CNSA 2.0 form for IKEv2 (P-384, then "
+                        "ML-KEM-1024); use profile = \"cnsa2-rfc9370\" on both gateways of this tunnel", p.name)
     for p in site.peers:
         p.validate()
         if p.initiate and not p.keyring and not p.classical_fallback:

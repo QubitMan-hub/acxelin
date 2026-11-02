@@ -2,8 +2,9 @@
 
 NIST IR 8547 (initial public draft, November 2024): quantum-vulnerable public-key algorithms are deprecated after 2030 at 112-bit
 strength and disallowed after 2035; anything already disallowed by SP 800-131A is disallowed now.
-CNSA 2.0 (NSA, 2022): AES-256, SHA-384/512, ML-KEM-1024 and ML-DSA-87 (plus LMS/XMSS for firmware signing). The deadline is
-configurable because NSA's dates differ by product category; 2033 is the default.
+CNSA 2.0 (NSA, CNSA 2.0 FAQ ver. 2.2, October 2026): AES-256, SHA-384/512, ML-KEM-1024 and ML-DSA-87 (plus LMS and XMSS for signing
+firmware and software). Required in new acquisitions from 2027, equipment that cannot do it phased out by the end of 2030, mandatory by
+the end of 2031: the default deadline (cnsa_deadline).
 """
 from dataclasses import dataclass, asdict, field
 from datetime import date
@@ -30,8 +31,9 @@ DST = "https://dst.gov.in/quantum-safe-ecosystem-in-india"
 ROSTER = [
     ("us", ALL, 2030, "Quantum-vulnerable public-key algorithms deprecated", "NIST IR 8547 (draft)", NIST),
     ("us", ALL, 2035, "Quantum-vulnerable public-key algorithms disallowed", "NIST IR 8547 (draft)", NIST),
-    ("us", ("national-security",), 2030, "Software signing and networking equipment use CNSA 2.0 only", "NSA CNSA 2.0", NSA),
-    ("us", ("national-security",), 2033, "Browsers, servers, cloud services and operating systems use CNSA 2.0 only", "NSA CNSA 2.0", NSA),
+    ("us", ("national-security",), 2027, "CNSA 2.0 required in all new acquisitions (from 1 January)", "NSA CNSA 2.0 (CNSSP 15)", NSA),
+    ("us", ("national-security",), 2030, "Equipment and services that cannot support CNSA 2.0 phased out (by 31 December)", "NSA CNSA 2.0 (CNSSP 15)", NSA),
+    ("us", ("national-security",), 2031, "CNSA 2.0 mandatory: national security systems fully quantum-resistant (by 31 December)", "NSA CNSA 2.0 (CNSSP 15)", NSA),
     ("uk", ALL, 2028, "Discovery finished and an initial migration plan made", "NCSC migration timelines", NCSC),
     ("uk", ALL, 2031, "Highest-priority migrations finished", "NCSC migration timelines", NCSC),
     ("uk", ALL, 2035, "Migration to post-quantum cryptography complete", "NCSC migration timelines", NCSC),
@@ -112,7 +114,7 @@ def evaluate(assets, endpoints, policy, today=None):
             if a.algo == "AES" and size is None:
                 add(a, "CNSA 2.0", "AES key size not observed: CNSA 2.0 compliance unverified (it needs AES-256)")
             elif not (a.algo in CNSA or a.algo == "AES" and size == 256):
-                add(a, "CNSA 2.0", "not in the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87)", policy.get("cnsa_deadline", 2033))
+                add(a, "CNSA 2.0", "not in the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87)", policy.get("cnsa_deadline", 2031))
         if "india-dst" in profiles and (c.threat in (LEGACY, SHOR) or bits is not None and bits < 112):
             # DST National Quantum Mission task force roadmap (2026): critical information infrastructure fully post-quantum by
             # December 2029, other enterprises by 2033 (india_deadline = 2033)

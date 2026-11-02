@@ -122,7 +122,7 @@ The KMS and hardware options are built and have automated tests, but they have n
 | --- | --- | --- | --- |
 | `strict` (the default) | Quantum-safe hybrid only | ML-DSA only | Your own services and partners |
 | `transition` | Quantum-safe first; the old kinds (X25519, P-256, P-384) still accepted | Any, with an optional ordinary backup certificate | The move-over period, and public websites |
-| `cnsa2` | ML-KEM-1024 only (`SecP384r1MLKEM1024`, `MLKEM1024`) | ML-DSA-87 only, with AES-256 only | US government "CNSA 2.0" rules |
+| `cnsa2` | Pure ML-KEM-1024 only (`MLKEM1024`) | ML-DSA-87 only, with AES-256 only | US government "CNSA 2.0" rules |
 
 The scrambling after the handshake is the same in all three: AES-256-GCM, ChaCha20-Poly1305 or AES-128-GCM. Only TLS 1.3 is accepted; older versions never are.
 

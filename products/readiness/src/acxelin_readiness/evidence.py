@@ -2,7 +2,8 @@
 
 NIST IR 8547 (initial public draft, November 2024): quantum-vulnerable public-key algorithms at 112-bit security are deprecated
 after 2030 and all of them are disallowed after 2035; ML-KEM and ML-DSA are the replacements.
-CNSA 2.0 (NSA, 2022, updated 2024): ML-KEM-1024, ML-DSA-87, AES-256 and SHA-384/512, used exclusively by the category's deadline.
+CNSA 2.0 (NSA, CNSA 2.0 FAQ ver. 2.2, October 2026): ML-KEM-1024, ML-DSA-87, AES-256 and SHA-384/512, mandatory by the end of 2031;
+LMS and XMSS for signing firmware and software only (not HSS or XMSS^MT).
 """
 import datetime as dt
 import html
@@ -19,10 +20,11 @@ from cryptography import x509
 from . import __version__
 from .brand import page as _page
 
-CNSA2_DEADLINE = {"tls": 2033, "ssh": 2033, "pki": 2033, "code": 2033}
+CNSA2_DEADLINE = {"tls": 2031, "ssh": 2031, "pki": 2031, "code": 2031}
 CNSA2_CATEGORY = {"tls": "web browsers, servers and cloud services", "ssh": "operating systems and services", "pki": "certificates and signing",
                   "code": "custom applications and legacy software"}
-CNSA2_ALGORITHMS = ("ML-KEM-1024", "ML-DSA-87", "AES-256", "SHA-384", "SHA-512", "LMS", "XMSS")
+CNSA2_ALGORITHMS = ("ML-KEM-1024", "ML-DSA-87", "AES-256", "SHA-384", "SHA-512")
+CNSA2_SIGNING = ("LMS", "XMSS")  # firmware and software signing only; HSS and XMSS^MT are not allowed
 LIMIT = 64_000_000
 STATUS = {"action": "action needed", "plan": "quantum-vulnerable: plan its migration", "transition": "quantum-safe, classical fallback still allowed",
           "note": "not used for security (declared in code)", "ready": "quantum-safe"}
@@ -163,8 +165,10 @@ def code(path):
         detail = f"{project}: {props.get('acxelin:usage', 'used')} in {where or 'unknown location'}; {props.get('acxelin:exposure', 'code')}"
         detail += f"; reached from {', '.join(map(str, callers[:3]))}" if callers else ""
         detail += f"; next: {props['acxelin:recommendation']}" if props.get("acxelin:recommendation") else ""
-        cnsa = any(name.startswith(a) and not name[len(a):].startswith("/") for a in CNSA2_ALGORITHMS)  # SHA-512/224 is not SHA-512
-        out.append(_row("code", name, detail, status, nist, "compliant" if cnsa else "not a CNSA 2.0 algorithm",
+        is_ = lambda a: name.startswith(a) and not re.match(r"[A-Za-z0-9/]", name[len(a):])  # SHA-512/224 is not SHA-512, XMSSMT is not XMSS
+        cnsa = ("compliant" if any(map(is_, CNSA2_ALGORITHMS)) else "compliant for signing firmware and software only" if any(map(is_, CNSA2_SIGNING))
+                else "not a CNSA 2.0 algorithm")
+        out.append(_row("code", name, detail, status, nist, cnsa,
                         {"project": project, "tier": tier, "estimated": estimated, "locations": seen[:20], "callers": callers[:20]}))
     report = _load(findings) if findings.is_file() else {}
     for p in report.get("patterns", []) if isinstance(report, dict) else []:

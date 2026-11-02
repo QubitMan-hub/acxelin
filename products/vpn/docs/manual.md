@@ -284,7 +284,7 @@ fallback_ppk_file = "/etc/acxelin-vpn/partner.ppk"   # optional: an RFC 8784 PPK
 
 The tunnel uses the best the partner can do, in this order: hybrid ML-KEM (quantum safe), then classical with the PPK, then plain classical. Anything below hybrid is **NOT QUANTUM SAFE**, and the product says so: one warning line in the log when the tunnel reaches it, `"quantum_safe": false` and the tier in `/status`, `acxelin_vpn_tunnel_quantum_safe` 0 and `acxelin_vpn_tunnel_tier` in the metrics, the `acxelin:quantum-safe` = false property on the tunnel in the CBOM, and a red **Not quantum safe** badge in the console.
 
-What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with `profile = "cnsa2"`. Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
+What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with a CNSA 2.0 profile (`cnsa2-rfc9370` or `cnsa2`). Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
 
 ### Profiles
 
@@ -292,12 +292,15 @@ What you take on: the keys are static files, agreed with the partner out of band
 |---|---|---|
 | `standard` (default) | X25519 + ML-KEM-768 | AES-256-GCM |
 | `high` | P-384 + ML-KEM-1024 | AES-256-GCM |
-| `cnsa2` (strict, government grade) | ML-KEM-1024 only | AES-256-GCM, SHA-384 |
+| `cnsa2-rfc9370` (CNSA 2.0) | P-384, then ML-KEM-1024: NSA's CNSA 2.0 form for IKEv2 | AES-256-GCM, SHA-384 |
+| `cnsa2` (older) | ML-KEM-1024 only; kept so running sites keep their tunnels, with a warning | AES-256-GCM, SHA-384 |
 
 Set `profile` per `[[peer]]`. Both sides of a tunnel must use the same one.
 
-`cnsa2` keeps to the NSA's CNSA 2.0 suite on every layer: no classical key exchange in IKE or ESP, and the key agreement
-between gateways allows only ML-KEM-1024, ML-DSA-87 certificates and AES-256. Every peer of the site must use it (they share
+`cnsa2-rfc9370` is the form NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) gives for IKEv2 (p. 29): a P-384 exchange first, then ML-KEM-1024 (RFC 9370), because ML-KEM-1024's
+large key does not fit IKEv2's first, unencrypted message well. The key agreement between gateways allows only ML-KEM-1024, ML-DSA-87
+certificates and AES-256. The older `cnsa2` uses ML-KEM-1024 alone, which is not NSA's IKEv2 form; it still works, the gateway
+warns at start, and both gateways of a tunnel move to `cnsa2-rfc9370` together. Every peer of the site must use a CNSA 2.0 profile (they share
 one key agreement service), and both gateways need ML-DSA-87 certificates: `acxelin-vpn ca issue site NAME --algorithm ML-DSA-87`.
 A gateway with another certificate refuses to start and says why. WireGuard remote access cannot meet CNSA 2.0 (Curve25519
 and ChaCha20 are outside the suite), so a CNSA 2.0 network leaves it off.

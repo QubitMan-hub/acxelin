@@ -291,7 +291,7 @@ Limits: a client that sends no server name reaches only routes without `sni`. Ch
 |---|---|
 | `strict` (default) | post-quantum key exchange and ML-DSA certificates only |
 | `transition` | also classical clients while you migrate; use it with `fallback_cert` for browsers, which cannot verify ML-DSA yet |
-| `cnsa2` | NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only |
+| `cnsa2` | NSA CNSA 2.0: pure ML-KEM-1024 (no hybrid: NSA's CNSA 2.0 FAQ names none for TLS), ML-DSA-87 and AES-256 only |
 
 ### Find out who `strict` would break, before you enforce it
 
@@ -454,7 +454,7 @@ Wireshark 4.2 does not have names for most post-quantum code points, so it shows
 | Number | Name |
 |---|---|
 | 0x11EC (4588) | X25519MLKEM768 |
-| 0x11ED (4589) | SecP384r1MLKEM1024 (what `cnsa2` chooses when the client offers it) |
+| 0x11ED (4589) | SecP384r1MLKEM1024 |
 | 0x11EB (4587) | SecP256r1MLKEM768 |
 | 0x0202 (514) | MLKEM1024 (`cnsa2`; Wireshark 4.2 shows "frodo976aes") |
 | 0x0904, 0x0905, 0x0906 | ML-DSA-44, ML-DSA-65, ML-DSA-87 signature schemes |

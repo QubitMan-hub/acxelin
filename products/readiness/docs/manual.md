@@ -484,7 +484,7 @@ The tier follows Mosca's inequality: an asset is urgent when the years its data 
 
 ### Standards
 
-`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87). A key size that was not observed is reported as unverified, never as compliant. `--policy india-dst` follows the roadmap of
+`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87) with the dates in NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026): required in new acquisitions from 2027, equipment that cannot do it phased out by the end of 2030, mandatory by the end of 2031 (the default `cnsa_deadline`). LMS and XMSS count for signing firmware and software only; HSS and XMSS^MT do not count. For TLS, only pure ML-KEM-1024 counts: the FAQ names no TLS hybrid. A key size that was not observed is reported as unverified, never as compliant. `--policy india-dst` follows the roadmap of
 India's DST National Quantum Mission task force (2026): anything broken now is overdue, and quantum-vulnerable public-key
 cryptography is due by the end of 2029, the date for critical information infrastructure. Other enterprises have until 2033:
 set `india_deadline = 2033` under `[policy]`.

@@ -17,7 +17,7 @@ SIGALGS = {0x0401: "rsa_pkcs1_sha256", 0x0501: "rsa_pkcs1_sha384", 0x0601: "rsa_
 SUITES = {0x1301: "TLS_AES_128_GCM_SHA256", 0x1302: "TLS_AES_256_GCM_SHA384", 0x1303: "TLS_CHACHA20_POLY1305_SHA256"}
 
 STRICT_GROUPS = {"X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024"}  # policies.PQC_GROUPS
-CNSA2_GROUPS = {"SecP384r1MLKEM1024", "MLKEM1024"}
+CNSA2_GROUPS = {"MLKEM1024"}  # policies cnsa2
 ML_DSA = {"mldsa44", "mldsa65", "mldsa87"}
 
 
@@ -84,7 +84,7 @@ def reasons(policy, offered):
     """Why `policy` ("strict" or "cnsa2") would refuse a client that offered `offered` (from parse); empty when it would accept."""
     groups, sigalgs, suites = set(offered["groups"]), set(offered["sigalgs"]), set(offered["suites"])
     if policy == "cnsa2":
-        return [text for ok, text in ((groups & CNSA2_GROUPS, "no ML-KEM-1024 key exchange offered"),
+        return [text for ok, text in ((groups & CNSA2_GROUPS, "no pure ML-KEM-1024 key exchange offered (CNSA 2.0 names no TLS hybrid)"),
                                       ("mldsa87" in sigalgs, "cannot verify ML-DSA-87 certificates"),
                                       ("TLS_AES_256_GCM_SHA384" in suites, "no AES-256-GCM cipher suite offered")) if not ok]
     return [text for ok, text in ((groups & STRICT_GROUPS, "no post-quantum key exchange offered"),
