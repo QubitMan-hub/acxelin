@@ -1,0 +1,961 @@
+{
+ "protocol": "products/readiness/heldout/PROTOCOL.md",
+ "readiness_version": "1.1.1",
+ "readiness_commit": "9edd85b8590460b439122c28ec3643c9c0040411",
+ "benchmark": "OWASP Benchmark for Java v1.2",
+ "benchmark_commit": "f40c618c5a709afce350ef06ed2899c85cf586e9",
+ "layouts": [
+  "neutral",
+  "original"
+ ],
+ "rules": {
+  "strict": [
+   "critical"
+  ],
+  "broad": [
+   "critical",
+   "high"
+  ]
+ },
+ "population": {
+  "hash": 236,
+  "crypto": 246
+ },
+ "results": {
+  "neutral": {
+   "coverage": 100,
+   "files_scanned": 482,
+   "strict": {
+    "overall": {
+     "confusion": {
+      "tp": 219,
+      "fn": 40,
+      "fp": 27,
+      "tn": 196
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "recall": {
+       "value": 0.8455598455598455,
+       "ci95": [
+        0.7965303813229186,
+        0.8844881484684081
+       ],
+       "k": 219,
+       "n": 259
+      },
+      "accuracy": {
+       "value": 0.8609958506224067,
+       "ci95": [
+        0.8272466660794896,
+        0.8890361717837153
+       ],
+       "k": 415,
+       "n": 482
+      },
+      "f1": 0.8673267326732673
+     },
+     "missed": [
+      "BenchmarkTest00003",
+      "BenchmarkTest00029",
+      "BenchmarkTest00074",
+      "BenchmarkTest00143",
+      "BenchmarkTest00226",
+      "BenchmarkTest00227",
+      "BenchmarkTest00273",
+      "BenchmarkTest00274",
+      "BenchmarkTest00374",
+      "BenchmarkTest00638",
+      "BenchmarkTest00710",
+      "BenchmarkTest00796",
+      "BenchmarkTest00797",
+      "BenchmarkTest00875",
+      "BenchmarkTest00876",
+      "BenchmarkTest01041",
+      "BenchmarkTest01042",
+      "BenchmarkTest01043",
+      "BenchmarkTest01044",
+      "BenchmarkTest01124",
+      "BenchmarkTest01168",
+      "BenchmarkTest01248",
+      "BenchmarkTest01414",
+      "BenchmarkTest01415",
+      "BenchmarkTest01416",
+      "BenchmarkTest01579",
+      "BenchmarkTest01580",
+      "BenchmarkTest01654",
+      "BenchmarkTest01765",
+      "BenchmarkTest01766",
+      "BenchmarkTest01996",
+      "BenchmarkTest01997",
+      "BenchmarkTest02121",
+      "BenchmarkTest02219",
+      "BenchmarkTest02391",
+      "BenchmarkTest02392",
+      "BenchmarkTest02393",
+      "BenchmarkTest02478",
+      "BenchmarkTest02577",
+      "BenchmarkTest02677"
+     ],
+     "false_alarms": [
+      "BenchmarkTest00059",
+      "BenchmarkTest00127",
+      "BenchmarkTest00128",
+      "BenchmarkTest00129",
+      "BenchmarkTest00130",
+      "BenchmarkTest00213",
+      "BenchmarkTest00214",
+      "BenchmarkTest00357",
+      "BenchmarkTest00358",
+      "BenchmarkTest00450",
+      "BenchmarkTest00451",
+      "BenchmarkTest00524",
+      "BenchmarkTest00618",
+      "BenchmarkTest01021",
+      "BenchmarkTest01022",
+      "BenchmarkTest01108",
+      "BenchmarkTest01153",
+      "BenchmarkTest01401",
+      "BenchmarkTest01567",
+      "BenchmarkTest01901",
+      "BenchmarkTest01982",
+      "BenchmarkTest02024",
+      "BenchmarkTest02103",
+      "BenchmarkTest02296",
+      "BenchmarkTest02297",
+      "BenchmarkTest02298",
+      "BenchmarkTest02552"
+     ]
+    },
+    "crypto": {
+     "confusion": {
+      "tp": 130,
+      "fn": 0,
+      "fp": 27,
+      "tn": 89
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8280254777070064,
+       "ci95": [
+        0.761347791627353,
+        0.8790338011944048
+       ],
+       "k": 130,
+       "n": 157
+      },
+      "recall": {
+       "value": 1.0,
+       "ci95": [
+        0.9712974142568529,
+        1.0
+       ],
+       "k": 130,
+       "n": 130
+      },
+      "accuracy": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "f1": 0.9059233449477352
+     }
+    },
+    "hash": {
+     "confusion": {
+      "tp": 89,
+      "fn": 40,
+      "fp": 0,
+      "tn": 107
+     },
+     "rates": {
+      "precision": {
+       "value": 1.0,
+       "ci95": [
+        0.9586219970358116,
+        1.0
+       ],
+       "k": 89,
+       "n": 89
+      },
+      "recall": {
+       "value": 0.689922480620155,
+       "ci95": [
+        0.6055840198319886,
+        0.763276337164615
+       ],
+       "k": 89,
+       "n": 129
+      },
+      "accuracy": {
+       "value": 0.8305084745762712,
+       "ci95": [
+        0.7774372669219961,
+        0.8729920164049997
+       ],
+       "k": 196,
+       "n": 236
+      },
+      "f1": 0.8165137614678899
+     }
+    }
+   },
+   "broad": {
+    "overall": {
+     "confusion": {
+      "tp": 219,
+      "fn": 40,
+      "fp": 27,
+      "tn": 196
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "recall": {
+       "value": 0.8455598455598455,
+       "ci95": [
+        0.7965303813229186,
+        0.8844881484684081
+       ],
+       "k": 219,
+       "n": 259
+      },
+      "accuracy": {
+       "value": 0.8609958506224067,
+       "ci95": [
+        0.8272466660794896,
+        0.8890361717837153
+       ],
+       "k": 415,
+       "n": 482
+      },
+      "f1": 0.8673267326732673
+     },
+     "missed": [
+      "BenchmarkTest00003",
+      "BenchmarkTest00029",
+      "BenchmarkTest00074",
+      "BenchmarkTest00143",
+      "BenchmarkTest00226",
+      "BenchmarkTest00227",
+      "BenchmarkTest00273",
+      "BenchmarkTest00274",
+      "BenchmarkTest00374",
+      "BenchmarkTest00638",
+      "BenchmarkTest00710",
+      "BenchmarkTest00796",
+      "BenchmarkTest00797",
+      "BenchmarkTest00875",
+      "BenchmarkTest00876",
+      "BenchmarkTest01041",
+      "BenchmarkTest01042",
+      "BenchmarkTest01043",
+      "BenchmarkTest01044",
+      "BenchmarkTest01124",
+      "BenchmarkTest01168",
+      "BenchmarkTest01248",
+      "BenchmarkTest01414",
+      "BenchmarkTest01415",
+      "BenchmarkTest01416",
+      "BenchmarkTest01579",
+      "BenchmarkTest01580",
+      "BenchmarkTest01654",
+      "BenchmarkTest01765",
+      "BenchmarkTest01766",
+      "BenchmarkTest01996",
+      "BenchmarkTest01997",
+      "BenchmarkTest02121",
+      "BenchmarkTest02219",
+      "BenchmarkTest02391",
+      "BenchmarkTest02392",
+      "BenchmarkTest02393",
+      "BenchmarkTest02478",
+      "BenchmarkTest02577",
+      "BenchmarkTest02677"
+     ],
+     "false_alarms": [
+      "BenchmarkTest00059",
+      "BenchmarkTest00127",
+      "BenchmarkTest00128",
+      "BenchmarkTest00129",
+      "BenchmarkTest00130",
+      "BenchmarkTest00213",
+      "BenchmarkTest00214",
+      "BenchmarkTest00357",
+      "BenchmarkTest00358",
+      "BenchmarkTest00450",
+      "BenchmarkTest00451",
+      "BenchmarkTest00524",
+      "BenchmarkTest00618",
+      "BenchmarkTest01021",
+      "BenchmarkTest01022",
+      "BenchmarkTest01108",
+      "BenchmarkTest01153",
+      "BenchmarkTest01401",
+      "BenchmarkTest01567",
+      "BenchmarkTest01901",
+      "BenchmarkTest01982",
+      "BenchmarkTest02024",
+      "BenchmarkTest02103",
+      "BenchmarkTest02296",
+      "BenchmarkTest02297",
+      "BenchmarkTest02298",
+      "BenchmarkTest02552"
+     ]
+    },
+    "crypto": {
+     "confusion": {
+      "tp": 130,
+      "fn": 0,
+      "fp": 27,
+      "tn": 89
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8280254777070064,
+       "ci95": [
+        0.761347791627353,
+        0.8790338011944048
+       ],
+       "k": 130,
+       "n": 157
+      },
+      "recall": {
+       "value": 1.0,
+       "ci95": [
+        0.9712974142568529,
+        1.0
+       ],
+       "k": 130,
+       "n": 130
+      },
+      "accuracy": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "f1": 0.9059233449477352
+     }
+    },
+    "hash": {
+     "confusion": {
+      "tp": 89,
+      "fn": 40,
+      "fp": 0,
+      "tn": 107
+     },
+     "rates": {
+      "precision": {
+       "value": 1.0,
+       "ci95": [
+        0.9586219970358116,
+        1.0
+       ],
+       "k": 89,
+       "n": 89
+      },
+      "recall": {
+       "value": 0.689922480620155,
+       "ci95": [
+        0.6055840198319886,
+        0.763276337164615
+       ],
+       "k": 89,
+       "n": 129
+      },
+      "accuracy": {
+       "value": 0.8305084745762712,
+       "ci95": [
+        0.7774372669219961,
+        0.8729920164049997
+       ],
+       "k": 196,
+       "n": 236
+      },
+      "f1": 0.8165137614678899
+     }
+    }
+   }
+  },
+  "original": {
+   "coverage": 100,
+   "files_scanned": 482,
+   "strict": {
+    "overall": {
+     "confusion": {
+      "tp": 0,
+      "fn": 259,
+      "fp": 0,
+      "tn": 223
+     },
+     "rates": {
+      "precision": null,
+      "recall": {
+       "value": 0.0,
+       "ci95": [
+        0.0,
+        0.014615646838247825
+       ],
+       "k": 0,
+       "n": 259
+      },
+      "accuracy": {
+       "value": 0.46265560165975106,
+       "ci95": [
+        0.41861313984870135,
+        0.5072886355447604
+       ],
+       "k": 223,
+       "n": 482
+      },
+      "f1": 0.0
+     },
+     "missed": [
+      "BenchmarkTest00003",
+      "BenchmarkTest00005",
+      "BenchmarkTest00019",
+      "BenchmarkTest00020",
+      "BenchmarkTest00029",
+      "BenchmarkTest00035",
+      "BenchmarkTest00046",
+      "BenchmarkTest00050",
+      "BenchmarkTest00053",
+      "BenchmarkTest00055",
+      "BenchmarkTest00056",
+      "BenchmarkTest00057",
+      "BenchmarkTest00070",
+      "BenchmarkTest00071",
+      "BenchmarkTest00073",
+      "BenchmarkTest00074",
+      "BenchmarkTest00119",
+      "BenchmarkTest00120",
+      "BenchmarkTest00123",
+      "BenchmarkTest00124",
+      "BenchmarkTest00125",
+      "BenchmarkTest00141",
+      "BenchmarkTest00143",
+      "BenchmarkTest00208",
+      "BenchmarkTest00210",
+      "BenchmarkTest00223",
+      "BenchmarkTest00226",
+      "BenchmarkTest00227",
+      "BenchmarkTest00254",
+      "BenchmarkTest00256",
+      "BenchmarkTest00257",
+      "BenchmarkTest00258",
+      "BenchmarkTest00266",
+      "BenchmarkTest00267",
+      "BenchmarkTest00268",
+      "BenchmarkTest00269",
+      "BenchmarkTest00272",
+      "BenchmarkTest00273",
+      "BenchmarkTest00274",
+      "BenchmarkTest00346",
+      "BenchmarkTest00354",
+      "BenchmarkTest00355",
+      "BenchmarkTest00356",
+      "BenchmarkTest00371",
+      "BenchmarkTest00372",
+      "BenchmarkTest00374",
+      "BenchmarkTest00445",
+      "BenchmarkTest00446",
+      "BenchmarkTest00448",
+      "BenchmarkTest00449",
+      "BenchmarkTest00462",
+      "BenchmarkTest00464",
+      "BenchmarkTest00465",
+      "BenchmarkTest00521",
+      "BenchmarkTest00522",
+      "BenchmarkTest00531",
+      "BenchmarkTest00532",
+      "BenchmarkTest00533",
+      "BenchmarkTest00534",
+      "BenchmarkTest00536",
+      "BenchmarkTest00537",
+      "BenchmarkTest00608",
+      "BenchmarkTest00609",
+      "BenchmarkTest00610",
+      "BenchmarkTest00611",
+      "BenchmarkTest00614",
+      "BenchmarkTest00615",
+      "BenchmarkTest00616",
+      "BenchmarkTest00617",
+      "BenchmarkTest00631",
+      "BenchmarkTest00634",
+      "BenchmarkTest00635",
+      "BenchmarkTest00636",
+      "BenchmarkTest00637",
+      "BenchmarkTest00638",
+      "BenchmarkTest00684",
+      "BenchmarkTest00685",
+      "BenchmarkTest00688",
+      "BenchmarkTest00691",
+      "BenchmarkTest00692",
+      "BenchmarkTest00693",
+      "BenchmarkTest00703",
+      "BenchmarkTest00704",
+      "BenchmarkTest00705",
+      "BenchmarkTest00708",
+      "BenchmarkTest00710",
+      "BenchmarkTest00779",
+      "BenchmarkTest00781",
+      "BenchmarkTest00789",
+      "BenchmarkTest00790",
+      "BenchmarkTest00794",
+      "BenchmarkTest00796",
+      "BenchmarkTest00797",
+      "BenchmarkTest00853",
+      "BenchmarkTest00855",
+      "BenchmarkTest00856",
+      "BenchmarkTest00857",
+      "BenchmarkTest00859",
+      "BenchmarkTest00868",
+      "BenchmarkTest00869",
+      "BenchmarkTest00870",
+      "BenchmarkTest00871",
+      "BenchmarkTest00872",
+      "BenchmarkTest00875",
+      "BenchmarkTest00876",
+      "BenchmarkTest00945",
+      "BenchmarkTest00946",
+      "BenchmarkTest00961",
+      "BenchmarkTest00963",
+      "BenchmarkTest01015",
+      "BenchmarkTest01016",
+      "BenchmarkTest01017",
+      "BenchmarkTest01018",
+      "BenchmarkTest01020",
+      "BenchmarkTest01038",
+      "BenchmarkTest01041",
+      "BenchmarkTest01042",
+      "BenchmarkTest01043",
+      "BenchmarkTest01044",
+      "BenchmarkTest01099",
+      "BenchmarkTest01102",
+      "BenchmarkTest01103",
+      "BenchmarkTest01105",
+      "BenchmarkTest01106",
+      "BenchmarkTest01107",
+      "BenchmarkTest01123",
+      "BenchmarkTest01124",
+      "BenchmarkTest01148",
+      "BenchmarkTest01149",
+      "BenchmarkTest01150",
+      "BenchmarkTest01165",
+      "BenchmarkTest01166",
+      "BenchmarkTest01167",
+      "BenchmarkTest01168",
+      "BenchmarkTest01228",
+      "BenchmarkTest01229",
+      "BenchmarkTest01230",
+      "BenchmarkTest01244",
+      "BenchmarkTest01246",
+      "BenchmarkTest01247",
+      "BenchmarkTest01248",
+      "BenchmarkTest01317",
+      "BenchmarkTest01318",
+      "BenchmarkTest01320",
+      "BenchmarkTest01322",
+      "BenchmarkTest01323",
+      "BenchmarkTest01325",
+      "BenchmarkTest01333",
+      "BenchmarkTest01334",
+      "BenchmarkTest01398",
+      "BenchmarkTest01411",
+      "BenchmarkTest01414",
+      "BenchmarkTest01415",
+      "BenchmarkTest01416",
+      "BenchmarkTest01480",
+      "BenchmarkTest01483",
+      "BenchmarkTest01484",
+      "BenchmarkTest01486",
+      "BenchmarkTest01489",
+      "BenchmarkTest01503",
+      "BenchmarkTest01504",
+      "BenchmarkTest01565",
+      "BenchmarkTest01566",
+      "BenchmarkTest01577",
+      "BenchmarkTest01579",
+      "BenchmarkTest01580",
+      "BenchmarkTest01634",
+      "BenchmarkTest01637",
+      "BenchmarkTest01638",
+      "BenchmarkTest01639",
+      "BenchmarkTest01641",
+      "BenchmarkTest01649",
+      "BenchmarkTest01650",
+      "BenchmarkTest01651",
+      "BenchmarkTest01653",
+      "BenchmarkTest01654",
+      "BenchmarkTest01740",
+      "BenchmarkTest01741",
+      "BenchmarkTest01742",
+      "BenchmarkTest01757",
+      "BenchmarkTest01761",
+      "BenchmarkTest01765",
+      "BenchmarkTest01766",
+      "BenchmarkTest01822",
+      "BenchmarkTest01823",
+      "BenchmarkTest01829",
+      "BenchmarkTest01830",
+      "BenchmarkTest01844",
+      "BenchmarkTest01845",
+      "BenchmarkTest01846",
+      "BenchmarkTest01895",
+      "BenchmarkTest01897",
+      "BenchmarkTest01898",
+      "BenchmarkTest01900",
+      "BenchmarkTest01911",
+      "BenchmarkTest01978",
+      "BenchmarkTest01980",
+      "BenchmarkTest01981",
+      "BenchmarkTest01996",
+      "BenchmarkTest01997",
+      "BenchmarkTest02017",
+      "BenchmarkTest02018",
+      "BenchmarkTest02019",
+      "BenchmarkTest02020",
+      "BenchmarkTest02022",
+      "BenchmarkTest02023",
+      "BenchmarkTest02042",
+      "BenchmarkTest02101",
+      "BenchmarkTest02118",
+      "BenchmarkTest02121",
+      "BenchmarkTest02192",
+      "BenchmarkTest02193",
+      "BenchmarkTest02194",
+      "BenchmarkTest02195",
+      "BenchmarkTest02211",
+      "BenchmarkTest02212",
+      "BenchmarkTest02213",
+      "BenchmarkTest02217",
+      "BenchmarkTest02219",
+      "BenchmarkTest02290",
+      "BenchmarkTest02291",
+      "BenchmarkTest02292",
+      "BenchmarkTest02293",
+      "BenchmarkTest02294",
+      "BenchmarkTest02295",
+      "BenchmarkTest02307",
+      "BenchmarkTest02308",
+      "BenchmarkTest02311",
+      "BenchmarkTest02373",
+      "BenchmarkTest02374",
+      "BenchmarkTest02375",
+      "BenchmarkTest02385",
+      "BenchmarkTest02386",
+      "BenchmarkTest02387",
+      "BenchmarkTest02388",
+      "BenchmarkTest02391",
+      "BenchmarkTest02392",
+      "BenchmarkTest02393",
+      "BenchmarkTest02458",
+      "BenchmarkTest02474",
+      "BenchmarkTest02475",
+      "BenchmarkTest02476",
+      "BenchmarkTest02478",
+      "BenchmarkTest02548",
+      "BenchmarkTest02549",
+      "BenchmarkTest02550",
+      "BenchmarkTest02573",
+      "BenchmarkTest02574",
+      "BenchmarkTest02575",
+      "BenchmarkTest02577",
+      "BenchmarkTest02658",
+      "BenchmarkTest02660",
+      "BenchmarkTest02661",
+      "BenchmarkTest02663",
+      "BenchmarkTest02670",
+      "BenchmarkTest02671",
+      "BenchmarkTest02674",
+      "BenchmarkTest02675",
+      "BenchmarkTest02677"
+     ],
+     "false_alarms": []
+    },
+    "crypto": {
+     "confusion": {
+      "tp": 0,
+      "fn": 130,
+      "fp": 0,
+      "tn": 116
+     },
+     "rates": {
+      "precision": null,
+      "recall": {
+       "value": 0.0,
+       "ci95": [
+        0.0,
+        0.02870258574314712
+       ],
+       "k": 0,
+       "n": 130
+      },
+      "accuracy": {
+       "value": 0.4715447154471545,
+       "ci95": [
+        0.41008089979491563,
+        0.5338835961096896
+       ],
+       "k": 116,
+       "n": 246
+      },
+      "f1": 0.0
+     }
+    },
+    "hash": {
+     "confusion": {
+      "tp": 0,
+      "fn": 129,
+      "fp": 0,
+      "tn": 107
+     },
+     "rates": {
+      "precision": null,
+      "recall": {
+       "value": 0.0,
+       "ci95": [
+        0.0,
+        0.028918651988533713
+       ],
+       "k": 0,
+       "n": 129
+      },
+      "accuracy": {
+       "value": 0.4533898305084746,
+       "ci95": [
+        0.3911279107852452,
+        0.517144882591717
+       ],
+       "k": 107,
+       "n": 236
+      },
+      "f1": 0.0
+     }
+    }
+   },
+   "broad": {
+    "overall": {
+     "confusion": {
+      "tp": 219,
+      "fn": 40,
+      "fp": 27,
+      "tn": 196
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "recall": {
+       "value": 0.8455598455598455,
+       "ci95": [
+        0.7965303813229186,
+        0.8844881484684081
+       ],
+       "k": 219,
+       "n": 259
+      },
+      "accuracy": {
+       "value": 0.8609958506224067,
+       "ci95": [
+        0.8272466660794896,
+        0.8890361717837153
+       ],
+       "k": 415,
+       "n": 482
+      },
+      "f1": 0.8673267326732673
+     },
+     "missed": [
+      "BenchmarkTest00003",
+      "BenchmarkTest00029",
+      "BenchmarkTest00074",
+      "BenchmarkTest00143",
+      "BenchmarkTest00226",
+      "BenchmarkTest00227",
+      "BenchmarkTest00273",
+      "BenchmarkTest00274",
+      "BenchmarkTest00374",
+      "BenchmarkTest00638",
+      "BenchmarkTest00710",
+      "BenchmarkTest00796",
+      "BenchmarkTest00797",
+      "BenchmarkTest00875",
+      "BenchmarkTest00876",
+      "BenchmarkTest01041",
+      "BenchmarkTest01042",
+      "BenchmarkTest01043",
+      "BenchmarkTest01044",
+      "BenchmarkTest01124",
+      "BenchmarkTest01168",
+      "BenchmarkTest01248",
+      "BenchmarkTest01414",
+      "BenchmarkTest01415",
+      "BenchmarkTest01416",
+      "BenchmarkTest01579",
+      "BenchmarkTest01580",
+      "BenchmarkTest01654",
+      "BenchmarkTest01765",
+      "BenchmarkTest01766",
+      "BenchmarkTest01996",
+      "BenchmarkTest01997",
+      "BenchmarkTest02121",
+      "BenchmarkTest02219",
+      "BenchmarkTest02391",
+      "BenchmarkTest02392",
+      "BenchmarkTest02393",
+      "BenchmarkTest02478",
+      "BenchmarkTest02577",
+      "BenchmarkTest02677"
+     ],
+     "false_alarms": [
+      "BenchmarkTest00059",
+      "BenchmarkTest00127",
+      "BenchmarkTest00128",
+      "BenchmarkTest00129",
+      "BenchmarkTest00130",
+      "BenchmarkTest00213",
+      "BenchmarkTest00214",
+      "BenchmarkTest00357",
+      "BenchmarkTest00358",
+      "BenchmarkTest00450",
+      "BenchmarkTest00451",
+      "BenchmarkTest00524",
+      "BenchmarkTest00618",
+      "BenchmarkTest01021",
+      "BenchmarkTest01022",
+      "BenchmarkTest01108",
+      "BenchmarkTest01153",
+      "BenchmarkTest01401",
+      "BenchmarkTest01567",
+      "BenchmarkTest01901",
+      "BenchmarkTest01982",
+      "BenchmarkTest02024",
+      "BenchmarkTest02103",
+      "BenchmarkTest02296",
+      "BenchmarkTest02297",
+      "BenchmarkTest02298",
+      "BenchmarkTest02552"
+     ]
+    },
+    "crypto": {
+     "confusion": {
+      "tp": 130,
+      "fn": 0,
+      "fp": 27,
+      "tn": 89
+     },
+     "rates": {
+      "precision": {
+       "value": 0.8280254777070064,
+       "ci95": [
+        0.761347791627353,
+        0.8790338011944048
+       ],
+       "k": 130,
+       "n": 157
+      },
+      "recall": {
+       "value": 1.0,
+       "ci95": [
+        0.9712974142568529,
+        1.0
+       ],
+       "k": 130,
+       "n": 130
+      },
+      "accuracy": {
+       "value": 0.8902439024390244,
+       "ci95": [
+        0.845020968830276,
+        0.9234659444779961
+       ],
+       "k": 219,
+       "n": 246
+      },
+      "f1": 0.9059233449477352
+     }
+    },
+    "hash": {
+     "confusion": {
+      "tp": 89,
+      "fn": 40,
+      "fp": 0,
+      "tn": 107
+     },
+     "rates": {
+      "precision": {
+       "value": 1.0,
+       "ci95": [
+        0.9586219970358116,
+        1.0
+       ],
+       "k": 89,
+       "n": 89
+      },
+      "recall": {
+       "value": 0.689922480620155,
+       "ci95": [
+        0.6055840198319886,
+        0.763276337164615
+       ],
+       "k": 89,
+       "n": 129
+      },
+      "accuracy": {
+       "value": 0.8305084745762712,
+       "ci95": [
+        0.7774372669219961,
+        0.8729920164049997
+       ],
+       "k": 196,
+       "n": 236
+      },
+      "f1": 0.8165137614678899
+     }
+    }
+   }
+  }
+ },
+ "after_the_fact": {
+  "algorithm_source (neutral, strict)": {
+   "property": {
+    "tests": 133,
+    "errors": 67
+   },
+   "literal": {
+    "tests": 349,
+    "errors": 0
+   }
+  }
+ }
+}
