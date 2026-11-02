@@ -266,6 +266,26 @@ Limits: the enforcement is Linux only. Where `manage_interface = false` (a gatew
 
 By default only the gateway's `routes` go through the tunnel, and other internet traffic uses the normal network. With `full_tunnel = true` in the gateway's `[wireguard]`, all of the laptops' traffic goes through the gateway, which forwards it with NAT, and laptops get a kill switch. The kill switch blocks traffic outside the tunnel while protection is down: on Linux and macOS it stays in place while the app reconnects, while on Windows the block follows the tunnel and can lift for a moment while the tunnel is recreated.
 
+### A partner gateway that cannot do hybrid ML-KEM
+
+Every peer does hybrid ML-KEM by default and a peer that cannot is refused. For a partner's gateway that is not Acxelin VPN and cannot do it yet, you can allow a classical fallback **for that one peer**. There is no site-wide switch.
+
+```
+[[peer]]
+name = "partner-gw.example.com"
+address = "203.0.113.50"
+local_subnets = ["10.1.0.0/16"]
+remote_subnets = ["10.50.0.0/16"]
+initiate = true
+classical_fallback = true
+fallback_psk_file = "/etc/acxelin-vpn/partner.psk"   # agreed with the partner; owner-only; 32+ bytes
+fallback_ppk_file = "/etc/acxelin-vpn/partner.ppk"   # optional: an RFC 8784 PPK, if the partner supports it
+```
+
+The tunnel uses the best the partner can do, in this order: hybrid ML-KEM (quantum safe), then classical with the PPK, then plain classical. Anything below hybrid is **NOT QUANTUM SAFE**, and the product says so: one warning line in the log when the tunnel reaches it, `"quantum_safe": false` and the tier in `/status`, `acxelin_vpn_tunnel_quantum_safe` 0 and `acxelin_vpn_tunnel_tier` in the metrics, the `acxelin:quantum-safe` = false property on the tunnel in the CBOM, and a red **Not quantum safe** badge in the console.
+
+What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with `profile = "cnsa2"`. Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
+
 ### Profiles
 
 | Profile | IKE key exchange | Encryption |
@@ -466,6 +486,7 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 
 ## 12. Limits
 
+- A peer with `classical_fallback` may run a classical tunnel, which is NOT QUANTUM SAFE; the site is quantum safe only for the peers that negotiated hybrid ML-KEM.
 - WireGuard's handshake is classical; the post-quantum part is the pre-shared key (see Questions).
 - IKE does not sign with ML-DSA certificates: strongSwan 6.1 cannot load them (checked with `deploy/mldsa_ike_check.py`). IKE authenticates with a PSK, and mixes in a PPK, both derived from ML-DSA mutual TLS between the gateways.
 - Phones are not supported.

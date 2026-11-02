@@ -13,7 +13,8 @@ from acxelin_core.server import Revocation
 
 from . import agreement, qkd
 from .agreement import TAG, common_name, read_line
-from .charon import Charon, CharonError, conn_config, ppk_pattern, protected
+from . import read_secret
+from .charon import Charon, CharonError, conn_config, ppk_pattern, protected, tier
 from .grace import Grace, crl_verdict
 from .policies import policy_for
 
@@ -36,6 +37,7 @@ class Controller:
         self.revocation = Revocation(site.crl, site.ca) if site.crl else None
         self.server = None
         self.started = time.time()
+        self.tiers = {}  # the last tier logged per peer, so NOT QUANTUM SAFE is said once per change, not every pass
         s = site
         self.kme = qkd.KME(s.qkd_kme, s.qkd_sae_id, s.qkd_ca, s.qkd_cert, s.qkd_key, self.passphrase) if s.qkd_kme else None
 
@@ -58,6 +60,46 @@ class Controller:
         self.counts["key_agreements"] += 1
         self.grace.end(peer.name, "it agreed new keys")
         log.info("%s: new keys %s (PSK + PPK from ML-DSA mutual TLS)", peer.name, tag)
+
+    def load_fallback(self, peer):
+        """A partner without Acxelin's key agreement: static keys from its files, hybrid first, classical after."""
+        psk = read_secret(peer.fallback_psk_file, f"{peer.name}: fallback_psk_file")
+        ppk = read_secret(peer.fallback_ppk_file, f"{peer.name}: fallback_ppk_file") if peer.fallback_ppk_file else None
+        conf = conn_config(self.site, peer)
+        with self.lock:
+            self.charon.load_static(self.site.name, peer.name, psk, ppk, conf[peer.name].get("ppk_id"))
+            self.charon.load_conn(conf)
+        log.warning("%s: classical_fallback is on: hybrid ML-KEM is offered first; if the partner cannot do it, the tunnel is classical "
+                    "(with its PPK when the partner supports RFC 8784) and NOT QUANTUM SAFE", peer.name)
+
+    def fallback_loop(self, peer):
+        """Bring the partner's tunnel up and keep it up; there are no keys to agree, so nothing rotates here."""
+        while not self.stop.is_set():
+            try:
+                if not tier(self.tunnel(peer.name)):
+                    with self.lock:
+                        self.charon.initiate(peer.name)
+                    self.counts["connects"] += 1
+            except (CharonError, OSError) as e:
+                self.counts["failures"] += 1
+                log.warning("%s: %s; retrying in 30s", peer.name, explain(e))
+            self.stop.wait(30)
+
+    def report_tiers(self):
+        """One warning each time a fallback peer's tunnel reaches a tier below hybrid, and one line when it returns to hybrid."""
+        tunnels = {t["peer"]: t for t in self.charon.tunnels()}
+        for p in self.site.peers:
+            if not p.classical_fallback:
+                continue
+            now = tier(tunnels.get(p.name))
+            if now == self.tiers.get(p.name):
+                continue
+            self.tiers[p.name] = now
+            if now in ("classical", "classical+ppk"):
+                log.warning("NOT QUANTUM SAFE: the tunnel to %s uses classical IKEv2%s; traffic recorded now could be read by a future "
+                            "quantum computer", p.name, " with an RFC 8784 PPK" if now == "classical+ppk" else " without a PPK")
+            elif now == "hybrid":
+                log.info("%s: the tunnel uses hybrid ML-KEM (quantum safe)", p.name)
 
     def agree(self, peer):
         """Initiator side: connect to the peer's keyring, prove who we are, derive the keys, wait for the peer to confirm."""
@@ -156,6 +198,8 @@ class Controller:
         example a revoked peer, or tunnels left from before a controller restart) the tunnel is closed. With outage_grace_minutes
         a peer is kept up to that much longer, but only while the CRL is usable and does not list it."""
         for p in self.site.peers:
+            if p.classical_fallback:
+                continue  # static keys: there are no key agreements to be fresh
             age, limit, cap = time.time() - self.last_agreed.get(p.name, self.started), self.limit(p), p.outage_grace_minutes * 60
             if age <= limit:
                 continue
@@ -201,18 +245,22 @@ class Controller:
         if not self.charon.ml_kem():
             raise CharonError("this strongSwan has no ML-KEM; build 6.0.2+ with the openssl (OpenSSL 3.5+) or ml plugin")
         for p in s.peers:
-            if not p.initiate:
+            if p.classical_fallback:
+                self.load_fallback(p)
+            elif not p.initiate:
                 self.charon.load_conn(conn_config(s, p))
         if s.keyring_listen:
             self.server = agreement.keyring(s.keyring_listen, s.cert, s.key, s.ca, self.respond, s.crl, self.passphrase, policy=policy_for(s))
         for p in s.peers:
             if p.initiate:
-                threading.Thread(target=self.initiator_loop, args=(p,), daemon=True, name=p.name).start()
+                loop = self.fallback_loop if p.classical_fallback else self.initiator_loop
+                threading.Thread(target=loop, args=(p,), daemon=True, name=p.name).start()
 
         def watch():
             while not self.stop.wait(15):
                 try:
                     self.enforce()
+                    self.report_tiers()
                 except (CharonError, OSError) as e:
                     log.error("revocation check failed: %s", e)
         threading.Thread(target=watch, daemon=True, name="revocations").start()
@@ -228,20 +276,31 @@ class Controller:
         tunnels = {t["peer"]: t for t in self.charon.tunnels()}
         return {p.name: {"initiate": p.initiate, "profile": p.profile, "keys_age_s": int(time.time() - self.last_agreed[p.name])
                          if p.name in self.last_agreed else None, "certificate": format(self.serials[p.name][0], "x") if p.name in self.serials else None,
-                         "tunnel": tunnels.get(p.name), **self.grace_state(p)} for p in self.site.peers} | {
+                         "tunnel": tunnels.get(p.name), **self.grace_state(p), **self.safety(p, tunnels.get(p.name))} for p in self.site.peers} | {
             "_events": dict(self.counts)}
+
+    def safety(self, p, t):
+        """Whether the tunnel is quantum safe, in words a person reads: only hybrid ML-KEM is."""
+        reached = tier(t) if p.classical_fallback else ("hybrid" if protected(t) else tier(t))
+        return {"classical_fallback": p.classical_fallback, "tier": reached, "quantum_safe": None if reached is None else reached == "hybrid",
+                **({"label": "NOT QUANTUM SAFE"} if reached in ("classical", "classical+ppk") else {})}
 
     def grace_state(self, p):
         return self.grace.state(p.name, time.time() - self.last_agreed.get(p.name, self.started), self.limit(p), p.outage_grace_minutes * 60)
 
     def metrics(self):
         lines = ["# TYPE acxelin_vpn_tunnel_up gauge", "# TYPE acxelin_vpn_bytes_total counter", "# TYPE acxelin_vpn_events_total counter",
-                 "# TYPE acxelin_vpn_tunnel_in_grace gauge", "# TYPE acxelin_vpn_tunnel_grace_remaining_seconds gauge"]
+                 "# TYPE acxelin_vpn_tunnel_in_grace gauge", "# TYPE acxelin_vpn_tunnel_grace_remaining_seconds gauge",
+                 "# TYPE acxelin_vpn_tunnel_quantum_safe gauge", "# TYPE acxelin_vpn_tunnel_tier gauge"]
         tunnels = {t["peer"]: t for t in self.charon.tunnels()}
         for p in self.site.peers:
             t = tunnels.get(p.name)
             up = int(protected(t))
             lines.append(f'acxelin_vpn_tunnel_up{{peer="{p.name}"}} {up}')
+            safe = self.safety(p, t)
+            if safe["tier"]:
+                lines.append(f'acxelin_vpn_tunnel_quantum_safe{{peer="{p.name}"}} {int(safe["quantum_safe"])}')
+                lines.append(f'acxelin_vpn_tunnel_tier{{peer="{p.name}",tier="{safe["tier"]}"}} 1')
             g = self.grace_state(p)
             lines.append(f'acxelin_vpn_tunnel_in_grace{{peer="{p.name}"}} {int(g["in_grace"])}')
             if g["in_grace"]:

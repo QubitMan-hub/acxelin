@@ -62,13 +62,30 @@ def protected(tunnel):
                 and any(c.get('state') == 'INSTALLED' for c in tunnel.get('children', [])))
 
 
+# What a classical_fallback peer offers after hybrid ML-KEM: common IKEv2 suites of other vendors' gateways. NOT QUANTUM SAFE.
+CLASSICAL = {"ike": "aes256gcm16-prfsha384-x25519-ecp384", "esp": "aes256gcm16-x25519-ecp384"}
+
+
+def tier(tunnel):
+    """What an established tunnel reached: "hybrid" (ML-KEM in the key exchange), "classical+ppk" (classical with an RFC 8784 PPK)
+    or "classical". Only hybrid is quantum safe."""
+    if not tunnel or tunnel.get("state") != "ESTABLISHED":
+        return None
+    if "ML_KEM" in str(tunnel.get("key_exchange", "")):
+        return "hybrid"
+    return "classical+ppk" if tunnel.get("ppk") else "classical"
+
+
 def ppk_pattern(site, peer):
     a, b = sorted((site, peer))
     return f"{a}.{b}.ppk.pqcsuite"
 
 
 def conn_config(site, peer, ppk_id=None):
-    """The VICI load-conn message for one peer. PSK authentication, PPK required, hybrid ML-KEM on IKE and every rekey."""
+    """The VICI load-conn message for one peer. PSK authentication, PPK required, hybrid ML-KEM on IKE and every rekey. A
+    classical_fallback peer also offers classical proposals after the hybrid one, and uses its static PPK only if the partner can."""
+    if getattr(peer, "classical_fallback", False):
+        return fallback_config(site, peer)
     ike, esp = PROFILES[peer.profile]
     return {peer.name: {
         "version": 2, "local_addrs": [site.address], "remote_addrs": [peer.address], "proposals": [ike],
@@ -80,6 +97,20 @@ def conn_config(site, peer, ppk_id=None):
                              "rekey_time": "3600", "dpd_action": "restart" if peer.initiate else "clear",
                              "start_action": "none", "close_action": "none"}},
     }}
+
+
+def fallback_config(site, peer):
+    ike, esp = PROFILES[peer.profile]
+    conf = {
+        "version": 2, "local_addrs": [site.address], "remote_addrs": [peer.address], "proposals": [ike, CLASSICAL["ike"]],
+        "rekey_time": "14400", "reauth_time": "0", "dpd_delay": "30", "unique": "replace", "mobike": "no",
+        "local": {"auth": "psk", "id": site.name}, "remote": {"auth": "psk", "id": peer.name},
+        "children": {"net": {"local_ts": peer.local_subnets, "remote_ts": peer.remote_subnets, "esp_proposals": [esp, CLASSICAL["esp"]],
+                             "rekey_time": "3600", "dpd_action": "restart" if peer.initiate else "clear", "start_action": "none", "close_action": "none"}},
+    }
+    if peer.fallback_ppk_file:
+        conf |= {"ppk_id": f"static.{ppk_pattern(site.name, peer.name)}", "ppk_required": "no"}
+    return {peer.name: conf}
 
 
 class Charon:
@@ -127,6 +158,12 @@ class Charon:
     def load_keys(self, site, peer, psk, ppk, ppk_id, key_tag):
         self._call("load_shared", {"id": f"psk-{peer}", "type": "IKE", "data": psk, "owners": [site, peer]})
         self._call("load_shared", {"id": f"ppk-{peer}-{key_tag}", "type": "PPK", "data": ppk, "owners": [ppk_id]})
+
+    def load_static(self, site, peer, psk, ppk, ppk_id):
+        """A classical_fallback partner's keys from its files: no rotation, since the partner cannot take part in key agreement."""
+        self._call("load_shared", {"id": f"psk-{peer}", "type": "IKE", "data": psk, "owners": [site, peer]})
+        if ppk:
+            self._call("load_shared", {"id": f"ppk-{peer}-static", "type": "PPK", "data": ppk, "owners": [ppk_id]})
 
     def unload_key(self, key_id):
         self._call("unload_shared", {"id": key_id})

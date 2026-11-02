@@ -194,6 +194,7 @@ class VPNConsole:
                                 "protected": bool(t and t.get("state") == "ESTABLISHED" and t.get("ppk") and "ML_KEM" in t.get("key_exchange", "")
                                                   and any(c.get("state") == "INSTALLED" for c in children)),
                                 "key_exchange": t.get("key_exchange"), "encryption": t.get("encryption"), "ppk": t.get("ppk"),
+                                "classical_fallback": p.get("classical_fallback", False), "tier": p.get("tier"), "quantum_safe": p.get("quantum_safe"),
                                 "last_rotation_s": p.get("keys_age_s"), "up_s": t.get("established_s"),
                                 "bytes_in": sum(c.get("bytes_in", 0) for c in children), "bytes_out": sum(c.get("bytes_out", 0) for c in children),
                                 "certificate": self._certificate(records, p.get("certificate"))})

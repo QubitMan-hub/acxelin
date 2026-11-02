@@ -1,6 +1,6 @@
-# Proposal: an opt-in, per-peer classical fallback for IKEv2 peers without RFC 9370
+# An opt-in, per-peer classical fallback for IKEv2 peers without RFC 9370
 
-Status: design only, for the owner's decision. Nothing here is implemented, and no number in it comes from a measurement.
+Status: built on the owner's decision, which differs from this proposal: per peer and off by default as proposed; the order is hybrid ML-KEM, then classical with an RFC 8784 PPK, then plain classical (so the middle tier of open question 2 is in); "NOT QUANTUM SAFE" in console, logs, metrics and CBOM. Not built: the end date, PQ pinning, `forget-pq` and the would-be-refused report. Tests: `test_classical_fallback.py`, run against a stand-in for strongSwan, not another vendor's gateway. The text below is the proposal as written.
 
 ## The problem
 

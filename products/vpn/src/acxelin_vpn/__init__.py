@@ -36,6 +36,28 @@ class Peer:
     rotate_minutes: float = 60.0
     outage_grace_minutes: float = 0.0  # keep a silent peer on its last keys this long past the normal limit, while the CRL clears it
     qkd_sae_id: str = ""  # the peer's SAE ID on the QKD network: its keys get a QKD key mixed in
+    # A partner gateway without Acxelin's key agreement (another vendor's IKEv2). Off unless set on this one peer; there is no site-wide
+    # switch. It offers hybrid ML-KEM first, then classical with the RFC 8784 PPK in fallback_ppk_file, then plain classical:
+    # anything below hybrid is NOT QUANTUM SAFE and is labelled so in logs, status, metrics, the CBOM and the console.
+    classical_fallback: bool = False
+    fallback_psk_file: str = ""  # the static IKE pre-shared key agreed with the partner out of band (owner-only, 32+ bytes)
+    fallback_ppk_file: str = ""  # optional static RFC 8784 PPK, for partners that support it (owner-only, 32+ bytes)
+
+    def validate(self):
+        if not self.classical_fallback:
+            if self.fallback_psk_file or self.fallback_ppk_file:
+                raise ValueError(f"{self.name}: fallback_psk_file and fallback_ppk_file do nothing without classical_fallback = true on this peer")
+            return
+        if self.profile == "cnsa2":
+            raise ValueError(f"{self.name}: classical_fallback cannot be used with profile = \"cnsa2\": CNSA 2.0 allows nothing classical")
+        if self.keyring or self.qkd_sae_id:
+            raise ValueError(f"{self.name}: classical_fallback is for a partner without Acxelin's key agreement, so it has no keyring and no qkd_sae_id")
+        if not self.fallback_psk_file:
+            raise ValueError(f"{self.name}: classical_fallback needs fallback_psk_file, the pre-shared key agreed with the partner")
+        for what in ("fallback_psk_file", "fallback_ppk_file"):
+            path = getattr(self, what)
+            if path:
+                read_secret(path, f"{self.name}: {what}")
 
 
 @dataclass
@@ -63,6 +85,21 @@ class Site:
         return next((p for p in self.peers if p.name == name), None)
 
 
+def read_secret(path, where):
+    """A static key from an owner-only file, at least 32 bytes after trimming whitespace."""
+    import os
+    import stat
+    try:
+        st, data = os.stat(path), open(path, "rb").read().strip()
+    except OSError as e:
+        raise ValueError(f"{where}: cannot read {path} ({e.strerror or e})") from None
+    if os.name != "nt" and st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise ValueError(f"{where}: {path} must be readable only by its owner (chmod 600)")
+    if len(data) < 32:
+        raise ValueError(f"{where}: {path} must hold at least 32 bytes of key")
+    return data
+
+
 def load_config(path):
     doc = read_toml(path)
     if "site" not in doc:
@@ -84,7 +121,8 @@ def validate(site):
     if len({p.profile == "cnsa2" for p in site.peers}) > 1:
         raise ValueError("profile = \"cnsa2\" must be set on every peer of a site or none: they share one key agreement service")
     for p in site.peers:
-        if p.initiate and not p.keyring:
+        p.validate()
+        if p.initiate and not p.keyring and not p.classical_fallback:
             raise ValueError(f"{p.name}: initiate = true needs keyring = \"host:port\" (the peer's key agreement service)")
         if p.rotate_minutes < 1:
             raise ValueError(f"{p.name}: rotate_minutes must be at least 1")
@@ -103,5 +141,5 @@ def validate(site):
         raise ValueError("crl_url needs crl = \"PATH\", where the copy is kept")
     if site.crl_every < 5:
         raise ValueError("crl_every must be at least 5 seconds")
-    if any(not p.initiate for p in site.peers) and not site.keyring_listen:
+    if any(not p.initiate and not p.classical_fallback for p in site.peers) and not site.keyring_listen:
         raise ValueError("peers that initiate towards this site need keyring_listen = \"0.0.0.0:7443\"")

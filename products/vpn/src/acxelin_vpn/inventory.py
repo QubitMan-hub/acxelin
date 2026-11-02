@@ -16,6 +16,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from . import PROFILES, NAME, __version__, load_config
+from .charon import CLASSICAL
 from .controller import LABEL as IPSEC_LABEL
 from .policies import CNSA2, POLICY, policy_for
 from .wireguard import LABEL as WG_LABEL, load_gateway
@@ -150,22 +151,36 @@ class Inventory:
         self.private_key(site.name, site.key, site.cert)
         everything = set()
         for p in site.peers:
+            fallback = p.classical_fallback
             ike, esp = (proposal.split("-") for proposal in PROFILES[p.profile])
+            if fallback:  # the classical proposals it may fall back to are listed as they are, so Readiness grades them as classical
+                ike = ike + [t for t in CLASSICAL["ike"].split("-") if t not in ike]
+                esp = esp + [t for t in CLASSICAL["esp"].split("-") if t not in esp]
             ike_refs = {k: [self.algorithm(PROPOSAL[t]) for t in ike if t.startswith(prefix)] for k, prefix in
                         (("encr", "aes"), ("prf", "prf"), ("ke", ("x25519", "ecp", "ke1_", "mlkem")))}
             esp_refs = [self.algorithm(PROPOSAL[t]) for t in esp]
             everything |= set(ike) | set(esp)
             pair = f"{site.name} to {p.name}"
-            psk = self.material(f"ike-psk/{site.name}/{p.name}", f"IKE PSK {pair}", "secret-key", size=256, derived=f"TLS exporter {IPSEC_LABEL}",
-                                rotation=f"every {p.rotate_minutes:g} minutes", stored="no: held in strongSwan's memory only")
-            ppk = self.material(f"ppk/{site.name}/{p.name}", f"PPK {pair}", "secret-key", size=256, derived=f"TLS exporter {IPSEC_LABEL}",
-                                standard="RFC 8784 post-quantum preshared key", rotation=f"every {p.rotate_minutes:g} minutes",
-                                stored="no: held in strongSwan's memory only")
+            if fallback:
+                psk = self.material(f"ike-psk/{site.name}/{p.name}", f"IKE PSK {pair}", "secret-key", derived="agreed with the partner out of band",
+                                    rotation="none: a static key in a file", stored=Path(p.fallback_psk_file).as_posix())
+                ppk = self.material(f"ppk/{site.name}/{p.name}", f"PPK {pair}", "secret-key", standard="RFC 8784 post-quantum preshared key",
+                                    derived="agreed with the partner out of band", rotation="none: a static key in a file",
+                                    stored=Path(p.fallback_ppk_file).as_posix()) if p.fallback_ppk_file else None
+            else:
+                psk = self.material(f"ike-psk/{site.name}/{p.name}", f"IKE PSK {pair}", "secret-key", size=256, derived=f"TLS exporter {IPSEC_LABEL}",
+                                    rotation=f"every {p.rotate_minutes:g} minutes", stored="no: held in strongSwan's memory only")
+                ppk = self.material(f"ppk/{site.name}/{p.name}", f"PPK {pair}", "secret-key", size=256, derived=f"TLS exporter {IPSEC_LABEL}",
+                                    standard="RFC 8784 post-quantum preshared key", rotation=f"every {p.rotate_minutes:g} minutes",
+                                    stored="no: held in strongSwan's memory only")
             self.protocol(f"tunnel/{site.name}/{p.name}", f"tunnel {pair}",
                           {"type": "ike", "version": "2", "ikev2TransformTypes": ike_refs | {"auth": [psk]},
-                           "cipherSuites": [{"name": PROFILES[p.profile][1], "algorithms": esp_refs}], "cryptoRefArray": [tls, psk, ppk]},
+                           "cipherSuites": [{"name": PROFILES[p.profile][1] + (f" or {CLASSICAL['esp']}" if fallback else ""), "algorithms": esp_refs}],
+                           "cryptoRefArray": [r for r in ([psk, ppk] if fallback else [tls, psk, ppk]) if r]},
                           profile=p.profile, peer_address=p.address, local_subnets=" ".join(p.local_subnets),
-                          remote_subnets=" ".join(p.remote_subnets), initiates="yes" if p.initiate else "no", config=Path(path).as_posix())
+                          remote_subnets=" ".join(p.remote_subnets), initiates="yes" if p.initiate else "no", config=Path(path).as_posix(),
+                          **({"classical_fallback": "yes", "quantum_safe": "false", "label": "NOT QUANTUM SAFE",
+                              "fallback_order": "hybrid ML-KEM, then classical with an RFC 8784 PPK, then plain classical"} if fallback else {}))
         self.protocol("IKEv2", "IKEv2", {"type": "ike", "version": "2", "cryptoRefArray": sorted(self.algorithm(PROPOSAL[t]) for t in everything)},
                       use="hybrid key exchange (RFC 9370) on the initial exchange and every rekey")
         self.protocol("IPsec-ESP", "IPsec ESP", {"type": "ipsec", "cryptoRefArray": sorted(self.algorithm(PROPOSAL[t]) for t in everything

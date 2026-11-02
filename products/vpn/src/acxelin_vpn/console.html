@@ -103,8 +103,11 @@ async function paintSites() {
   if (!d.sites.length) return out.replaceChildren(h("p", {class: "empty"}, "No sites added yet. Each site's tunnels, algorithms, key rotation and peer certificates appear here."));
   out.replaceChildren(...d.sites.map((s) => h("section", {class: "tunnel"}, h("div", {class: "row", style: "justify-content:space-between"}, h("h3", {}, s.name), removeButton(s.name, paintSites)),
     s.error ? h("p", {class: "bad"}, s.error) : s.tunnels.length ? h("div", {}, ...s.tunnels.map((t) => h("div", {style: "margin:10px 0 16px"},
-      h("p", {style: "margin:0 0 6px"}, h("strong", {}, t.peer), " ", t.protected ? pill("ok", "Protected") : pill("bad", t.state === "no tunnel" ? "No tunnel" : "Not protected")),
-      kv([["Key exchange", t.key_exchange], ["Encryption", t.encryption], ["Post-quantum PPK", t.ppk == null ? null : t.ppk ? "yes" : "no"],
+      h("p", {style: "margin:0 0 6px"}, h("strong", {}, t.peer), " ", t.quantum_safe === false ? pill("bad", "Not quantum safe")
+        : t.protected ? pill("ok", "Protected") : pill("bad", t.state === "no tunnel" ? "No tunnel" : "Not protected")),
+      t.quantum_safe === false ? h("p", {class: "bad", style: "margin:0 0 6px"}, "Classical fallback" + (t.tier === "classical+ppk" ? " with an RFC 8784 PPK" : ", no PPK") +
+        ": this partner could not do hybrid ML-KEM. Traffic recorded now could be read by a future quantum computer.") : "",
+      kv([["Key exchange", t.key_exchange], ["Encryption", t.encryption], ["Post-quantum PPK", t.ppk == null ? null : t.ppk ? "yes" : "no"], ["Classical fallback", t.classical_fallback ? "allowed for this peer" : null],
           ["Last key rotation", ago(t.last_rotation_s)], ["Traffic", t.protected ? t.bytes_in + " B in, " + t.bytes_out + " B out" : null],
           ["Peer certificate", t.certificate ? t.certificate.common_name + " · " + t.certificate.status + " · until " + day(t.certificate.not_after) : "not seen yet"]]))))
       : h("p", {class: "empty"}, "This site reports no peers."))));
