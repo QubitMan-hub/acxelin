@@ -85,7 +85,7 @@ class TunnelTest(unittest.TestCase):
         t.up("[Interface]\n")
         conf = str(self.dir / "wg0.conf")
         self.assertEqual(self.run.commands(), [["icacls", conf, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"],
-                                               ["wireguard", "/installtunnelservice", conf], ["wg", "show", "wg0"]])
+                                               ["wireguard", "/installtunnelservice", conf], ["wg", "show", "wg0", "peers"]])
         t.down()
         self.assertEqual(self.run.commands()[-1], ["wireguard", "/uninstalltunnelservice", "wg0"])
 
@@ -356,6 +356,21 @@ class ToolFailureTest(unittest.TestCase):
                 WindowsTunnel("wg0", self.dir, run).up("[Interface]\n")
         sleep.assert_called_once_with(0.5)
         self.assertEqual([c[0] for c in run.commands()], ["icacls", "wireguard", "wg", "wg"])
+
+    def test_windows_waits_until_the_service_has_loaded_the_peers(self):
+        """The tunnel service answers `wg show` before it has applied the configuration; a key set then would hit an empty tunnel."""
+        answers = iter(["", "", "PEER=\n"])
+
+        class Slow(Recorder):
+            def __call__(self, cmd, secret=None, env=None):
+                super().__call__(cmd, secret, env)
+                return next(answers) if Path(cmd[0]).stem == "wg" else ""
+
+        run = Slow()
+        with mock.patch.object(platforms.time, "sleep") as sleep:
+            WindowsTunnel("wg0", self.dir, run).up("[Interface]\nPrivateKey = x\n[Peer]\nPublicKey = PEER=\n")
+        self.assertEqual([c for c in run.commands() if c[0] == "wg"], [["wg", "show", "wg0", "peers"]] * 3)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_windows_leaves_the_kill_switch_to_wireguard(self):
         run = Recorder()

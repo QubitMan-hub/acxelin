@@ -170,15 +170,17 @@ class WindowsTunnel(Tunnel):
         write(self.config, text.encode(), secret=True)
         self.runner(["icacls", str(self.config), "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"])
         self.runner([find("wireguard"), "/installtunnelservice", str(self.config)])
-        deadline = time.monotonic() + 20
-        while True:
+        peers, deadline = text.count("[Peer]"), time.monotonic() + 20
+        while True:  # the service answers before it has applied the configuration; wait until its peers are there
             try:
-                self.wg().run("show", self.name)
-                break
+                if len(self.wg().run("show", self.name, "peers").split()) >= peers:
+                    break
+                if time.monotonic() > deadline:
+                    raise WGError(f"WireGuard for Windows did not load the {self.name} tunnel's configuration within 20 seconds")
             except WGError:
                 if time.monotonic() > deadline:
                     raise
-                time.sleep(0.5)
+            time.sleep(0.5)
         self.up_ = True
 
     def down(self):
