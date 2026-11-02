@@ -86,7 +86,8 @@ class Site:
 
 
 def read_secret(path, where):
-    """A static key from an owner-only file, at least 32 bytes after trimming whitespace."""
+    """A static key from an owner-only file, at least 32 bytes after trimming whitespace. The owner-only rule is read from POSIX
+    permissions, on the Linux gateways where site-to-site tunnels run; Windows ACLs are not read (as for TLS key files)."""
     import os
     import stat
     try:

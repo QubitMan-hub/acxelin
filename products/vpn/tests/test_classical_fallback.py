@@ -22,6 +22,11 @@ def secret(tmp_path, name, size=48, mode=0o600):
     return str(p)
 
 
+def posix(path):
+    """A path as TOML takes it on every system: in a double-quoted TOML string a Windows backslash starts an escape."""
+    return __import__("pathlib").Path(path).as_posix()
+
+
 def strict(name="branch.acme"):
     return Peer(name, "10.0.0.2", ["10.1.0.0/16"], ["10.2.0.0/16"])
 
@@ -67,12 +72,12 @@ def write(tmp_path, peer_extra, site_extra=""):
 def test_secrets_without_the_switch_do_not_turn_it_on(tmp_path):
     psk = secret(tmp_path, "p.psk")
     with pytest.raises(ValueError, match="classical_fallback = true"):
-        load_config(write(tmp_path, f'fallback_psk_file = "{psk}"\n'))
+        load_config(write(tmp_path, f'fallback_psk_file = "{posix(psk)}"\n'))
     with pytest.raises(ValueError, match="unknown settings classical_fallback"):
         load_config(write(tmp_path, "", "classical_fallback = true\n"))  # there is no site-wide switch
     with pytest.raises(ValueError):
-        load_config(write(tmp_path, f'classical_fallback = "yes"\nfallback_psk_file = "{psk}"\n'))
-    assert load_config(write(tmp_path, f'classical_fallback = true\nfallback_psk_file = "{psk}"\n')).peers[0].classical_fallback
+        load_config(write(tmp_path, f'classical_fallback = "yes"\nfallback_psk_file = "{posix(psk)}"\n'))
+    assert load_config(write(tmp_path, f'classical_fallback = true\nfallback_psk_file = "{posix(psk)}"\n')).peers[0].classical_fallback
 
 
 # --- the order: hybrid ML-KEM, then classical with a PPK, then plain classical
@@ -104,8 +109,9 @@ def test_the_tier_a_tunnel_reached(tunnel, expected):
 def test_the_configuration_is_checked(tmp_path):
     with pytest.raises(ValueError, match="fallback_psk_file"):
         Peer("x", "1.2.3.4", [], [], classical_fallback=True).validate()
-    with pytest.raises(ValueError, match="readable only by its owner"):
-        Peer("x", "1.2.3.4", [], [], classical_fallback=True, fallback_psk_file=secret(tmp_path, "open.psk", mode=0o644)).validate()
+    if os.name != "nt":  # site-to-site tunnels run on Linux gateways (strongSwan); Windows ACLs are not read, as for TLS key files
+        with pytest.raises(ValueError, match="readable only by its owner"):
+            Peer("x", "1.2.3.4", [], [], classical_fallback=True, fallback_psk_file=secret(tmp_path, "open.psk", mode=0o644)).validate()
     with pytest.raises(ValueError, match="at least 32"):
         Peer("x", "1.2.3.4", [], [], classical_fallback=True, fallback_psk_file=secret(tmp_path, "short.psk", size=16)).validate()
     with pytest.raises(ValueError, match="cnsa2"):
@@ -198,7 +204,7 @@ def test_logs_status_and_metrics_say_not_quantum_safe(tmp_path, caplog):
 def test_the_cbom_marks_the_partner_tunnel_not_quantum_safe_and_holds_no_secret(tmp_path):
     from acxelin_vpn.inventory import cbom
     psk = secret(tmp_path, "partner.psk")
-    f = write(tmp_path, f'classical_fallback = true\nfallback_psk_file = "{psk}"\n')
+    f = write(tmp_path, f'classical_fallback = true\nfallback_psk_file = "{posix(psk)}"\n')
     bom = cbom([f])
     doc = json.loads(bom)
     tunnel = next(c for c in doc["components"] if c["name"] == "tunnel hq.acme to partner.example")
