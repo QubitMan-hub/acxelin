@@ -2,6 +2,7 @@
 
 ## 1.1.1
 
+- **Rollback limit:** a CA that has recorded an EST renewal (`replaces` in `index.json`, added so that revoking one certificate revokes its renewals) cannot be read by core 1.1.0 or older: they stop on the unknown field. CAs without EST renewals are written as before and stay readable both ways (tested in `tools/tests/test_upgrade_rollback.py`). Roll back before enabling EST renewal, or keep a copy of the CA folder.
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level
   navigation) is accepted from another site, since the browser calls a file:// redirect cross-site. Every API call still
   has to be same-origin with a session token, and the page is still refused inside another site's frame.
