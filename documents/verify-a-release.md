@@ -26,9 +26,9 @@ From the release page, get `acxelin-<product>-<version>-wheelhouse.tar.gz`, `SHA
 You need the GitHub command line (`gh`), signed in to any GitHub account.
 
 ```bash
-gh attestation verify acxelin-tls-1.0.3-wheelhouse.tar.gz --owner AcxelinQuantum
+gh attestation verify acxelin-tls-1.1.0-wheelhouse.tar.gz --owner AcxelinQuantum
 gh attestation verify SHA256SUMS --owner AcxelinQuantum
-gh attestation verify acxelin-tls-1.0.3.cdx.json --owner AcxelinQuantum
+gh attestation verify acxelin-tls-1.1.0.cdx.json --owner AcxelinQuantum
 ```
 
 Each must print `Verification succeeded`. Anything else: stop and do not install.
@@ -38,15 +38,15 @@ Each must print `Verification succeeded`. Anything else: stop and do not install
 Linux and macOS:
 
 ```bash
-tar xzf acxelin-tls-1.0.3-wheelhouse.tar.gz
-python3 acxelin-tls-1.0.3-wheelhouse/verify_release.py SHA256SUMS
+tar xzf acxelin-tls-1.1.0-wheelhouse.tar.gz
+python3 acxelin-tls-1.1.0-wheelhouse/verify_release.py SHA256SUMS
 ```
 
 Windows (PowerShell):
 
 ```powershell
-tar xzf acxelin-tls-1.0.3-wheelhouse.tar.gz
-python acxelin-tls-1.0.3-wheelhouse\verify_release.py SHA256SUMS
+tar xzf acxelin-tls-1.1.0-wheelhouse.tar.gz
+python acxelin-tls-1.1.0-wheelhouse\verify_release.py SHA256SUMS
 ```
 
 It must print `every file matches its checksum, and nothing else is in the release folder` and exit with status 0. It names each file that is
@@ -59,14 +59,14 @@ checks files one at a time but does not notice extra files.
 wheel declares; none is invented when a wheel declares none) and the dependency edges between them. Give it to your software composition scanner, for example:
 
 ```bash
-python3 -c "import json; [print(c['name'], c['version']) for c in json.load(open('acxelin-tls-1.0.3.cdx.json'))['components']]"
+python3 -c "import json; [print(c['name'], c['version']) for c in json.load(open('acxelin-tls-1.1.0.cdx.json'))['components']]"
 ```
 
 ## 5. Container images
 
 ```bash
-docker pull ghcr.io/acxelinquantum/acxelin-tls:1.0.3
-gh attestation verify oci://ghcr.io/acxelinquantum/acxelin-tls:1.0.3 --owner AcxelinQuantum
+docker pull ghcr.io/acxelinquantum/acxelin-tls:1.1.0
+gh attestation verify oci://ghcr.io/acxelinquantum/acxelin-tls:1.1.0 --owner AcxelinQuantum
 ```
 
 Deploy by digest (`ghcr.io/acxelinquantum/acxelin-tls@sha256:...`) so a tag cannot later point at a different image.

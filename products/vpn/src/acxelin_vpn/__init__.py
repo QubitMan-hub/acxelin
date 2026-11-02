@@ -15,7 +15,7 @@ from acxelin_core.config import build, read_toml
 from .grace import check_minutes
 
 NAME = "acxelin-vpn"
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 
 PROFILES = {
     "standard": ("aes256gcm16-prfsha384-x25519-ke1_mlkem768", "aes256gcm16-x25519-ke1_mlkem768"),
