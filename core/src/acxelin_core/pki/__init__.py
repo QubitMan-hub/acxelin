@@ -195,7 +195,8 @@ class CA:
         return [Record(**r) for r in json.loads((self.root / "index.json").read_text(encoding="utf-8"))]
 
     def _save(self, records):
-        write(self.root / "index.json", ("[\n" + ",\n".join(json.dumps(vars(r)) for r in records) + "\n]\n").encode())
+        # `replaces` is written only for an EST renewal: a CA that has none stays readable by the releases before it existed
+        write(self.root / "index.json", ("[\n" + ",\n".join(json.dumps({k: v for k, v in vars(r).items() if v or k != "replaces"}) for r in records) + "\n]\n").encode())
 
     def find(self, serial):
         """The one certificate whose serial is `serial` or starts with it; at least 8 hex characters, so an empty or tiny prefix

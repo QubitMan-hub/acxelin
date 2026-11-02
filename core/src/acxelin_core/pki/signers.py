@@ -1,4 +1,4 @@
-"""Where a CA's signatures come from: a key file, an SLH-DSA key through OpenSSL 3.5, AWS KMS, or any HSM tool on the command line.
+"""Where a CA's signatures come from: a key file, an SLH-DSA key through OpenSSL 3.5, AWS KMS, a PKCS#11 token (HSM, smart card, SoftHSM), or any signing tool on the command line.
 
 pyca/cryptography can only sign certificates with keys it holds. For every other signer the certificate or CRL is built with a
 stand-in ML-DSA key, and its to-be-signed bytes are re-encoded with the real signature algorithm (and, for a self-signed root,
@@ -254,7 +254,10 @@ def from_config(root, passphrase=None):
             return KMSSigner(c["key_id"], c.get("region"))
         if kind == "command":
             return CommandSigner(c["command"], root / c.get("public_key", "signer.pub.pem"))
-        raise SignerError(f"{cfg}: type must be aws-kms or command")
+        if kind == "pkcs11":
+            from . import pkcs11
+            return pkcs11.from_config(c)
+        raise SignerError(f"{cfg}: type must be aws-kms, command or pkcs11")
     pem = (root / "ca.key").read_bytes()
     try:
         return KeySigner(serialization.load_pem_private_key(pem, passphrase))

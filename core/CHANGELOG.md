@@ -1,7 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A CA key can live in a PKCS#11 token (`signer.json` type `pkcs11`, `acxelin_core.pki.pkcs11`): the token signs with ML-DSA (`CKM_ML_DSA`), the key is made sensitive and not extractable, and the PIN is read from an environment variable and refused in the file. Tested against SoftHSM2 built from its development branch; not against a hardware HSM.
+
 ## 1.1.1
 
+- **Rollback limit:** a CA that has recorded an EST renewal (`replaces` in `index.json`, added so that revoking one certificate revokes its renewals) cannot be read by core 1.1.0 or older: they stop on the unknown field. CAs without EST renewals are written as before and stay readable both ways (tested in `tools/tests/test_upgrade_rollback.py`). Roll back before enabling EST renewal, or keep a copy of the CA folder.
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level
   navigation) is accepted from another site, since the browser calls a file:// redirect cross-site. Every API call still
   has to be same-origin with a session token, and the page is still refused inside another site's frame.

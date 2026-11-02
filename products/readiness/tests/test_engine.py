@@ -263,6 +263,23 @@ class Operations(unittest.TestCase):
             self.assertEqual({a.algo for a in r.assets}, {"SHA-1"})
 
 
+    def test_changed_since_does_not_call_a_file_changed_for_its_line_endings(self):
+        """With core.autocrlf (Git for Windows' default) the index holds LF while the file on disk has CRLF: that is not a change."""
+        import subprocess
+        import tempfile
+        from acxelin_readiness.cli import changed_files
+        with tempfile.TemporaryDirectory() as d:
+            git = lambda *a: subprocess.run(["git", "-C", d, *a], check=True, capture_output=True)
+            git("init", "-q")
+            (Path(d) / "old.py").write_bytes(b"import hashlib\nhashlib.md5(b'x')\n")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+            (Path(d) / "old.py").write_bytes(b"import hashlib\r\nhashlib.md5(b'x')\r\n")
+            self.assertEqual(changed_files(Path(d), "HEAD"), set())
+            (Path(d) / "old.py").write_bytes(b"import hashlib\r\nhashlib.md5(b'y')\r\n")
+            self.assertEqual(changed_files(Path(d), "HEAD"), {"old.py"}, "a real edit is still a change")
+
+
 class Formats(unittest.TestCase):
     def test_noise_and_jose(self):
         from acxelin_readiness.detectors.suites import noise_name, jose_alg

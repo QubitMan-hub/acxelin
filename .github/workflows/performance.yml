@@ -1,0 +1,18 @@
+name: performance
+# On demand only: shared runners are noisy, so this is a way to take a measurement, not a gate.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    container: python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+    env:
+      ACXELIN_REQUIRE_OPENSSL: "3.5"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: apt-get update && apt-get install -y --no-install-recommends git procps
+      - run: pip install ./core ./products/tls "./products/vpn[vpn]" ./products/readiness
+      - run: python tools/perf.py --runs 3 --json perf.json --markdown perf.md
+      - run: cat perf.md >> "$GITHUB_STEP_SUMMARY"
