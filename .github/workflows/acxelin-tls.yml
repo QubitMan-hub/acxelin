@@ -1,6 +1,7 @@
 name: acxelin-tls
 on:
   push:
+    branches: [main]  # branches other than main run once, as a pull request
     paths:
       - "products/tls/**"
       - ".github/workflows/acxelin-tls.yml"
@@ -17,6 +18,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:  # a newer push to the same pull request cancels its older runs; main and dispatched runs are never cancelled
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     strategy:
