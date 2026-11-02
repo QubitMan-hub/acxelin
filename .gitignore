@@ -34,7 +34,4 @@ playwright-report/
 .DS_Store
 Thumbs.db
 
-# archify working folders (finished diagrams go in the product's docs)
-.archify/
-
 .impeccable/
