@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.1.0
+## 1.1.1
 
 - **Behaviour change:** policy `cnsa2` offers and accepts pure ML-KEM-1024 (`MLKEM1024`) only, no longer `SecP384r1MLKEM1024`: NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) counts a hybrid as CNSA 2.0 only where NSA named it, and it names no TLS hybrid. A client that offers only the P-384 hybrid is refused by a `cnsa2` route, and shadow mode says so.
+
+## 1.1.0
+
 - Found in a first-time customer test: `doctor` fails a route whose certificate its policy cannot use (cnsa2 with an ML-DSA-65 certificate passed `doctor` and then stopped the edge), and warns when a stapled OCSP answer is missing or ends within a day; `ca renew` says when the folder the certificate was issued to still holds the old one and how to renew in place; `connect` shows the stapled OCSP answer.
 - `ca init --pkcs11-module LIBRARY --pkcs11-token LABEL --pkcs11-key LABEL [--pkcs11-generate]` keeps the CA key in a PKCS#11 token (needs core with `pkcs11`; the PIN is read from `ACXELIN_PKCS11_PIN`).
 - Short-lived certificates: `ca issue --hours N` (and `ca renew --hours N`) issue certificates that live for hours. `ca maintain` now renews a certificate in the last 30 days of its life, or in the last third if its life is shorter, and `--renew-within-hours` sets the window in hours (the old `--renew-within DAYS` still works). A renewal of a certificate that lived up to 7 days keeps its lifetime; longer ones still renew for 397 days. `ca maintain` says when nothing needed renewing, and `doctor` says how often `ca maintain` must run and warns about a certificate that is due.

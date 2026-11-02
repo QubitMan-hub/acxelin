@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.1.0
+## 1.1.1
 
 - New profile `cnsa2-rfc9370`, the form NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) gives for IKEv2: a P-384 exchange, then ML-KEM-1024 (RFC 9370), with AES-256-GCM and SHA-384. The older `cnsa2` (ML-KEM-1024 alone) is not NSA's IKEv2 form; it still loads and works unchanged in 1.x so running tunnels stay up, and the gateway warns at start. Move both gateways of a tunnel to `cnsa2-rfc9370` together: the two profiles do not negotiate with each other.
+
+## 1.1.0
+
 - On Windows the client waits until the tunnel service has loaded the gateway as its peer before it carries on. The service answers before it has applied its configuration, so a key set at once could find no peer (seen in CI as an empty `wg show`).
 - Classical fallback for a partner gateway that cannot do hybrid ML-KEM: `classical_fallback = true` on that one `[[peer]]` (off by default, no site-wide form) with a static `fallback_psk_file` and an optional `fallback_ppk_file`. It offers hybrid ML-KEM first, then classical with the RFC 8784 PPK, then plain classical. Anything below hybrid is labelled NOT QUANTUM SAFE in the log, `/status` (`quantum_safe`, `tier`), the metrics (`acxelin_vpn_tunnel_quantum_safe`, `acxelin_vpn_tunnel_tier`), the CBOM (`acxelin:quantum-safe`) and the console. Every other peer's strongSwan configuration is unchanged byte for byte.
 - **Behaviour change:** when a laptop's key renewal fails while its tunnel still works, it stays on its last key, shown as **Degraded** in the tray, the window and `status`, for at most `keep_minutes` (15 by default, 0 to 1440; set per person with `invite --keep-minutes` or per computer with `connect --keep-minutes`; 0 restores dropping at once). Before, it dropped a working tunnel within seconds. A revoked computer, or a gateway that cannot read its revocation list, is cut off at once; with a full tunnel, a timed-out agreement drops at once (the tunnel is dead). Client only: nothing on the wire changed; `keep_minutes` is an optional invitation field older apps ignore.
