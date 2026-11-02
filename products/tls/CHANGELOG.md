@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `ca init --pkcs11-module LIBRARY --pkcs11-token LABEL --pkcs11-key LABEL [--pkcs11-generate]` keeps the CA key in a PKCS#11 token (needs core with `pkcs11`; the PIN is read from `ACXELIN_PKCS11_PIN`).
+
 ## 1.0.3
 
 - Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with

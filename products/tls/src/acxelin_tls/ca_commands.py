@@ -23,10 +23,18 @@ def cmd_ca(a):
             if encrypted(Path(a.parent) / "ca.key"):
                 pw = (os.environ.get("ACXELIN_TLS_PARENT_CA_PASSPHRASE") or "").encode() or ask("Parent CA passphrase: ", "set ACXELIN_TLS_PARENT_CA_PASSPHRASE")
             parent = CA(a.parent, pw)
+        if sum(bool(x) for x in (a.kms, a.signer_command, a.pkcs11_module)) > 1:
+            raise CAError("name only one place for the CA key: --kms, --signer-command or --pkcs11-module")
         if a.signer_command and not a.signer_public_key:
             raise CAError("--signer-command needs --signer-public-key")
+        if a.pkcs11_module and not (a.pkcs11_token and a.pkcs11_key):
+            raise CAError("--pkcs11-module needs --pkcs11-token (the token's label) and --pkcs11-key (the key's label)")
+        if a.pkcs11_module and a.pkcs11_generate:
+            from acxelin_core.pki import pkcs11
+            pkcs11.generate(str(Path(a.pkcs11_module).resolve()), a.pkcs11_token, pkcs11.pin_from_env("ACXELIN_PKCS11_PIN"), a.pkcs11_key, a.algorithm)
         signer = ({"type": "aws-kms", "key_id": a.kms, **({"region": a.kms_region} if a.kms_region else {})} if a.kms else
-                  {"type": "command", "command": a.signer_command, "public_key": str(Path(a.signer_public_key).resolve())} if a.signer_command else None)
+                  {"type": "command", "command": a.signer_command, "public_key": str(Path(a.signer_public_key).resolve())} if a.signer_command else
+                  {"type": "pkcs11", "module": str(Path(a.pkcs11_module).resolve()), "token": a.pkcs11_token, "key": a.pkcs11_key} if a.pkcs11_module else None)
         ca = CA.init(a.dir, a.name, a.algorithm, a.days, ca_passphrase(a.dir, new=True) if not (a.no_encrypt or signer) else None, parent, signer)
         what = f"intermediate CA under '{parent.cert.subject.rfc4514_string()}'" if parent else "root"
         print(f"created {ca.algorithm} {what} '{a.name}' in {a.dir} (serial {ca.cert.serial_number:x}); clients trust {ca.anchor}, servers check {Path(a.dir) / 'crl.pem'}")
@@ -162,6 +170,10 @@ def add(sub, common):
     p.add_argument("--kms-region", help="the KMS key's AWS region (default: from your AWS configuration)")
     p.add_argument("--signer-command", nargs="+", metavar="ARG", help="an HSM tool that reads data on stdin and writes the signature")
     p.add_argument("--signer-public-key", help="PEM public key of the --signer-command key")
+    p.add_argument("--pkcs11-module", metavar="LIBRARY", help="keep the CA key in a PKCS#11 token (HSM, smart card, SoftHSM): the vendor's library; the PIN comes from ACXELIN_PKCS11_PIN")
+    p.add_argument("--pkcs11-token", metavar="LABEL", help="the token's label")
+    p.add_argument("--pkcs11-key", metavar="LABEL", help="the ML-DSA key's label on the token")
+    p.add_argument("--pkcs11-generate", action="store_true", help="make the key on the token first (sensitive, not extractable) with the --algorithm given")
     p.add_argument("--days", type=positive(int), default=3650, help="the CA certificate's lifetime (default: 3650, ten years)")
     enc = p.add_mutually_exclusive_group()
     enc.add_argument("--encrypt", action="store_true", help=argparse.SUPPRESS)  # the default now; still accepted from older scripts
