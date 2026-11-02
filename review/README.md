@@ -21,7 +21,7 @@ Evidence for a decision or a stage, one file each:
 | [performance.md](performance.md) | Measured speed of the CA, the edge, the VPN key agreement and a scan, with how to rerun it |
 | [ocsp-stapling.md](ocsp-stapling.md) | Why OCSP stapling was built: the check that ML-DSA OCSP signing works |
 | [customer-test.md](customer-test.md) | A first-time and a difficult customer's test of all three products, what it found and what could not run here |
-| [vpn-client-grace-design.md](vpn-client-grace-design.md) | Design only: a VPN client keeping its last key when the control plane is away |
+| [vpn-client-grace-design.md](vpn-client-grace-design.md) | Built: a VPN client keeping its last key, shown as degraded, while the control plane is away |
 | [vpn-classical-fallback.md](vpn-classical-fallback.md) | Proposal only: a per-peer classical fallback for IKEv2 peers |
 
 The held-out evaluation of Readiness is in [products/readiness/heldout](../products/readiness/heldout/README.md).

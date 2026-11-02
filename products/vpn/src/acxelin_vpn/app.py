@@ -97,7 +97,8 @@ class App:
                     load_pem_private_key((device / "key.pem").read_bytes(), secret)
                 except (TypeError, ValueError):
                     raise ValueError("that passphrase does not unlock this device's key; try again") from None
-            self.client = Client(inv["gateway"], device, self.interface, inv.get("server_name"), self.apply, key_passphrase=secret)
+            self.client = Client(inv["gateway"], device, self.interface, inv.get("server_name"), self.apply, key_passphrase=secret,
+                                 keep_minutes=join.keep_minutes(inv))
             self.thread = threading.Thread(target=self.client.run, daemon=True)
             self.thread.start()
         return self.state()

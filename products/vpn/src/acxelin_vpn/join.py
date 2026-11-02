@@ -11,7 +11,8 @@ from acxelin_core.files import write
 from acxelin_core.http import hostport
 from . import platforms
 
-FIELDS = ("acxelin_invite", "name", "enroll", "ca_fingerprint", "gateway", "server_name", "expires")
+FIELDS = ("acxelin_invite", "name", "enroll", "ca_fingerprint", "gateway", "server_name", "expires", "keep_minutes")
+MAX_KEEP = 1440  # a day: the longest a laptop may stay on its last key while renewal fails
 
 
 def parse(text, where="this file"):
@@ -23,7 +24,17 @@ def parse(text, where="this file"):
             or not inv["enroll"].startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", inv["ca_fingerprint"]):
         raise ValueError(f"{where} is not an Acxelin VPN invitation; ask your administrator for the .acxinvite file from `acxelin-vpn invite`")
     hostport(inv["gateway"])
+    keep = inv.get("keep_minutes")
+    if keep is not None and (type(keep) is not int or not 0 <= keep <= MAX_KEEP):
+        raise ValueError(f"{where}: keep_minutes must be a whole number of minutes from 0 to {MAX_KEEP}; ask your administrator for a new invitation")
     return inv
+
+
+def keep_minutes(inv):
+    """How long this laptop may stay on its last key while renewal fails: the administrator's value, or the default. An older
+    invitation has none; an older client ignores the field (it reads only what it knows), so both directions keep working."""
+    from .wireguard import KEEP_MINUTES
+    return inv.get("keep_minutes", KEEP_MINUTES)
 
 
 def read(path):
@@ -69,7 +80,7 @@ def must_enroll(inv, device):
     return True
 
 
-def make(ca, name, enroll, gateway, server_name=None, hours=24):
+def make(ca, name, enroll, gateway, server_name=None, hours=24, keep=None):
     """An invitation for `name`: where to enroll, the CA fingerprint to pin, the gateway, and a one-time enrollment token.
     Returns the file's bytes and when it expires; the token is in the bytes only, so treat them as a secret."""
     from cryptography.x509 import load_pem_x509_certificate
@@ -81,6 +92,10 @@ def make(ca, name, enroll, gateway, server_name=None, hours=24):
     expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=hours)).replace(microsecond=0).isoformat()
     inv = {"acxelin_invite": 1, "name": name, "enroll": enroll, "ca_fingerprint": fingerprint(load_pem_x509_certificate(ca.anchor.read_bytes())),
            "gateway": gateway, "server_name": server_name, "expires": expires, "token": token}
+    if keep is not None:
+        if type(keep) is not int or not 0 <= keep <= MAX_KEEP:
+            raise ValueError(f"--keep-minutes must be from 0 to {MAX_KEEP}")
+        inv["keep_minutes"] = keep
     return json.dumps(inv, indent=1).encode(), expires
 
 

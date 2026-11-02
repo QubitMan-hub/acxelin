@@ -22,8 +22,9 @@ from acxelin_core.files import write
 from . import app, platforms
 
 NAME = "Acxelin VPN"
-TONES = {"protected": "#26734d", "connecting": "#c98a00", "agreed": "#c98a00", "not_protected": "#b3431f"}
+TONES = {"protected": "#26734d", "connecting": "#c98a00", "agreed": "#c98a00", "degraded": "#a85d00", "not_protected": "#b3431f"}
 WORDS = {"protected": "Protected", "connecting": "Connecting", "agreed": "Keys agreed, not protected", "not_protected": "Not protected",
+         "degraded": "Degraded: on the last key, renewal failing",
          "disconnected": "Disconnected", "none": "Not set up", "stopped": "VPN service not running"}
 
 
@@ -42,6 +43,9 @@ def summary(state):
 def headline(state):
     word = summary(state)
     status = (state or {}).get("status", {})
+    if word == "degraded":
+        left = round(status.get("degraded_left_s", 0) / 60)
+        return f"{WORDS['degraded']} · {left} min left"
     return f"{WORDS.get(word, word)}" + (f" · {status['address'].split('/')[0]}" if word == "protected" and status.get("address") else "")
 
 
@@ -60,7 +64,7 @@ def image(word, size=64):
         d.line(w((8, 12), (11, 15), (16.5, 9)), **line)
     elif word in ("connecting", "agreed"):
         d.line(w((12, 7.5), (12, 12.5), (15, 14.5)), **line)
-    elif word == "not_protected":
+    elif word in ("not_protected", "degraded"):
         d.line(w((12, 7), (12, 13)), **line)
         d.ellipse(w((10.6, 15.6), (13.4, 18.4)), fill="white")
     else:
@@ -252,7 +256,7 @@ class Tray:
         while not self.stop.wait(3):
             word = summary(self.refresh())
             self.show()
-            if last and word != last and word in ("protected", "not_protected", "disconnected", "stopped"):
+            if last and word != last and word in ("protected", "degraded", "not_protected", "disconnected", "stopped"):
                 self.notify(headline(self.state) + ("" if word != "not_protected" else f": {self.state['status'].get('error') or 'retrying'}"))
             last = word
 

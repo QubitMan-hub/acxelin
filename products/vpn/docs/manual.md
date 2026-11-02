@@ -313,7 +313,7 @@ Run the second command in that SSH session, then open the address it prints on y
 
 ## 7. The desktop app
 
-1. A shield appears in the system tray (the Windows taskbar corner, the macOS menu bar, the Linux panel). Green with a tick is **Protected**, amber is **Connecting**, red is **Not protected**, grey is disconnected or not set up. Hover over it for the words.
+1. A shield appears in the system tray (the Windows taskbar corner, the macOS menu bar, the Linux panel). Green with a tick is **Protected**, amber is **Connecting**, dark amber with an exclamation mark is **Degraded**, red is **Not protected**, grey is disconnected or not set up. Hover over it for the words.
 2. The Acxelin VPN window opens. The first time, open the invitation file, choose a passphrase for this computer, and press **Connect**. Next time, enter only the passphrase.
 3. The tray menu has **Open Acxelin VPN**, **Disconnect**, **Start at login** and **Quit and disconnect**. Closing the window leaves the VPN connected.
 
@@ -321,6 +321,7 @@ Run the second command in that SSH session, then open the address it prints on y
 |---|---|
 | **Protected** | The tunnel has completed a handshake with a key from the latest post-quantum key agreement. The next line names the key exchange, the gateway's certificate algorithm and how often the key is renewed. |
 | **Connecting** | Keys are agreed; the tunnel has not completed its first handshake yet. |
+| **Degraded** | Key renewal is failing, but the tunnel still works, so it stays on its last key for at most the minutes shown (15 by default), then stops. A revoked computer is never degraded: it is cut off at once. |
 | **Not protected** | The gateway could not be reached or refused this computer; the reason follows. It retries on its own; with a full tunnel, internet traffic stays blocked meanwhile. |
 
 Connection details say when the key was last renewed. If renewals stop, the window says so in words: when the key is more than twice its renewal period old ("has not been renewed for 62 min"), and, when the gateway cannot be reached, how many tries in a row have failed and when the last good key was agreed. `acxelin-vpn status --details` prints the same.
@@ -392,7 +393,7 @@ outage_grace_minutes = 30     # needs crl = "..."
 
 **Limits to know before relying on it.**
 
-- For remote access, the grace is held by the gateway. The computer's own software still takes its tunnel down when its own key agreement fails, and retries every second until it succeeds (from the code; not yet measured in an outage). So the grace helps most where a computer can still agree keys but the gateway cannot reach the rest of the control plane, and protects what the gateway does; it does not yet keep a laptop that cannot reach the key agreement port connected. Run the outage drill (`docs/outage-drill.md`) to see what your computers do.
+- For remote access, the computer keeps its own side of the grace: when its key agreement fails while the tunnel still handshakes, it stays on the last key, shown as **Degraded**, for at most `keep_minutes` (15 by default; 0 restores the old behaviour of dropping at once). The administrator sets it for a person with `acxelin-vpn invite --keep-minutes N`; a computer can override it with `connect --keep-minutes N`. It never outlasts the gateway: once the gateway removes the computer, handshakes stop and the computer drops within about three minutes. A revoked computer (or a gateway that cannot read its revocation list) is cut off at once, never degraded. With a full tunnel, a key agreement that times out means the tunnel itself is dead, so the computer drops at once and reconnects directly. Nothing on the wire changed: older gateways work, and an older app ignores the setting in a newer invitation.
 - For sites, the grace only stops this software from cutting the tunnel. strongSwan's own lifetimes still apply: it keeps rekeying with the last two PPKs it holds, which has not been tested over a long outage here.
 - Tests exercise the logic with a stand-in for `wg` and charon. The drill in `docs/outage-drill.md` is how you check it on two real machines.
 
