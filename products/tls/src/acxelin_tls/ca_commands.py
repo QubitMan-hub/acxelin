@@ -41,8 +41,10 @@ def cmd_ca(a):
         return 0
     ca = CA(a.dir, None if a.ca_cmd in ("list", "publish") else ca_passphrase(a.dir))
     if a.ca_cmd == "issue":
-        out, r = ca.issue(a.common_name, a.kind, a.san, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
+        out, r = ca.issue(a.common_name, a.kind, a.san, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env), hours=a.hours)
         print(f"issued {r.kind} certificate {r.serial} for {r.common_name} ({r.algorithm}), valid until {r.not_after}")
+        if a.hours:
+            print(f"  this certificate lives {a.hours:g} hours: run `acxelin-tls ca maintain --dir {a.dir}` at least every {a.hours / 3:g} hours (a scheduled task or cron), or it expires and the service stops")
         print(f"  {out / 'cert.pem'}\n  {out / 'chain.pem'}  (certificate + CA: what servers and mTLS clients present)\n  {out / 'key.pem'}")
     elif a.ca_cmd == "sign-csr":
         cert, r = ca.sign_csr(Path(a.csr).read_bytes(), a.kind, a.days)
@@ -59,7 +61,7 @@ def cmd_ca(a):
         rec = ca.find(a.serial)
         if rec.path and encrypted(Path(a.out or rec.path) / "key.pem") and not a.key_passphrase_env:
             raise ValueError(f"{rec.common_name}'s key is encrypted: renew with --key-passphrase-env so the new key is encrypted too")
-        out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
+        out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env), hours=a.hours)
         print(f"renewed as {r.serial}, valid until {r.not_after}, in {out}")
     elif a.ca_cmd == "token":
         from acxelin_core.pki.est import create_token
@@ -80,7 +82,9 @@ def cmd_ca(a):
         stop = threading.Event()
         run_until_signal(stop.wait, lambda: (httpd.shutdown(), stop.set()))
     elif a.ca_cmd == "maintain":
-        renewed, skipped = ca.maintain(a.renew_within, a.crl_days)
+        renewed, skipped = ca.maintain(a.renew_within, a.crl_days, renew_within_hours=a.renew_within_hours)
+        if not renewed and not skipped:
+            print("nothing needed renewing")
         for r in renewed:
             print(f"renewed {r.common_name} -> {r.serial[:16]} in {r.path}, valid until {r.not_after[:10]}")
         for r in skipped:
@@ -191,7 +195,9 @@ def add(sub, common):
             p.add_argument("serial", help="from `ca list`; the first 8 or more hex characters are enough")
         p.add_argument("--algorithm", choices=list(ALGORITHMS), default="ML-DSA-65" if name == "issue" else None,
                        help=None if name == "issue" else "default: the algorithm of the certificate being renewed")
-        p.add_argument("--days", type=positive(int), default=397)
+        life = p.add_mutually_exclusive_group()
+        life.add_argument("--days", type=positive(int), help="lifetime in days (default: 397" + ("" if name == "issue" else ", or the lifetime of the certificate being renewed") + ")")
+        life.add_argument("--hours", type=positive(float), help="lifetime in hours, for short-lived certificates (a renewal must then run at least every third of it: see `ca maintain`)")
         p.add_argument("--out", help="folder for cert.pem, chain.pem and key.pem")
         p.add_argument("--key-passphrase-env", help="encrypt the new key with the passphrase in this environment variable")
     p = ca.add_parser("sign-csr", parents=[common], help="certify a key generated elsewhere")
@@ -206,7 +212,9 @@ def add(sub, common):
     p = ca.add_parser("crl", parents=[common], help="re-sign the CRL (do this before it expires)")
     p.add_argument("--days", type=positive(int), default=7, help="how long the CRL is valid (default: 7); re-sign it before then")
     p = ca.add_parser("maintain", parents=[common], help="renew what expires soon and refresh the CRL (run daily)")
-    p.add_argument("--renew-within", type=int, default=30, metavar="DAYS", help="renew certificates expiring within DAYS (default: 30)")
+    window = p.add_mutually_exclusive_group()
+    window.add_argument("--renew-within", type=int, metavar="DAYS", help="renew certificates expiring within DAYS (default: a certificate's last 30 days, or the last third of its life if that is shorter)")
+    window.add_argument("--renew-within-hours", type=positive(float), metavar="HOURS", help="renew certificates expiring within HOURS, for short-lived certificates")
     p.add_argument("--crl-days", type=positive(int), default=7, help="how long the re-signed CRL is valid (default: 7 days)")
     p = ca.add_parser("list", parents=[common], help="list issued certificates")
     p.add_argument("--expiring", type=int, metavar="DAYS", help="only those expiring within DAYS")

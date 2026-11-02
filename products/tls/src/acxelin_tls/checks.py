@@ -65,9 +65,18 @@ def ca(root):
     if gone:
         out.append(("warn", f"{len(gone)} valid certificate(s) recorded without their files ({', '.join(r.common_name for r in gone[:5])}): "
                             "moved elsewhere, or a crash while issuing; revoke any whose files are gone for good"))
-    soon = c.expiring(30)
-    out.append(("warn", f"{len(soon)} certificate(s) expire within 30 days: {', '.join(r.common_name for r in soon[:5])} "
-                        "(acxelin-tls ca maintain renews them)") if soon else ("ok", "no certificate expires within 30 days"))
+    latest = {}
+    for r in records:
+        if r.status == "valid" and r.kind != "ca":
+            key = r.path or r.serial
+            latest[key] = max(latest.get(key, r), r, key=lambda x: x.not_after)
+    soon = [r for r in latest.values() if c.due(r)]
+    out.append(("warn", f"{len(soon)} certificate(s) are due for renewal: {', '.join(r.common_name for r in soon[:5])} "
+                        "(acxelin-tls ca maintain renews them)") if soon else ("ok", "no certificate is due for renewal"))
+    shortest = min((c.lifetime(r) for r in latest.values()), default=None)
+    if shortest is not None and shortest < dt.timedelta(days=30):
+        hours = shortest.total_seconds() / 3600 / 3
+        out.append(("ok", f"the shortest-lived certificate lasts {shortest.total_seconds() / 3600:g} hours: run `acxelin-tls ca maintain` at least every {hours:g} hours or it expires"))
     return out
 
 
