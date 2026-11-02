@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.1
+## 1.2.0
 
 - **Behaviour change:** only folders named `test`, `tests`, `__tests__` and `spec`, matched as whole folder names, count as test code by themselves. Before, many other names and parts of names did (`benchmark`, `examples`, `fixtures`, `testing`, `testcode` through `benchmark`, `*_test.go` and more), which could lower critical findings in production code. Add your own with `test_paths` in `.acxelin-readiness.toml` or `--test-path`. Test code still only lowers priority; nothing is hidden. Precision and recall on the labelled corpus are unchanged.
 - The console's new **What it tracks** tab, and a website page of the same name, list every kind of cryptographic asset Readiness records, every algorithm it knows with its quantum verdict, strength and replacement, and every place it looks. Both are built from the product (`acxelin_readiness.coverage` and the algorithm catalogue), and a test keeps the list of places equal to the manual's table.

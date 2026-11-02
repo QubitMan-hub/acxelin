@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - Found in a first-time customer test: `doctor` fails a route whose certificate its policy cannot use (cnsa2 with an ML-DSA-65 certificate passed `doctor` and then stopped the edge), and warns when a stapled OCSP answer is missing or ends within a day; `ca renew` says when the folder the certificate was issued to still holds the old one and how to renew in place; `connect` shows the stapled OCSP answer.
 - `ca init --pkcs11-module LIBRARY --pkcs11-token LABEL --pkcs11-key LABEL [--pkcs11-generate]` keeps the CA key in a PKCS#11 token (needs core with `pkcs11`; the PIN is read from `ACXELIN_PKCS11_PIN`).
@@ -11,13 +11,11 @@
 - Enrol with a company sign-in: `ca oidc` sets up the identity provider (issuer, audience, signing keys, allowed domains and groups) and `ca enroll --oidc` takes the ID token from `ACXELIN_TLS_OIDC_TOKEN` (never from the command line) and gets a client certificate named by the person's email. See the manual, section 9, for what is and is not covered.
 - One port, several services: routes that listen on the same address are chosen per connection by the server name (`sni`, exact or `*.example.com`) and application protocol (`alpn`) in the ClientHello, which is read without being consumed. The most specific route wins, one route may be the default, each keeps its own certificate, policy, client-certificate rule and limits, a name nothing serves is closed and counted, and routes can be changed while running. Mistakes (two routes asking for the same thing, two defaults, a bad name) are named when the configuration loads. A route alone on its port with no `sni` or `alpn` is served exactly as before.
 
-## 1.0.3
-
 - Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
   `--allow-local-validation`; a challenge fetch has 15 seconds in all, so a server trickling its answer cannot hold it; at
   most 32 validations run at once; an account holds at most 300 unfinished orders, and orders and authorizations 30 days
   past their expiry are dropped from `state.json`.
-- Security (with core 1.1.1): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
+- Security (with core 1.2.0): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
   configuration reload; one /24 or /64 holds at most `max_per_client` connections at any load; a connection where neither
   side sends anything within `first_data_timeout` (30 seconds, new) after the handshake is closed, so idle connections cannot
   hold every slot for the hour of `idle_timeout`.

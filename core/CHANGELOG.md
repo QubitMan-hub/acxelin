@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Found in a first-time customer test: a passphrase typed where a serial goes is no longer repeated in the error; a misspelled setting names the one that was probably meant; a client whose server hangs up mid-handshake gets one "handshake failed" and a hint (another server name, or a refused client); a route on a shared port logs its address and the names and protocols it serves; "needs an ML-DSA-87 certificate"; a full disk while issuing says the certificate is recorded and how to write its files or withdraw it, instead of only "No space left on device".
 - A CA key can live in a PKCS#11 token (`signer.json` type `pkcs11`, `acxelin_core.pki.pkcs11`): the token signs with ML-DSA (`CKM_ML_DSA`), the key is made sensitive and not extractable, and the PIN is read from an environment variable and refused in the file. Tested against SoftHSM2 built from its development branch; not against a hardware HSM.
@@ -9,15 +9,13 @@
 - OIDC enrolment (`acxelin_core.pki.oidc`): EST accepts `Authorization: Bearer <ID token>` as the credential for a client certificate in the person's own name. The token (RS256 or ES256 only) is checked against the provider's keys, issuer, audience, expiry, verified email, allowed domains and groups; the name in the request must be the name the token vouches for; a token works once (a hash is kept until it would have expired). Without `oidc.json` a bearer token is refused. Tested with a stand-in provider; no real provider has been used.
 - `Router`, `client_names` and `Server(bind=False)` / `Server.adopt`: several servers behind one listening address, chosen per connection by the server name and application protocol in the ClientHello (read without consuming it). Used by Acxelin TLS for routes that share a port. `Server.adopt` is the part of the accept loop that applies the connection limits and starts the handshake.
 
-## 1.1.1
-
 - **Rollback limit:** a CA that has recorded an EST renewal (`replaces` in `index.json`, added so that revoking one certificate revokes its renewals) cannot be read by core 1.1.0 or older: they stop on the unknown field. CAs without EST renewals are written as before and stay readable both ways (tested in `tools/tests/test_upgrade_rollback.py`). Roll back before enabling EST renewal, or keep a copy of the CA folder.
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level
   navigation) is accepted from another site, since the browser calls a file:// redirect cross-site. Every API call still
   has to be same-origin with a session token, and the page is still refused inside another site's frame.
 - Security: revoking a certificate also revokes every certificate renewed from it over EST, and the one it was renewed from.
   Before, a thief with a client's key could renew it, and revoking the stolen certificate left the renewed copy valid. A
-  renewal now records the serial it replaces in `index.json` (the `replaces` field); certificates renewed before 1.1.1 carry
+  renewal now records the serial it replaces in `index.json` (the `replaces` field); certificates renewed before 1.2.0 carry
   no link. A renewal keeps the presented certificate's lifetime, and only a certificate this CA issued can renew.
 - Security: EST refuses a request whose common name is over 64 characters, or with names over 253 characters or more than 100
   of them, before anything is written to the audit log; strangers could fill the CA's disk through it without a token.
