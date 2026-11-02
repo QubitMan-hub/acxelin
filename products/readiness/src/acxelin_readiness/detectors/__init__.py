@@ -1,3 +1,5 @@
+import contextlib
+import contextvars
 import os
 import re
 from dataclasses import dataclass, field, replace
@@ -10,9 +12,10 @@ from ..model import Detection
 
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "vendor", "venv", ".venv", "env", "__pycache__", "dist", "build", "target", ".tox",
              "site-packages", ".idea", ".vscode", ".gradle", ".mypy_cache", ".pytest_cache", "bin", "obj", "readiness-out"}
-TEST_PARTS = {"test", "tests", "unit", "spec", "specs", "__tests__", "testdata", "test_data", "test_vectors", "selftest", "selftests", "fixtures", "mocks", "examples", "example", "samples", "sample", "demo",
-              "bench", "benches", "benchmark", "benchmarks", "browsertest", "test-classes", "regress", "regression", "testing", "testutil", "testutils"}
-TEST_DIR = re.compile(r"(?:^|[._-])(?:unit|integration|functional|i)?tests?(?:net\d+|core)?$|^tests?-")
+# Test code lowers a finding's priority, never hides it. Only these conventional folder names count, each as a whole path segment
+# (so "testcode", "latest" or "contests" never do); customers add their own with test_paths / --test-path.
+TEST_FOLDERS = {"test", "tests", "__tests__", "spec"}
+_PATTERNS = contextvars.ContextVar("extra_test_paths", default=())
 BUILD_DIRS = {"dist", "build", "target", "bin", "obj"}
 MAX_BYTES = 2_000_000
 READ_LIMIT = 256_000_000  # no detector reads more of a file; a larger one (a disk image) is read only for its header
@@ -32,6 +35,7 @@ class Scope:
     vendor: bool = False
     exclude: tuple = ()
     only: frozenset | None = None
+    tests: tuple = ()  # the customer's own test paths (test_paths, --test-path)
     files: tuple | None = field(default=None, compare=False, repr=False)
 
     def excluded(self, relpath):
@@ -112,12 +116,22 @@ def rel(root, p):
 
 
 def is_test(relpath):
-    parts = [x.lower() for x in Path(relpath).parts]
-    name = parts[-1] if parts else ""
-    stem = name.rsplit(".", 1)[0]
-    return bool(TEST_PARTS & set(parts[:-1])) or any(TEST_DIR.search(d) for d in parts[:-1]) or name.startswith("test_") or stem in (
-        "testing", "testutil", "testutils", "testhelpers", "test_helpers") or any(
-        name.endswith(s) for s in ("_test.go", ".test.js", ".test.ts", ".spec.js", ".spec.ts", "test.java", "tests.cs", "_test.py", "_spec.rb"))
+    parts = [x.lower() for x in str(relpath).replace("\\", "/").split("/") if x]
+    if TEST_FOLDERS & set(parts[:-1]):
+        return True
+    folders = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]  # a path pattern matches the file or any folder it is in
+    return any(any(fnmatch(f, x) for f in folders) if "/" in x else any(fnmatch(part, x) for part in parts) for x in _PATTERNS.get())
+
+
+@contextlib.contextmanager
+def extra_test_paths(patterns):
+    """The customer's own test paths for one scan: a name glob (benches, *_it.py) matches any whole path segment, a glob with
+    "/" (qa/load/*) the path from the root. Case does not matter."""
+    token = _PATTERNS.set(tuple(p.lower().replace("\\", "/").strip("/") for p in patterns if p and p.strip()))
+    try:
+        yield
+    finally:
+        _PATTERNS.reset(token)
 
 
 def read(p):

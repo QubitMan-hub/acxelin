@@ -233,12 +233,17 @@ acxelin-readiness scan . --baseline cbom.json --fail-on high
 
 **Docker** (any CI): `docker run --rm -v "$PWD:/scan" acxelin-readiness`. On Linux, add `--user "$(id -u):$(id -g)"` so the scan can write `readiness-out` into your folder.
 
+### Test code
+
+A finding in test code is lowered one step in priority. It is never hidden: it stays in the report, the CBOM and `findings.json`. Folders named `test`, `tests`, `__tests__` or `spec` are test code, matched as whole folder names, so `testcode`, `latest` or `contests` are not. Name anything else in `test_paths` (or `--test-path`): a name glob such as `benches` or `*_test.go` matches any folder or file name, and a path such as `qa/load` matches that folder and everything in it.
+
 ### Settings
 
 Put settings in `.acxelin-readiness.toml` at the root of the scanned folder, so every scan of it uses the same ones. The keys are the long option names with underscores:
 
 ```
 exclude = ["generated", "*.min.js"]
+test_paths = ["benches", "*_test.go"]  # also test code: lowers priority, never hides
 shelf_life = 10                       # years the protected data must stay secret
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a quantum computer can break today's keys

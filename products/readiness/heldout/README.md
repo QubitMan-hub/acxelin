@@ -25,6 +25,7 @@ Original file names (the files left under `.../testcode/BenchmarkTestNNNNN.java`
   Only the test sources were scanned: the properties file was not part of the scanned folder, so a scan of the whole checkout might do better. That is a different evaluation, to be registered and labelled as one,
   not run here to improve this one.
 - **Do not quote 0.846 as "Readiness's recall".** It is its recall on this synthetic Java servlet benchmark, for weakness labels, with 28% of the tests unknowable to a one-file static scan.
+- **Since changed:** only folders named test, tests, __tests__ and spec now count as test code by themselves (the owner's decision; customers add others with `test_paths`). The result below was recorded under the old rule and is kept as it was.
 - **The test-code rule demotes these files.** With the original names every critical finding is reported as `high`. That is `rank.py` lowering a test-only finding by one tier (`test_only` assets) because
   `is_test` treats the directory `testcode` as test code (I did not isolate which clause of `is_test` matched). For a repository whose production code lives under a folder with "test" in its name this would hide
   critical findings from the priority list; whether that needs a change is the owner's decision, and any change must be driven by a hand-written case, not by these files.

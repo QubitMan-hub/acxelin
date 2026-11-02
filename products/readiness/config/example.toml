@@ -1,5 +1,6 @@
 # .acxelin-readiness.toml: put it at the root of the folder you scan. Every key is optional.
 exclude = ["generated", "*.min.js"]   # name globs, or path globs from the root
+test_paths = ["benches", "*_test.go", "qa/load"]  # also test code (lowers priority, never hides): folders named test, tests, __tests__ and spec always are
 include_vendor = false                # also scan vendor/, node_modules/ and similar
 tls = ["api.example.com:443"]         # live endpoints probed on every scan (used only from a file given with --config)
 ssh = ["bastion.example.com"]

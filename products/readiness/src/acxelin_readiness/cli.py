@@ -12,7 +12,7 @@ from cryptography.utils import CryptographyDeprecationWarning
 from . import __version__, pacing, pipeline, report, image, inventory, compliance, remote, owners, workspace
 from .rank import Horizon, TIERS
 from .report import write_results
-from .detectors import Scope
+from .detectors import Scope, extra_test_paths
 
 
 
@@ -89,6 +89,9 @@ def main(argv=None):
     s.add_argument("--config", metavar="FILE", help="settings file (default: .acxelin-readiness.toml in the scanned folder, if present)")
     s.add_argument("--exclude", action="append", default=[], metavar="PATTERN",
                    help="leave out matching files and folders: a name glob (generated, *.min.js) or a path glob from the root (docs/old/*); repeatable")
+    s.add_argument("--test-path", action="append", default=[], metavar="PATTERN",
+                   help="also treat matching paths as test code, which lowers a finding's priority and never hides it: a name glob "
+                        "(benches, *_it.py) or a path glob from the root (qa/load/*); repeatable. Folders named test, tests, __tests__ and spec always count")
     s.add_argument("--shelf-life", type=float, help="years the protected data must stay secret (Mosca X, default 10)")
     s.add_argument("--migration", type=float, help="years your migration will take (Mosca Y, default 5)")
     s.add_argument("--crqc-year", type=int, help="assumed year a cryptographically relevant quantum computer exists (default 2035)")
@@ -164,6 +167,7 @@ def main(argv=None):
     link = a.path and (a.path.startswith(("https://github.com/", "http://github.com/")) or a.path.startswith("github.com/") and not Path(a.path).exists())
     cfg = settings(a.config, None if link or a.path is None and (a.tls or a.ssh or a.pcap or a.aws) else Path(a.path or "."))  # a downloaded repository's settings are not trusted
     a.exclude = cfg.get("exclude", []) + a.exclude
+    a.test_path = cfg.get("test_paths", []) + a.test_path
     a.tls = cfg.get("tls", []) + a.tls
     a.ssh = cfg.get("ssh", []) + a.ssh
     a.aws = cfg.get("aws", []) + a.aws
@@ -235,7 +239,7 @@ def main(argv=None):
     if (a.tls or a.ssh) and not a.quiet:
         print(pacing.announce(pacer), file=sys.stderr)
     try:
-        r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only), a.ssh, a.baseline, a.pcap,
+        r = pipeline.run(unpacked or root, name, a.tls, h, a.threshold, Scope(a.include_vendor, tuple(a.exclude), only, tests=tuple(a.test_path)), a.ssh, a.baseline, a.pcap,
                          aws=a.aws, aws_session=aws_session, pacer=pacer, workers=prof.workers)
     finally:
         for folder in (unpacked, downloaded):
@@ -249,7 +253,8 @@ def main(argv=None):
     if any(policy.get(k) for k in ("profiles", "forbid", "min_bits", "require_hybrid")):
         r.compliance = compliance.evaluate(r.assets, r.endpoints, policy)
     try:
-        write_results(out, name, r)
+        with extra_test_paths(a.test_path):  # the report's examples skip test code by the same rule as the scan
+            write_results(out, name, r)
     except OSError as e:
         sys.exit(f"acxelin-readiness: cannot write to {out}: {e}")
     if not a.quiet:
