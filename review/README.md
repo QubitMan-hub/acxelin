@@ -10,6 +10,22 @@ For an outside auditor or penetration tester. One file per component:
 | [readiness.md](readiness.md) | Acxelin Readiness: scanners, endpoint probes, remote repositories, console |
 | [standards.md](standards.md) | What was checked against official sources and what could not be |
 
+Evidence for a decision or a stage, one file each:
+
+| File | Covers |
+|---|---|
+| [upgrade-rollback.md](upgrade-rollback.md) | The released code and this tree reading each other's files, in both directions |
+| [supply-chain.md](supply-chain.md) | What a customer can verify about a release: checksums, SBOM, attestations |
+| [interop-matrix.md](interop-matrix.md) | Independent clients and servers against every TLS policy, and the VPN's key export |
+| [softhsm-key-handling.md](softhsm-key-handling.md) | A CA key that never leaves a PKCS#11 token |
+| [performance.md](performance.md) | Measured speed of the CA, the edge, the VPN key agreement and a scan, with how to rerun it |
+| [ocsp-stapling.md](ocsp-stapling.md) | Why OCSP stapling was built: the check that ML-DSA OCSP signing works |
+| [customer-test.md](customer-test.md) | A first-time and a difficult customer's test of all three products, what it found and what could not run here |
+| [vpn-client-grace-design.md](vpn-client-grace-design.md) | Design only: a VPN client keeping its last key when the control plane is away |
+| [vpn-classical-fallback.md](vpn-classical-fallback.md) | Proposal only: a per-peer classical fallback for IKEv2 peers |
+
+The held-out evaluation of Readiness is in [products/readiness/heldout](../products/readiness/heldout/README.md).
+
 Each file has the same parts: data flow, trust boundaries, where each key is created, stored, used and destroyed, every
 security claim with the test that shows it (the attack refused, not only the good path), the claims that have no test, and the
 limits next to them.

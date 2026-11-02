@@ -218,7 +218,7 @@ Scan on every pull request, and fail only when someone adds new cryptography at 
 acxelin-readiness scan . --baseline cbom.json --fail-on high
 ```
 
-`--baseline` compares with the CBOM you kept, so old findings do not block new work. `--changed-since origin/main` scans only the files a pull request changes.
+`--baseline` compares with the CBOM you kept, so old findings do not block new work. `--changed-since origin/main` scans only the files a pull request changes. With `-q` the scan prints nothing on success; when a gate fires it still prints why (`failing: 2 asset(s) at high or worse introduced since the baseline`) on stderr and exits 2.
 
 **GitHub Actions:**
 
@@ -448,7 +448,7 @@ your computer probes. Pass `--config` to use settings you trust.
 
 ### Full TLS handshakes
 
-Grades, accepted groups and SSH algorithms need nothing extra. To read the certificate of a server that offers only post-quantum key exchange, Acxelin Readiness completes a real TLS 1.3 handshake through OpenSSL 3.5 or newer. Point `ACXELIN_OPENSSL` at the folder that holds it; `doctor` says whether it is found. Without it, the report says those certificates were not observed. It never marks them as passing.
+Grades, accepted groups and SSH algorithms need nothing extra. To read the certificate of a server that offers only post-quantum key exchange, Acxelin Readiness completes a real TLS 1.3 handshake through OpenSSL 3.5 or newer, in `scan --tls` and in `grade`. Point `ACXELIN_OPENSSL` at the folder that holds it; `doctor` says whether it is found. Without it, the report says those certificates were not observed. It never marks them as passing.
 
 ## 8. How a finding becomes a result
 
@@ -515,6 +515,8 @@ set `india_deadline = 2033` under `[policy]`.
 
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
 - The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
+- On code it was never tuned on, the held-out evaluation (`heldout/README.md`, run once, protocol written first) measured precision 0.890 [0.845, 0.923] and recall 0.846 [0.797, 0.884] on OWASP Benchmark for Java v1.2's weak-cryptography labels. Every miss was a test that reads the algorithm name from a properties file outside the scanned files. That is one synthetic Java benchmark, not a rate for your code.
+- A live endpoint given by IP address is asked for with no server name. A server that chooses its certificate by name (a load balancer, or an edge with several routes on one port) may refuse that, or show a different certificate; give the name it serves.
 - An algorithm listed in configuration is offered, not necessarily used. Live endpoints and packet captures show what is actually negotiated.
 - Pacing is per host name and port as written, in one scan. Several ports on one host each get their own allowance, so the host
   as a whole can see that many times the rate; two names for one address are not merged; two scans at once do not share a limit.

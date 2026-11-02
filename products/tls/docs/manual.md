@@ -420,7 +420,58 @@ What this does not do: it does not open a browser or run the sign-in for the per
 2. **Certificates.** Under `strict`, certificates must use ML-DSA. A client that cannot verify ML-DSA is refused.
 3. **Client certificate.** With `require_client_cert`, the client must present a certificate that chains to the CA and is not on the CRL. The CRL is valid for 7 days by default, and an edge whose CRL has expired refuses every client, so keep `ca maintain` running.
 
-## 11. When something goes wrong
+## 11. Watch it with Wireshark
+
+You can see the post-quantum key exchange on the wire, and see a classical client being refused, with Wireshark (or its command-line `tshark`). This was checked with Wireshark 4.2.2 against the steps below.
+
+**1. Start an edge and capture its port.** On the machine that runs the edge (or one on the same network path), capture the edge's port. For an edge on this machine at port 8443, capture on the loopback interface (`lo` on Linux, `Loopback` on macOS; on Windows install Npcap with loopback support and choose "Adapter for loopback traffic capture"):
+
+```
+tshark -i lo -f "tcp port 8443" -w edge.pcapng
+```
+
+**2. Connect a post-quantum client, then a classical one.**
+
+```
+acxelin-tls connect 127.0.0.1:8443 --ca pki/ca.crt --server-name web.example.com
+curl -k --curves X25519 https://127.0.0.1:8443/
+```
+
+The first succeeds and prints `group X25519MLKEM768`. The second is refused: curl reports `(35) ... alert handshake failure`. Stop the capture with Ctrl+C and open `edge.pcapng` in Wireshark.
+
+**3. What you see.**
+
+| Packet | What Wireshark shows | What it means |
+|---|---|---|
+| Client Hello (`SNI=web.example.com`) | Supported Groups and a Key Share for group 0x11EC, about 1,216 bytes long | The client offers X25519MLKEM768: an X25519 share (32 bytes) and an ML-KEM-768 encapsulation key (1,184 bytes) |
+| Server Hello | Supported Version TLS 1.3, cipher suite TLS_AES_256_GCM_SHA384, a Key Share for group 0x11EC, about 1,120 bytes | The edge chose X25519MLKEM768 and answered with its share (32 bytes) and the ML-KEM ciphertext (1,088 bytes) |
+| Application Data | Everything after the Server Hello | TLS 1.3 encrypts the rest of the handshake, so the edge's ML-DSA certificate is not visible on the wire |
+| Client Hello offering only x25519 | One Key Share, group x25519 | The classical client |
+| Alert (Level: Fatal, Description: Handshake Failure) | Sent by the edge | `strict` refused a client with no post-quantum key exchange; the edge logs the reason |
+
+Wireshark 4.2 does not have names for most post-quantum code points, so it shows them as numbers ("Unknown (4588)" is 0x11EC), and it labels MLKEM1024 (0x0202) with an old experimental name, "frodo976aes". Newer Wireshark releases may print the right names. Go by the numbers:
+
+| Number | Name |
+|---|---|
+| 0x11EC (4588) | X25519MLKEM768 |
+| 0x11ED (4589) | SecP384r1MLKEM1024 (what `cnsa2` chooses when the client offers it) |
+| 0x11EB (4587) | SecP256r1MLKEM768 |
+| 0x0202 (514) | MLKEM1024 (`cnsa2`; Wireshark 4.2 shows "frodo976aes") |
+| 0x0904, 0x0905, 0x0906 | ML-DSA-44, ML-DSA-65, ML-DSA-87 signature schemes |
+
+**4. Filters that pick out each part.** Type these into Wireshark's display filter bar (or `tshark -r edge.pcapng -Y "..."`):
+
+| Filter | Shows |
+|---|---|
+| `tls.handshake.extensions_key_share_group == 0x11ec` | hellos that carry an X25519MLKEM768 key share |
+| `tls.handshake.type == 2 && tls.handshake.extensions_key_share_group == 0x11ec` | server hellos where the edge chose it |
+| `tls.handshake.sig_hash_alg == 0x0905` | clients that offer ML-DSA-65 signatures |
+| `tls.alert_message.desc == 40` | handshake failures: clients the policy refused |
+| `tls.handshake.extensions_server_name == "web.example.com"` | connections for one name, on a port several routes share |
+
+What Wireshark cannot show you: the certificate, the HTTP inside, or the keys. The edge has no option to write session keys to a file for decryption, on purpose, so a capture taken anywhere on the network shows only what is above. To see the certificate the edge serves, use `acxelin-tls connect`, which prints its subject, key algorithm, serial and expiry, and what the edge staples about it.
+
+## 12. When something goes wrong
 
 | You see | What it means | What to do |
 |---|---|---|
@@ -436,7 +487,7 @@ What this does not do: it does not open a browser or run the sign-in for the per
 
 `doctor` exits 0 when everything passes, 1 on warnings with `--strict`, 2 when a check fails, and 3 when this machine cannot run Acxelin TLS. Other commands exit 1 with one line on stderr when they fail.
 
-## 12. Questions
+## 13. Questions
 
 **Do browsers work?** Not with ML-DSA certificates, which no browser verifies yet. Use the `transition` policy with a classical `fallback_cert` for browser traffic, and `strict` for your own clients and services.
 
@@ -448,7 +499,7 @@ What this does not do: it does not open a browser or run the sign-in for the per
 
 **Does it need any other Acxelin product?** No. It installs and runs on its own, from its own release folder.
 
-## 13. Limits
+## 14. Limits
 
 - Browsers cannot verify ML-DSA certificates yet (see Questions).
 - A revoked client keeps access until its edge has the new CRL.
