@@ -232,6 +232,23 @@ ca = "pki/ca.crt"
 
 `config/example.toml` lists every setting. Saving the file reloads it without a restart, and certificates are re-read when their files change.
 
+### Staple an OCSP answer to your certificate
+
+Clients that ask can learn that the edge's own certificate is still good (or revoked) from an answer the CA signed, sent inside the handshake, so they do not have to contact the CA.
+
+```
+acxelin-tls ca ocsp --dir pki --cert shop/chain.pem --out shop/staple.der --hours 24
+```
+
+then set `ocsp_staple = "shop/staple.der"` on the route. The route's `cert` must be the `chain.pem` that includes the CA. Run `ca ocsp` again before the answer ends (daily from cron is enough for 24 hours); the edge picks up the new file without a restart.
+
+What it does and does not do:
+
+- A missing, unreadable, forged, stale or wrong-certificate file is not sent and does not break the handshake; the edge logs why when it starts. A client that insists on a staple (a "must-staple" policy) would then refuse the edge, so renew the file well before it ends.
+- It is about the edge's own certificate. How the edge treats its clients' certificates is still the CRL (`crl`, `crl_url`); this does not replace it.
+- The answer is signed with the CA's key file. CAs whose key is in a KMS or behind a signing command are not supported yet.
+- There is no OCSP responder service: the answer is a file you refresh. Tested with ML-DSA-signed answers through OpenSSL 3.5 and with this product's own client; not with browsers or other TLS libraries.
+
 ### One port, several services (server name and protocol)
 
 Routes that listen on the same address share the port. The edge reads which server name (SNI) and application protocol (ALPN) the client asks for, before the handshake, and hands the connection to the most specific route:

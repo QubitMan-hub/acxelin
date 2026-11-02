@@ -10,9 +10,11 @@ import os
 import platform
 import re
 import select
+import logging
 import time
 from pathlib import Path
 
+log = logging.getLogger("acxelin")
 MIN_VERSION = 0x30500000
 TLS1_3_VERSION = 0x0304
 CTRL_MODE, MODE_NO_AUTO_CHAIN, CTRL_CHAIN_CERT = 33, 0x8, 89
@@ -22,6 +24,8 @@ CTRL_SET_MIN_PROTO_VERSION, CTRL_SET_MAX_PROTO_VERSION = 123, 124
 VERIFY_NONE, VERIFY_PEER, VERIFY_FAIL_IF_NO_PEER_CERT = 0, 1, 2
 X509_PURPOSE_ANY = 7
 WANT_READ, WANT_WRITE, ERROR_SYSCALL, ZERO_RETURN = 2, 3, 5, 6
+CTRL_SET_STATUS_CB, CTRL_SET_STATUS_TYPE, CTRL_GET_STATUS_RESP, CTRL_SET_STATUS_RESP = 63, 65, 70, 71
+STATUSTYPE_OCSP, STATUS_OK, STATUS_NOACK = 1, 0, 3
 
 # Public-CA fallback first for clients offering both kinds; strict clients still select ML-DSA.
 FALLBACK_SIGALGS = (
@@ -44,13 +48,14 @@ PROTOTYPES = {
         ("PEM_write_bio_PKCS8PrivateKey", [P, P, P, B, I, P, P], I), ("EVP_PKEY_get0_type_name", [P], S),
         ("EVP_PKEY_CTX_new_from_name", [P, S, S], P), ("EVP_PKEY_CTX_free", [P], None), ("EVP_PKEY_keygen_init", [P], I),
         ("EVP_PKEY_generate", [P, ctypes.POINTER(P)], I), ("i2d_PUBKEY", [P, ctypes.POINTER(P)], I), ("d2i_PUBKEY", [P, ctypes.POINTER(P), L], P),
+        ("CRYPTO_malloc", [ctypes.c_size_t, S, I], P), ("CRYPTO_free", [P, S, I], None),
         ("EVP_MD_CTX_new", [], P), ("EVP_MD_CTX_free", [P], None), ("EVP_DigestSignInit_ex", [P, P, S, P, S, P, P], I),
         ("EVP_DigestSign", [P, P, ctypes.POINTER(ctypes.c_size_t), B, ctypes.c_size_t], I),
         ("EVP_DigestVerifyInit_ex", [P, P, S, P, S, P, P], I), ("EVP_DigestVerify", [P, B, ctypes.c_size_t, B, ctypes.c_size_t], I),
     ],
     "ssl": [
         ("TLS_server_method", [], P), ("TLS_client_method", [], P),
-        ("SSL_CTX_new", [P], P), ("SSL_CTX_free", [P], None), ("SSL_CTX_ctrl", [P, I, L, P], L),
+        ("SSL_CTX_new", [P], P), ("SSL_CTX_free", [P], None), ("SSL_CTX_ctrl", [P, I, L, P], L), ("SSL_CTX_callback_ctrl", [P, I, P], L),
         ("SSL_CTX_set_options", [P, ctypes.c_uint64], ctypes.c_uint64),
         ("SSL_CTX_set_ciphersuites", [P, S], I), ("SSL_CTX_use_certificate_chain_file", [P, S], I),
         ("SSL_CTX_use_certificate", [P, P], I),
@@ -268,6 +273,29 @@ class Context:
         if result != 1:
             raise TLSError(f"cannot {what}: {errors('not supported by this OpenSSL')}")
 
+    def set_staple(self, provider):
+        """Staple an OCSP response to the handshakes of clients that ask for one. `provider()` returns the DER response, or None for
+        none; a provider that raises is the same as none, since a missing staple must never fail a handshake."""
+        L_ = lib()
+
+        def callback(ssl, _arg):
+            try:
+                der = provider()
+                if der:
+                    buf = L_.CRYPTO_malloc(len(der), b"acxelin", 0)  # the connection owns the buffer from the call below
+                    ctypes.memmove(buf, der, len(der))
+                    if L_.SSL_ctrl(ssl, CTRL_SET_STATUS_RESP, len(der), buf) == 1:
+                        return STATUS_OK
+                    L_.CRYPTO_free(buf, b"acxelin", 0)
+            except Exception:
+                log.exception("the OCSP staple provider failed: this handshake goes without a staple")
+            return STATUS_NOACK
+
+        self._status_cb = ctypes.CFUNCTYPE(I, P, P)(callback)  # kept: OpenSSL holds only the address
+        self._check(L_.SSL_CTX_callback_ctrl(self.ptr, CTRL_SET_STATUS_CB, ctypes.cast(self._status_cb, P)), "set the OCSP staple callback")
+
+    request_staple = False  # a client context: ask servers to staple an OCSP response (read it from Connection.staple)
+
     def _use_chain(self, path):
         """Load a certificate chain, leaving out a self-signed root after the first certificate: the peer has the root
         already, and an ML-DSA root is 7 KB that pushes the handshake past TCP's initial window, an extra round trip on
@@ -377,6 +405,8 @@ class Connection:
                 ok = L_.SSL_set1_host(self.ssl, server_name.encode())
             if ok != 1:
                 raise TLSError(f"cannot check the certificate against {server_name}: {errors()}")
+        if self.ctx.request_staple and not self.ctx.server:
+            L_.SSL_ctrl(self.ssl, CTRL_SET_STATUS_TYPE, STATUSTYPE_OCSP, None)
         try:
             self._io(lambda: L_.SSL_do_handshake(self.ssl), "handshake")
         except TLSError as e:
@@ -449,6 +479,14 @@ class Connection:
     def group(self):
         g = lib().SSL_get0_group_name(self.ssl)
         return g.decode() if g else None
+
+    @property
+    def staple(self):
+        """The OCSP response the server stapled (DER), or None; only a client that set `request_staple` is sent one."""
+        L_ = lib()
+        found = ctypes.c_void_p()
+        size = L_.SSL_ctrl(self.ssl, CTRL_GET_STATUS_RESP, 0, ctypes.byref(found))
+        return ctypes.string_at(found.value, size) if size > 0 and found.value else None
 
     def peer_certificate(self):
         """The peer's certificate as a cryptography x509.Certificate, or None."""
