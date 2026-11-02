@@ -2,6 +2,7 @@
 
 ## 1.0.3
 
+- A revoked laptop is told it was revoked on Windows too: the gateway now reads the laptop's request before it refuses, because closing with it unread makes Windows reset the connection and drop the refusal (the laptop saw "key agreement message missing").
 - The tray's app window is opened through the owner-only launch page too, so no launch ticket is on any command line.
 - Security: the console and `acxelin-vpn app` open the browser through an owner-only page, so the launch ticket is not on
   the browser's command line, where other users of the machine could read it.

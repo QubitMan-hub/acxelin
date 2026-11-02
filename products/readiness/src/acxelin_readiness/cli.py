@@ -343,8 +343,9 @@ def changed_files(root, ref):
             except OSError:
                 names.append(name)  # deleted
                 continue
-            h = (hashlib.sha256 if len(oid) == 64 else hashlib.sha1)(b"blob %d\0" % len(data) + data)
-            if h.hexdigest() != oid:
+            digest = hashlib.sha256 if len(oid) == 64 else hashlib.sha1
+            same = lambda body: digest(b"blob %d\0" % len(body) + body).hexdigest() == oid
+            if not (same(data) or (mode != "120000" and b"\r\n" in data and same(data.replace(b"\r\n", b"\n")))):  # core.autocrlf keeps LF in the index
                 names.append(name)
     except (OSError, subprocess.CalledProcessError, IndexError, ValueError) as err:
         sys.exit(f"acxelin-readiness: --changed-since needs a git repository and a valid ref ({err})")

@@ -298,8 +298,15 @@ class ProjectStore:
     def read(self):
         if not self.path.exists():
             return {'version': 2, 'registrations': {}, 'projects': {}}
-        with self.path.open('rb') as source:
-            raw = source.read(self.LIMIT + 1)
+        for attempt in range(20):  # Windows refuses to open the file for a moment while another thread replaces it
+            try:
+                with self.path.open('rb') as source:
+                    raw = source.read(self.LIMIT + 1)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.05)
         if len(raw) > self.LIMIT:
             raise ValueError('Project workspace exceeds 16 MB; choose a new workspace file')
         data = json.loads(raw)

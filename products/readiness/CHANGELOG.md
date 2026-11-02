@@ -2,6 +2,8 @@
 
 ## 1.1.1
 
+- `--changed-since` no longer reports every tracked file as changed on Windows: with `core.autocrlf` the index holds LF while the file on disk has CRLF, which the hash check added in this release counted as an edit (the whole repository was scanned). A real edit is still a change.
+- The project workspace read waits out the brief PermissionError Windows raises while another thread replaces the file (a console overview failed with it on Windows).
 - Security: a GitHub download follows redirects only to the same host or to GitHub's own hosts, never elsewhere on the
   network. A capture over 512 MB is refused with advice instead of being read into memory. A scan stopped with SIGTERM
   (systemd, `docker stop`, a CI timeout) removes its downloaded and unpacked files, as Ctrl+C does; a killed one (SIGKILL)
