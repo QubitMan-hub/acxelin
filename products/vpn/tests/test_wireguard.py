@@ -179,6 +179,12 @@ class GatewayTest(unittest.TestCase):
         self.gw.shutdown()
         c.due = 0
         c.step()
+        # Owner's decision (client grace): the tunnel still handshakes, so the laptop stays on its last key, shown as degraded
+        self.assertEqual(seen[-1]["state"], "degraded")
+        self.assertIn("Degraded.", describe_vpn(seen[-1]))
+        tunnel.age = 200  # the tunnel itself has gone quiet: no grace, not protected, as before
+        c.due = 0
+        c.step()
         self.assertEqual(seen[-1]["state"], "not_protected")
         self.assertIn("Not protected.", describe_vpn(seen[-1]))
         c.close()
@@ -232,7 +238,8 @@ class GatewayTest(unittest.TestCase):
             c.due = 0
             c.step()
         s = c.status()
-        self.assertEqual((s["state"], s["renewal_failures"]), ("not_protected", 2))
+        # Owner's decision (client grace): the tunnel still handshakes, so this is degraded, with the same renewal details
+        self.assertEqual((s["state"], s["renewal_failures"]), ("degraded", 2))
         self.assertGreaterEqual(s["last_key_s"], 2 * rotate + 1)
         self.assertGreaterEqual(s["retry_in_s"], 0)
         text = describe_vpn(s)

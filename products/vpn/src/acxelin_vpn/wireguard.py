@@ -37,13 +37,13 @@ from acxelin_core.http import explain, hostport
 from acxelin_core.pki import CAError, algorithm_of, follow_crl
 from acxelin_core.server import Revocation
 
-from . import agreement, audit
+from . import access, agreement, audit
 from .grace import Grace, check_minutes, crl_verdict
 from .agreement import TAG, common_name, read_line
 from .platforms import FULL, WG, WGError, addresses, this_machine
 
 log = logging.getLogger(__name__)
-LIVE = {"users", "routes", "dns", "sites", "rotate_minutes", "outage_grace_minutes"}
+LIVE = {"users", "routes", "dns", "sites", "access", "rotate_minutes", "outage_grace_minutes"}
 LABEL, context = agreement.WIREGUARD, agreement.wireguard_context
 RAW = (serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
@@ -133,6 +133,7 @@ class GatewayConfig:
     dns: list = field(default_factory=list)
     users: list = field(default_factory=list)
     sites: dict = field(default_factory=dict)
+    access: dict = field(default_factory=dict)
     rotate_minutes: float = 2.0
     outage_grace_minutes: float = 0.0
     metrics: str = ""
@@ -163,6 +164,7 @@ class GatewayConfig:
         if self.rotate_minutes < 0.25:
             raise ValueError("rotate_minutes must be at least 0.25")
         check_minutes("", self.outage_grace_minutes, self.crl)
+        access.validate(self)
         return self
 
 
@@ -174,9 +176,10 @@ def load_gateway(path):
 
 
 class Gateway:
-    def __init__(self, cfg, wg=None):
+    def __init__(self, cfg, wg=None, firewall=None):
         self.cfg = cfg
         self.wg = wg or WG(cfg.interface)
+        self.firewall = firewall if firewall is not None else (access.Nft() if cfg.access and cfg.manage_interface else None)
         self.private, self.public = private_key(cfg.private_key)
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -239,6 +242,12 @@ class Gateway:
                 ip = self.lease(cn)
             except CAError as e:
                 return self.refuse(conn, cn, addr, str(e))
+            if cn in self.cfg.access:  # the restriction must be in force before the person hears their address
+                try:
+                    self.enforce(self.cfg)
+                except access.AccessError as e:
+                    log.error("%s: %s", cn, e)
+                    return self.refuse(conn, cn, addr, "the gateway could not apply your access rules; tell your administrator (see the gateway's log)")
             old = self.clients.get(cn)
             self.wg.set_peer(pub, b64(psk), [f"{ip}/32"] + self.cfg.sites.get(cn, []))
             if old and old["public"] != pub:
@@ -252,11 +261,19 @@ class Gateway:
         log.info("%s: %s at %s, new PSK %s", cn, "rotated" if old else "connected", ip, tag)
         if not old or old["public"] != pub:
             self.event("new device" if old else "connected", cn, address=ip, source=addr[0])
-        routes = FULL if self.cfg.full_tunnel else [str(self.cfg.network)] + self.cfg.routes
+        routes = FULL if self.cfg.full_tunnel else list(self.cfg.access[cn]) if cn in self.cfg.access else [str(self.cfg.network)] + self.cfg.routes
         reply = {"ok": True, "address": f"{ip}/{self.cfg.network.prefixlen}", "gateway": self.cfg.name, "gateway_public": self.public,
                  "endpoint": self.cfg.endpoint, "routes": routes, "dns": self.cfg.dns,
                  "rotate_s": int(self.cfg.rotate_minutes * 60)}
         agreement.send(conn, reply)
+
+    def restricted(self, cfg):
+        return {cn: (self.leases[cn], list(nets)) for cn, nets in cfg.access.items() if cn in self.leases}
+
+    def enforce(self, cfg):
+        """Load the packet filter for the people `cfg` restricts, atomically; a no-op where nothing manages the interface (see `access rules`)."""
+        if self.firewall is not None:
+            self.firewall.apply(access.ruleset(cfg.interface, self.restricted(cfg)))
 
     def limit(self):
         """Seconds without a key agreement after which a client is removed, before any outage grace."""
@@ -303,10 +320,18 @@ class Gateway:
         if held != c.name:
             raise ValueError(f"the gateway's name is {c.name!r} but its certificate is for {held!r}: laptops derive their key from the "
                              "certificate's name, so set name to it (or issue a certificate for the name)")
+        access.require(c)
         if c.manage_interface:
             ensure_interface(c.interface, f"{c.address}/{c.network.prefixlen}", [n for v in c.sites.values() for n in v])
             if c.full_tunnel:
                 forward(c.interface, c.pool)
+            if self.firewall is not None:
+                self.enforce(c)
+            elif shutil.which("nft"):
+                try:
+                    access.Nft().clear()  # rules left by an earlier configuration must not restrict addresses that are no longer restricted
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         self.wg.set_private_key(self.private, c.listen_port)
         for stale in self.wg.peers():
             self.wg.remove_peer(stale)
@@ -341,6 +366,14 @@ class Gateway:
             return False
         if new.sites != self.cfg.sites and new.manage_interface:  # routes to the subnets behind newly listed sites
             ensure_interface(new.interface, f"{new.address}/{new.network.prefixlen}", [n for v in new.sites.values() for n in v])
+        if new.access != self.cfg.access:
+            if self.firewall is None and new.access and new.manage_interface:
+                return False  # no packet filter was set up when this gateway started: restart so it is
+            try:
+                self.enforce(new)
+            except access.AccessError as e:
+                log.error("the new access rules could not be applied (%s); keeping the old configuration", e)
+                return False
         self.cfg = new
         for cn, c in list(self.clients.items()):
             if new.users and cn not in new.users:
@@ -378,14 +411,28 @@ class Gateway:
         return "\n".join(lines) + "\n"
 
 
+KEEP_MINUTES = 15  # how long a laptop keeps a working tunnel on its last key while renewal fails, unless the customer sets otherwise
+
+
+class Refused(tls.TLSError):
+    """The gateway said no for a reason that must cut the laptop off at once (revoked, or it cannot read its revocation list)."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__({"revoked": "this computer's certificate has been revoked: ask your administrator for a new invitation",
+                          "crl": "the gateway cannot read its revocation list, so it lets no one in: tell your administrator"}[reason])
+
+
 class Client:
     """A laptop or branch: agrees a PSK with the gateway, runs the tunnel with this machine's WireGuard, and repeats before the PSK
-    goes stale. The schedule follows the wall clock, so keys are renewed right after the machine wakes from sleep; a tunnel that
-    stopped working is taken down so the gateway can be reached directly, then brought back with fresh keys."""
+    goes stale. The schedule follows the wall clock, so keys are renewed right after the machine wakes from sleep. When renewal
+    fails while the tunnel still handshakes, the laptop stays on its last key, shown as degraded, for at most `keep_minutes`; a
+    tunnel that stopped working, or a refusal (revoked), takes it down at once so the gateway can be reached directly."""
 
     def __init__(self, keyring, folder, interface="wg0", server_name=None, apply=True, config_out=None, key_passphrase=None, ca=None,
-                 tunnel=None, kill_switch=None, on_status=None, status_file=None):
+                 tunnel=None, kill_switch=None, on_status=None, status_file=None, keep_minutes=KEEP_MINUTES):
         self.host, self.port = hostport(keyring)
+        self.keep_s, self.degraded_since = max(0, int(keep_minutes)) * 60, None
         self.server_name = server_name or self.host
         self.dir = Path(folder)
         self.ca = ca or self.dir / "ca.crt"
@@ -410,12 +457,10 @@ class Client:
         with agreement.dial((self.pin(self.host), self.port), self.ca, self.dir / "chain.pem", self.dir / "key.pem", self.passphrase, self.server_name, 15) as conn:
             agreement.send(conn, {"v": 1, "public": self.public, "tag": tag})
             reply = read_line(conn)
-            if reply.get("reason") == "revoked":
-                raise tls.TLSError("this computer's certificate has been revoked: ask your administrator for a new invitation")
-            if reply.get("reason") == "crl":
-                raise tls.TLSError("the gateway cannot read its revocation list, so it lets no one in: tell your administrator")
+            if reply.get("reason") in ("revoked", "crl"):
+                raise Refused(reply["reason"])
             if reply.get("ok") is not True or not valid_key(str(reply.get("gateway_public", ""))):
-                raise tls.TLSError("the gateway refused the key agreement (is this certificate allowed?)")
+                raise tls.TLSError("the gateway refused the key agreement. Ask your administrator to look in the gateway's log: usual reasons are that this certificate is not in the list of allowed users, that the address pool is full, or that the access rules could not be applied")
             checked_reply(reply)
             peer = conn.peer_certificate()
             psk = agreement.wireguard_psk(conn, common_name(peer), self.name, tag, self.public, reply["gateway_public"])
@@ -498,6 +543,9 @@ class Client:
             try:
                 reply = self.once()
                 log.info("connected as %s through %s; next key in %ds", reply["address"], reply["endpoint"], reply["rotate_s"])
+                if self.degraded_since:
+                    log.warning("key renewal works again; left degraded after %ds on the last key", time.time() - self.degraded_since)
+                    self.degraded_since = None
                 self.failures, self.due = 0, time.time() + reply["rotate_s"]
                 self.last, self.error, self.since, self.agreed_at = reply, None, self.since or time.time(), time.time()
             except (tls.TLSError, WGError, OSError, ValueError, KeyError) as e:
@@ -505,10 +553,25 @@ class Client:
                 retry = min(5 * 2 ** (self.failures - 1), 60)
                 self.error, self.since = explain(e), None
                 log.warning("key agreement failed: %s; retrying in %ds", self.error, retry)
-                if self.apply_ and self.tunnel.up_:
-                    log.warning("taking the tunnel down to reach the gateway directly")
-                    self.tunnel.down()
-                    retry = 1
+                now = time.time()
+                # In full-tunnel mode the agreement travels through the tunnel, so a timeout there means the tunnel itself is dead (the
+                # gateway forgot this laptop), whatever the last handshake says; a refusal means only the key service is down.
+                through_dead_tunnel = self.last and "0.0.0.0/0" in self.last.get("routes", []) and (
+                    isinstance(e, TimeoutError) or "timed out" in str(e).lower())
+                working = self.apply_ and self.tunnel.up_ and self.last and not isinstance(e, Refused) and not through_dead_tunnel and not self.quiet()
+                if working and self.keep_s and now - (self.degraded_since or now) < self.keep_s:
+                    if not self.degraded_since:
+                        self.degraded_since = now
+                        log.warning("degraded: the tunnel still works, so it stays on the last key for at most %d minutes while renewal is retried",
+                                    self.keep_s // 60)
+                else:
+                    if self.degraded_since and working:
+                        log.warning("degraded for the whole cap of %d minutes without a new key: taking the tunnel down", self.keep_s // 60)
+                    self.degraded_since = None
+                    if self.apply_ and self.tunnel.up_:
+                        log.warning("taking the tunnel down to reach the gateway directly")
+                        self.tunnel.down()
+                        retry = 1
                 self.due = time.time() + retry
         self.report()
         return max(0.5, min(5.0, self.due - time.time()))
@@ -524,6 +587,10 @@ class Client:
             s["kill_switch_changed"] = {k: self.ks_changed[k] for k in ("time", "action")}
         if self.failures:
             s["retry_in_s"] = max(0, round(self.due - time.time()))
+        if self.degraded_since and self.last:
+            s |= {"state": "degraded", "address": self.last["address"], "routes": self.last["routes"], "full_tunnel": "0.0.0.0/0" in self.last["routes"],
+                  "degraded_since": self.degraded_since, "degraded_left_s": max(0, round(self.degraded_since + self.keep_s - time.time())),
+                  "keep_minutes": self.keep_s // 60}
         if self.last and not self.error:
             age = None
             if self.apply_ and self.tunnel.up_:

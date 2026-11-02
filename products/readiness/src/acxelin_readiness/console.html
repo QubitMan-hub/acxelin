@@ -8,6 +8,7 @@
 /*SHELL*/
 .split{grid-template-columns:minmax(0,230px) minmax(0,1fr)}
 @media (max-width:780px){.split{grid-template-columns:minmax(0,1fr)}#pj-main{order:-1}}
+.kinds{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;list-style:none;padding:0;margin:0}.kinds li{display:grid;gap:6px;align-content:start;padding:12px 14px;border:1px solid var(--rule);border-top:3px solid var(--amber);border-radius:8px;background:var(--bg)}.kinds h3{margin:0;font-size:15px}.kinds p{margin:0;font-size:13.5px}.cov-group h3{margin:22px 0 6px;font-size:15px}#cov h2{margin-top:34px}#cov h2:first-child{margin-top:8px}.seg.chip{display:inline-block;padding:1px 8px;border:1px solid transparent;border-radius:4px;font-size:12.5px;white-space:nowrap}
 td.asset{font-family:var(--mono);font-size:13px}
 details.where summary::after,details.more summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 2px 2px 8px;
 border:solid var(--muted);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);vertical-align:middle}
@@ -164,7 +165,7 @@ function githubForm(label = "Add from GitHub") {
         saved ? h("button", {class: "btn quiet", onclick: () => saveToken("")}, "Remove token") : "")));
 }
 
-const TABS = ["projects", "overview", "endpoints"];
+const TABS = ["projects", "overview", "endpoints", "coverage"];
 function importForm() {
   const file = h("input", {type: "file", id: "cbomfile", accept: ".json,application/json"});
   const go = async () => {
@@ -189,9 +190,38 @@ function shell() {
   };
   const tab = (id, label) => h("button", {role: "tab", id: "tab-" + id, "aria-selected": String(state.tab === id), tabindex: state.tab === id ? "0" : "-1", "aria-controls": "panel",
     onclick: () => open(id), onkeydown: keys}, label);
-  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist", "aria-label": "Console"}, tab("projects", "Projects"), tab("overview", "Overview"), tab("endpoints", "Endpoints")),
+  $("#app").replaceChildren(h("div", {class: "tabs", role: "tablist", "aria-label": "Console"}, tab("projects", "Projects"), tab("overview", "Overview"), tab("endpoints", "Endpoints"), tab("coverage", "What it tracks")),
     h("div", {id: "panel", role: "tabpanel", "aria-labelledby": "tab-" + state.tab}));
-  ({projects: projectsView, overview: overviewView, endpoints: endpointsView})[state.tab]();
+  ({projects: projectsView, overview: overviewView, endpoints: endpointsView, coverage: coverageView})[state.tab]();
+}
+
+// ---- what Readiness tracks: the same list the website and the manual show
+
+async function coverageView() {
+  $("#panel").replaceChildren(h("div", {class: "sectionhead"}, h("h1", {}, "What it tracks")),
+    h("p", {class: "lede"}, "Every kind of cryptographic asset this console can find, every algorithm it knows with its verdict, and every place it looks."),
+    h("p", {class: "state", id: "cov-state", role: "status"}, "Loading…"), h("div", {id: "cov"}));
+  let c;
+  try { c = await call("coverage"); } catch (e) { $("#cov-state").textContent = ""; return; }
+  $("#cov-state").textContent = "";
+  const kinds = h("ul", {class: "kinds"}, c.kinds.map((k) => h("li", {}, h("h3", {}, k.title), h("p", {}, k.what),
+    h("p", {class: "legend"}, h("b", {}, "Recorded: "), k.recorded))));
+  const chip = (t) => h("span", {class: "seg chip " + (c.threats[t].class === "grover" ? "mute" : c.threats[t].class)}, c.threats[t].label);
+  const groups = c.primitives.map(([p, title]) => {
+    const rows = c.algorithms.filter((a) => a.primitive === p);
+    if (!rows.length) return "";
+    return h("section", {class: "cov-group", "aria-label": title}, h("h3", {}, title + " (" + rows.length + ")"),
+      h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table: " + title}, h("table", {},
+        h("thead", {}, h("tr", {}, h("th", {}, "Algorithm"), h("th", {}, "Verdict"), h("th", {}, "Strength"), h("th", {}, "Migrate to"))),
+        h("tbody", {}, rows.map((a) => h("tr", {}, h("td", {class: "asset"}, a.name), h("td", {}, chip(a.threat)), h("td", {}, a.strength || "-"), h("td", {}, a.replace || "-")))))));
+  });
+  const sources = h("div", {class: "scroll", tabindex: "0", role: "region", "aria-label": "Table: where it looks"}, h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Source"), h("th", {}, "What is read"))),
+    h("tbody", {}, c.sources.map((s) => h("tr", {}, h("th", {scope: "row"}, s.name), h("td", {}, s.what.replaceAll("`", "")))))));
+  $("#cov").replaceChildren(h("h2", {}, "Five kinds of asset"), kinds,
+    h("h2", {}, "Every algorithm it knows"), h("p", {class: "legend"}, "The verdict is about a quantum computer; the findings also weigh key size, mode and what the data protects."), ...groups,
+    h("h2", {}, "Where it looks"), sources,
+    h("p", {class: "legend", style: "margin-top:14px"}, "A missing finding is not proof that cryptography is absent. Key material is never read or written out."));
 }
 
 // ---- the readiness score and its trend

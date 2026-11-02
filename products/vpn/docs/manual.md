@@ -216,7 +216,7 @@ The file holds the enrollment address, the CA fingerprint the laptop will trust,
 
 ### Step 6: Alice connects
 
-Alice installs the desktop app (section 3), opens it, chooses **Choose the invitation file**, picks `alice.acxinvite`, chooses a passphrase for this computer's key, and presses **Connect**. Her system asks once for administrator approval, because the VPN changes the computer's network. The window then says **Protected**, and the tray shield turns green.
+Alice installs the desktop app (section 3), opens it, chooses **Choose the invitation file**, picks `alice.acxinvite`, chooses a passphrase for this computer's key, and presses **Connect**. Alice's computer asks once for administrator approval, because the VPN changes the computer's network. The window then says **Protected**, and the tray shield turns green.
 
 Without the app, in an administrator terminal: `acxelin-vpn join alice.acxinvite`. It enrolls (the key is made on the laptop, never leaves it, and is stored encrypted) and connects.
 
@@ -246,9 +246,45 @@ acxelin-vpn ca revoke 763320879c3df003 --dir pki
 
 The CA re-signs `pki/crl.pem`. A gateway that reads that file cuts the revoked site's tunnel, or removes the revoked person from WireGuard, within 15 seconds. A gateway on another machine needs the new CRL: set `crl_url` in its configuration, and it fetches the list every `crl_every` seconds (60 by default).
 
+### Limit what a person can reach
+
+By default everyone in `users` is told every route in `routes`. To give a person only some of them, add a table to the gateway configuration:
+
+```
+[wireguard.access]
+"alice@acme.example" = ["192.168.10.0/24"]
+"bob@acme.example" = ["192.168.30.0/24", "192.168.40.0/24"]
+```
+
+Each network must lie inside `routes`, the person must be in `users` (if you use it), and IPv4 only. People with no entry get all routes, as before. Check the result with `acxelin-vpn access show --config gateway.toml`.
+
+Two things make it true. The person is told only their networks at their next key agreement. And on a Linux gateway that manages its interface, the gateway loads packet-filter rules (nftables) that drop everything from their tunnel address that is not going to one of their networks, including other people's addresses and the gateway itself. The rules are loaded before the person is told their address; if they cannot be loaded the person is refused, and the gateway will not start without `nft` when anyone is restricted. A change to the table takes effect at once, and a change whose rules cannot be loaded is not applied.
+
+Limits: the enforcement is Linux only. Where `manage_interface = false` (a gateway you run yourself, or on another platform) the gateway cannot load rules: run `acxelin-vpn access rules --config gateway.toml` and load the output into your own firewall, and re-run it when someone gets their first address. Without the rules the routes are advice, which anyone can bypass. The rules apply to traffic that crosses the gateway; they do not look inside it. Full-tunnel gateways cannot use `access`.
+
 ### Split tunnel or full tunnel
 
 By default only the gateway's `routes` go through the tunnel, and other internet traffic uses the normal network. With `full_tunnel = true` in the gateway's `[wireguard]`, all of the laptops' traffic goes through the gateway, which forwards it with NAT, and laptops get a kill switch. The kill switch blocks traffic outside the tunnel while protection is down: on Linux and macOS it stays in place while the app reconnects, while on Windows the block follows the tunnel and can lift for a moment while the tunnel is recreated.
+
+### A partner gateway that cannot do hybrid ML-KEM
+
+Every peer does hybrid ML-KEM by default and a peer that cannot is refused. For a partner's gateway that is not Acxelin VPN and cannot do it yet, you can allow a classical fallback **for that one peer**. There is no site-wide switch.
+
+```
+[[peer]]
+name = "partner-gw.example.com"
+address = "203.0.113.50"
+local_subnets = ["10.1.0.0/16"]
+remote_subnets = ["10.50.0.0/16"]
+initiate = true
+classical_fallback = true
+fallback_psk_file = "/etc/acxelin-vpn/partner.psk"   # agreed with the partner; owner-only; 32+ bytes
+fallback_ppk_file = "/etc/acxelin-vpn/partner.ppk"   # optional: an RFC 8784 PPK, if the partner supports it
+```
+
+The tunnel uses the best the partner can do, in this order: hybrid ML-KEM (quantum safe), then classical with the PPK, then plain classical. Anything below hybrid is **NOT QUANTUM SAFE**, and the product says so: one warning line in the log when the tunnel reaches it, `"quantum_safe": false` and the tier in `/status`, `acxelin_vpn_tunnel_quantum_safe` 0 and `acxelin_vpn_tunnel_tier` in the metrics, the `acxelin:quantum-safe` = false property on the tunnel in the CBOM, and a red **Not quantum safe** badge in the console.
+
+What you take on: the keys are static files, agreed with the partner out of band and not rotated; the partner has no ML-DSA certificate, so a revoked partner is not cut off by the CRL (remove the peer instead); and traffic over a classical tunnel can be recorded now and read by a future quantum computer. `classical_fallback` cannot be used with `profile = "cnsa2"`. Tested with a stand-in for strongSwan, not yet against another vendor's gateway; to check yours, set the peer up as above, bring it up, and read `/status`: `tier` says what was negotiated.
 
 ### Profiles
 
@@ -297,7 +333,7 @@ Run the second command in that SSH session, then open the address it prints on y
 
 ## 7. The desktop app
 
-1. A shield appears in the system tray (the Windows taskbar corner, the macOS menu bar, the Linux panel). Green with a tick is **Protected**, amber is **Connecting**, red is **Not protected**, grey is disconnected or not set up. Hover over it for the words.
+1. A shield appears in the system tray (the Windows taskbar corner, the macOS menu bar, the Linux panel). Green with a tick is **Protected**, amber is **Connecting**, dark amber with an exclamation mark is **Degraded**, red is **Not protected**, grey is disconnected or not set up. Hover over it for the words.
 2. The Acxelin VPN window opens. The first time, open the invitation file, choose a passphrase for this computer, and press **Connect**. Next time, enter only the passphrase.
 3. The tray menu has **Open Acxelin VPN**, **Disconnect**, **Start at login** and **Quit and disconnect**. Closing the window leaves the VPN connected.
 
@@ -305,6 +341,7 @@ Run the second command in that SSH session, then open the address it prints on y
 |---|---|
 | **Protected** | The tunnel has completed a handshake with a key from the latest post-quantum key agreement. The next line names the key exchange, the gateway's certificate algorithm and how often the key is renewed. |
 | **Connecting** | Keys are agreed; the tunnel has not completed its first handshake yet. |
+| **Degraded** | Key renewal is failing, but the tunnel still works, so it stays on its last key for at most the minutes shown (15 by default), then stops. A revoked computer is never degraded: it is cut off at once. |
 | **Not protected** | The gateway could not be reached or refused this computer; the reason follows. It retries on its own; with a full tunnel, internet traffic stays blocked meanwhile. |
 
 Connection details say when the key was last renewed. If renewals stop, the window says so in words: when the key is more than twice its renewal period old ("has not been renewed for 62 min"), and, when the gateway cannot be reached, how many tries in a row have failed and when the last good key was agreed. `acxelin-vpn status --details` prints the same.
@@ -376,7 +413,7 @@ outage_grace_minutes = 30     # needs crl = "..."
 
 **Limits to know before relying on it.**
 
-- For remote access, the grace is held by the gateway. The computer's own software still takes its tunnel down when its own key agreement fails, and retries every second until it succeeds (from the code; not yet measured in an outage). So the grace helps most where a computer can still agree keys but the gateway cannot reach the rest of the control plane, and protects what the gateway does; it does not yet keep a laptop that cannot reach the key agreement port connected. Run the outage drill (`docs/outage-drill.md`) to see what your computers do.
+- For remote access, the computer keeps its own side of the grace: when its key agreement fails while the tunnel still handshakes, it stays on the last key, shown as **Degraded**, for at most `keep_minutes` (15 by default; 0 restores the old behaviour of dropping at once). The administrator sets it for a person with `acxelin-vpn invite --keep-minutes N`; a computer can override it with `connect --keep-minutes N`. It never outlasts the gateway: once the gateway removes the computer, handshakes stop and the computer drops within about three minutes. A revoked computer (or a gateway that cannot read its revocation list) is cut off at once, never degraded. With a full tunnel, a key agreement that times out means the tunnel itself is dead, so the computer drops at once and reconnects directly. Nothing on the wire changed: older gateways work, and an older app ignores the setting in a newer invitation.
 - For sites, the grace only stops this software from cutting the tunnel. strongSwan's own lifetimes still apply: it keeps rekeying with the last two PPKs it holds, which has not been tested over a long outage here.
 - Tests exercise the logic with a stand-in for `wg` and charon. The drill in `docs/outage-drill.md` is how you check it on two real machines.
 
@@ -449,6 +486,7 @@ server, not against real QKD hardware; key servers that offer only TLS 1.2 are n
 
 ## 12. Limits
 
+- A peer with `classical_fallback` may run a classical tunnel, which is NOT QUANTUM SAFE; the site is quantum safe only for the peers that negotiated hybrid ML-KEM.
 - WireGuard's handshake is classical; the post-quantum part is the pre-shared key (see Questions).
 - IKE does not sign with ML-DSA certificates: strongSwan 6.1 cannot load them (checked with `deploy/mldsa_ike_check.py`). IKE authenticates with a PSK, and mixes in a PPK, both derived from ML-DSA mutual TLS between the gateways.
 - Phones are not supported.

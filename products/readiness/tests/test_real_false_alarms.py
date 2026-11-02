@@ -45,9 +45,13 @@ def test_a_secret_prefix_is_not_a_secret_but_a_real_looking_key_still_is(tmp_pat
     assert lines == [2]
 
 
-def test_test_helpers_named_testing_are_tests():
-    assert is_test("cmd/kube-apiserver/app/testing/testserver.go") and is_test("vault/testing.go") and is_test("command/agent/testutil.go")
-    assert not is_test("vault/attesting.go") and not is_test("pkg/contesting/a.go")
+def test_test_helpers_named_testing_count_when_the_customer_names_them():
+    # Owner's decision: only test, tests, __tests__ and spec folders count by themselves; Go's testing helpers are named in config.
+    assert not is_test("cmd/kube-apiserver/app/testing/testserver.go") and not is_test("command/agent/testutil.go")
+    from acxelin_readiness.detectors import extra_test_paths
+    with extra_test_paths(["testing", "testing.go", "testutil.go"]):
+        assert is_test("cmd/kube-apiserver/app/testing/testserver.go") and is_test("vault/testing.go") and is_test("command/agent/testutil.go")
+        assert not is_test("vault/attesting.go") and not is_test("pkg/contesting/a.go")
 
 
 def _root(name, digest):

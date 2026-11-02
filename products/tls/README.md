@@ -44,8 +44,12 @@ A one-minute tour with nothing to set up: a CA, an ordinary web server, the edge
 | Check an edge or a CA folder | `acxelin-tls doctor --config edge.toml --ca pki` |
 | See what a running edge reports | `acxelin-tls status --url http://127.0.0.1:9100` |
 | Test a connection | `acxelin-tls connect host:8443 --ca pki/ca.crt` |
+| Staple an OCSP answer to an edge's certificate | `acxelin-tls ca ocsp --dir pki --cert web/chain.pem --out web/staple.der`, then `ocsp_staple` on the route |
+| Let people enrol with their company sign-in (OIDC) | `acxelin-tls ca oidc --dir pki --issuer ... --audience ...` |
 
 Enrollment services: `ca serve` (EST), `ca acme` (ACME), `ca publish` (the CA certificate and CRL over HTTP).
+
+The manual (`docs/manual.md`) covers every task, including how to watch the post-quantum handshake in Wireshark (section 11).
 
 ### Policies
 

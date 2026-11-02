@@ -39,10 +39,12 @@ def cmd_ca(a):
         what = f"intermediate CA under '{parent.cert.subject.rfc4514_string()}'" if parent else "root"
         print(f"created {ca.algorithm} {what} '{a.name}' in {a.dir} (serial {ca.cert.serial_number:x}); clients trust {ca.anchor}, servers check {Path(a.dir) / 'crl.pem'}")
         return 0
-    ca = CA(a.dir, None if a.ca_cmd in ("list", "publish") else ca_passphrase(a.dir))
+    ca = CA(a.dir, None if a.ca_cmd in ("list", "publish", "oidc") else ca_passphrase(a.dir))
     if a.ca_cmd == "issue":
-        out, r = ca.issue(a.common_name, a.kind, a.san, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
+        out, r = ca.issue(a.common_name, a.kind, a.san, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env), hours=a.hours)
         print(f"issued {r.kind} certificate {r.serial} for {r.common_name} ({r.algorithm}), valid until {r.not_after}")
+        if a.hours:
+            print(f"  this certificate lives {a.hours:g} hours: run `acxelin-tls ca maintain --dir {a.dir}` at least every {a.hours / 3:g} hours (a scheduled task or cron), or it expires and the service stops")
         print(f"  {out / 'cert.pem'}\n  {out / 'chain.pem'}  (certificate + CA: what servers and mTLS clients present)\n  {out / 'key.pem'}")
     elif a.ca_cmd == "sign-csr":
         cert, r = ca.sign_csr(Path(a.csr).read_bytes(), a.kind, a.days)
@@ -59,12 +61,34 @@ def cmd_ca(a):
         rec = ca.find(a.serial)
         if rec.path and encrypted(Path(a.out or rec.path) / "key.pem") and not a.key_passphrase_env:
             raise ValueError(f"{rec.common_name}'s key is encrypted: renew with --key-passphrase-env so the new key is encrypted too")
-        out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env))
+        out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env), hours=a.hours)
         print(f"renewed as {r.serial}, valid until {r.not_after}, in {out}")
+        if rec.path and Path(rec.path).resolve() != Path(out).resolve():
+            print(f"{rec.path} still holds the old certificate, and an edge using it keeps serving it: point the edge at {out}, "
+                  f"or renew into the same folder with --out {rec.path} (`ca maintain` does that)")
     elif a.ca_cmd == "token":
         from acxelin_core.pki.est import create_token
         t = create_token(ca, a.common_name, a.kind, a.san, a.hours)
         print(f"one-time enrollment token for {a.common_name} ({a.kind}), valid {a.hours} h. It is shown only once:\n{t}")
+    elif a.ca_cmd == "ocsp":
+        from cryptography import x509
+        from acxelin_core.pki import write
+        from acxelin_core.pki.ocsp import respond
+        try:
+            cert = x509.load_pem_x509_certificate(Path(a.cert).read_bytes())
+        except (OSError, ValueError) as e:
+            raise CAError(f"{a.cert} is not a certificate file: {e}") from None
+        der = respond(ca, cert, a.hours)
+        write(Path(a.out), der)
+        status = "revoked" if ca.find(format(cert.serial_number, "x")).status == "revoked" else "good"
+        print(f"{cert.subject.rfc4514_string()} is {status}; the answer is valid for {a.hours:g} hours and is in {a.out}")
+        print(f"repeat this before it ends (daily from cron is enough for 24 hours) and point the edge at it with ocsp_staple = \"{a.out}\"")
+    elif a.ca_cmd == "oidc":
+        from acxelin_core.pki.oidc import configure
+        s = configure(ca, a.issuer, a.audience, a.jwks_file, a.jwks_url, a.name_claim, a.domain, a.groups_claim, a.group)
+        limits = ", ".join(x for x in (f"domains {', '.join(s['domains'])}" if s["domains"] else "", f"groups {', '.join(s['groups'])}" if s["groups"] else "") if x)
+        print(f"people signed in at {s['issuer']} can now enrol for a client certificate named by their {s['name_claim']} claim" + (f" ({limits})" if limits else " (any account at the provider: add --domain or --group to limit it)"))
+        print("start `ca serve` as before; they run `acxelin-tls ca enroll URL --oidc --cn THEIR-NAME` with their ID token in ACXELIN_TLS_OIDC_TOKEN")
     elif a.ca_cmd == "serve":
         from cryptography.x509 import load_pem_x509_certificate
         from acxelin_core.pki.est import fingerprint, serve
@@ -80,7 +104,9 @@ def cmd_ca(a):
         stop = threading.Event()
         run_until_signal(stop.wait, lambda: (httpd.shutdown(), stop.set()))
     elif a.ca_cmd == "maintain":
-        renewed, skipped = ca.maintain(a.renew_within, a.crl_days)
+        renewed, skipped = ca.maintain(a.renew_within, a.crl_days, renew_within_hours=a.renew_within_hours)
+        if not renewed and not skipped:
+            print("nothing needed renewing")
         for r in renewed:
             print(f"renewed {r.common_name} -> {r.serial[:16]} in {r.path}, valid until {r.not_after[:10]}")
         for r in skipped:
@@ -111,7 +137,7 @@ def cmd_acme(a):
     ca = CA(a.dir, ca_passphrase(a.dir))
     ca.signer  # a wrong passphrase fails now, not at the first order
     base = a.base_url or f"{'https' if a.tls_cert else 'http'}://{a.listen}"
-    httpd = acme.serve(acme.Service(ca, base, a.allow, a.require_eab, a.http_port, days=a.days, allow_local=a.allow_local_validation), a.listen, a.tls_cert, a.tls_key)
+    httpd = acme.serve(acme.Service(ca, base, a.allow, a.require_eab, a.http_port, days=a.days, allow_local=a.allow_local_validation, dns_command=a.dns_command), a.listen, a.tls_cert, a.tls_key)
     print(f"ACME directory: {base}/directory (issuing ML-DSA certificates from {ca.cert.subject.rfc4514_string()})")
     run_until_signal(httpd.serve_forever, lambda: threading.Thread(target=httpd.shutdown).start())
     return 0
@@ -145,7 +171,12 @@ def cmd_enroll(a):
         print(f"{a.renew}: " + (f"renewed, new serial {cert.serial_number:x}, valid until {cert.not_valid_after_utc.date()}" if cert
                                 else f"still valid for more than {a.within_days} days, nothing to do"))
         return 0
-    token = a.token or os.environ.get("ACXELIN_TLS_ENROLL_TOKEN")
+    if a.oidc:
+        token = os.environ.get("ACXELIN_TLS_OIDC_TOKEN") or (getpass.getpass("ID token from your identity provider: ") if sys.stdin.isatty() else "")
+        if not (token and a.common_name):
+            raise CAError("enrolling with an ID token needs the token in ACXELIN_TLS_OIDC_TOKEN and --cn (your name as the provider gives it)")
+    else:
+        token = a.token or os.environ.get("ACXELIN_TLS_ENROLL_TOKEN")
     if not (token and a.common_name):
         raise CAError("first enrollment needs the token (ACXELIN_TLS_ENROLL_TOKEN, or --token) and --cn (renewal needs --renew FOLDER)")
     ca = a.ca
@@ -154,7 +185,7 @@ def cmd_enroll(a):
             raise CAError("give --ca FILE or --ca-fingerprint SHA256 (from `acxelin-tls ca serve`) so the CA can be trusted")
         ca = Path(a.out) / "ca.crt"
         est.fetch_ca(a.url, a.ca_fingerprint, ca, a.server_name)
-    cert = est.enroll(a.url, token, a.common_name, a.san, a.out, ca, passphrase=key_passphrase, server_name=a.server_name)
+    cert = est.enroll(a.url, token, a.common_name, a.san, a.out, ca, passphrase=key_passphrase, server_name=a.server_name, oidc=a.oidc)
     print(f"enrolled {a.common_name}: serial {cert.serial_number:x}, valid until {cert.not_valid_after_utc.date()}, files in {a.out}")
     print(f"renew it daily from cron: acxelin-tls ca enroll {a.url} --renew {a.out} --within-days 30")
     return 0
@@ -191,7 +222,9 @@ def add(sub, common):
             p.add_argument("serial", help="from `ca list`; the first 8 or more hex characters are enough")
         p.add_argument("--algorithm", choices=list(ALGORITHMS), default="ML-DSA-65" if name == "issue" else None,
                        help=None if name == "issue" else "default: the algorithm of the certificate being renewed")
-        p.add_argument("--days", type=positive(int), default=397)
+        life = p.add_mutually_exclusive_group()
+        life.add_argument("--days", type=positive(int), help="lifetime in days (default: 397" + ("" if name == "issue" else ", or the lifetime of the certificate being renewed") + ")")
+        life.add_argument("--hours", type=positive(float), help="lifetime in hours, for short-lived certificates (a renewal must then run at least every third of it: see `ca maintain`)")
         p.add_argument("--out", help="folder for cert.pem, chain.pem and key.pem")
         p.add_argument("--key-passphrase-env", help="encrypt the new key with the passphrase in this environment variable")
     p = ca.add_parser("sign-csr", parents=[common], help="certify a key generated elsewhere")
@@ -206,7 +239,9 @@ def add(sub, common):
     p = ca.add_parser("crl", parents=[common], help="re-sign the CRL (do this before it expires)")
     p.add_argument("--days", type=positive(int), default=7, help="how long the CRL is valid (default: 7); re-sign it before then")
     p = ca.add_parser("maintain", parents=[common], help="renew what expires soon and refresh the CRL (run daily)")
-    p.add_argument("--renew-within", type=int, default=30, metavar="DAYS", help="renew certificates expiring within DAYS (default: 30)")
+    window = p.add_mutually_exclusive_group()
+    window.add_argument("--renew-within", type=int, metavar="DAYS", help="renew certificates expiring within DAYS (default: a certificate's last 30 days, or the last third of its life if that is shorter)")
+    window.add_argument("--renew-within-hours", type=positive(float), metavar="HOURS", help="renew certificates expiring within HOURS, for short-lived certificates")
     p.add_argument("--crl-days", type=positive(int), default=7, help="how long the re-signed CRL is valid (default: 7 days)")
     p = ca.add_parser("list", parents=[common], help="list issued certificates")
     p.add_argument("--expiring", type=int, metavar="DAYS", help="only those expiring within DAYS")
@@ -216,6 +251,19 @@ def add(sub, common):
     p.add_argument("common_name")
     p.add_argument("--san", action="append", default=[])
     p.add_argument("--hours", type=positive(float), default=24, help="how long the token can be used (default: 24)")
+    p = ca.add_parser("ocsp", parents=[common], help="write a signed OCSP answer for one certificate, for an edge to staple (ocsp_staple)")
+    p.add_argument("--cert", required=True, help="the certificate (a chain.pem works: its first certificate is used)")
+    p.add_argument("--out", required=True)
+    p.add_argument("--hours", type=positive(float), default=24, help="how long the answer is valid, 1 to 168 (default: 24)")
+    p = ca.add_parser("oidc", parents=[common], help="let people enrol for a client certificate with their identity provider's ID token")
+    p.add_argument("--issuer", required=True, help="the provider's https address, as it appears in its tokens (iss)")
+    p.add_argument("--audience", required=True, help="the client ID your provider issues tokens for (aud)")
+    p.add_argument("--jwks-file", help="the provider's signing keys, saved as a file (you refresh it when the provider rotates)")
+    p.add_argument("--jwks-url", help="or the https address of the provider's signing keys, fetched at enrolment")
+    p.add_argument("--name-claim", default="email", help="the claim that becomes the certificate name (default: email)")
+    p.add_argument("--domain", action="append", default=[], help="only emails at this domain (repeatable)")
+    p.add_argument("--groups-claim", default="groups")
+    p.add_argument("--group", action="append", default=[], help="only members of this group (repeatable)")
     p = ca.add_parser("publish", parents=[common], help="serve crl.pem and ca.crt over HTTP, for edges and gateways to follow (crl_url)")
     p.add_argument("--listen", default="0.0.0.0:8080", help="host:port (default: every interface, port 8080)")
     p = ca.add_parser("serve", parents=[common], help="EST enrollment service (RFC 7030) over post-quantum TLS")
@@ -230,6 +278,7 @@ def add(sub, common):
     p.add_argument("url", nargs="?", help="https://ca.example.com:9443")
     p.add_argument("--guide", action="store_true", help="interactive enrollment with pinned CA trust and an encrypted local key")
     p.add_argument("--token", help="one-time token from `ca token`; better in ACXELIN_TLS_ENROLL_TOKEN, since other users can read command lines")
+    p.add_argument("--oidc", action="store_true", help="enrol with an ID token from your identity provider (ACXELIN_TLS_OIDC_TOKEN) instead of a one-time token")
     p.add_argument("--cn", dest="common_name")
     p.add_argument("--san", action="append", default=[])
     p.add_argument("--out", default=".")
@@ -246,6 +295,7 @@ def add(sub, common):
     p.add_argument("--allow", action="append", default=[], help="names or patterns this CA issues for, e.g. '*.corp.example' (repeatable)")
     p.add_argument("--require-eab", action="store_true", help="clients need an external account binding key (see `ca eab`)")
     p.add_argument("--http-port", type=int, default=80, help="port for http-01 validation")
+    p.add_argument("--dns-command", nargs="+", metavar="ARG", help="turn on dns-01 and wildcard names: a command that prints the TXT records of the name it is given, one per line (for example `dig +short TXT`); it runs without a shell and without this service's secrets")
     p.add_argument("--allow-local-validation", action="store_true",
                    help="let http-01 validation reach loopback and link-local addresses (refused by default; private networks are allowed)")
     p.add_argument("--days", type=int, default=90, help="lifetime of issued certificates")

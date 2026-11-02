@@ -56,7 +56,7 @@ def score(assets):
     return round(sum(listed) / len(listed)) if listed else None
 
 
-SETTINGS = {"exclude": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
+SETTINGS = {"exclude": list, "test_paths": list, "include_vendor": bool, "tls": list, "ssh": list, "aws": list, "shelf_life": (int, float), "migration": (int, float),
             "crqc_year": int, "threshold": (int, float), "fail_on": str, "name": str, "policy": dict,
             "rate": (int, float), "workers": int, "aggressive": bool}  # what .acxelin-readiness.toml may hold
 
@@ -127,7 +127,7 @@ def scan(path, out=None, history=None, progress=None, exclude=(), cancel=None, m
                 pass
     try:
         s = settings or {}
-        result = pack.run(root, name or root.name, scope=Scope(vendor=bool(s.get("include_vendor")), exclude=tuple(excluded) + tuple(s.get("exclude", [])),
+        result = pack.run(root, name or root.name, scope=Scope(vendor=bool(s.get("include_vendor")), exclude=tuple(excluded) + tuple(s.get("exclude", [])), tests=tuple(s.get("test_paths", [])),
                                                                checkpoint=checkpoint, max_files=max_files, max_total_bytes=max_bytes),
                           cache=cache, horizon=horizon, threshold=s.get("threshold", 0.6))
     except ScanLimitError as error:

@@ -19,7 +19,7 @@ SECTIONS = {
                             ("manual.html", "Manual"), ("demo.html", "Demo"), ("security.html", "Security")]),
     "vpn": ("Acxelin VPN", [("index.html", "Overview"), ("how-it-works.html", "How it works"), ("set-up.html", "Set up"),
                             ("manual.html", "Manual"), ("demo.html", "Demo"), ("security.html", "Security")]),
-    "readiness": ("Acxelin Readiness", [("index.html", "Overview"), ("how-it-works.html", "How it works"), ("set-up.html", "Set up"),
+    "readiness": ("Acxelin Readiness", [("index.html", "Overview"), ("how-it-works.html", "How it works"), ("assets.html", "What it tracks"), ("set-up.html", "Set up"),
                                          ("manual.html", "Manual"), ("sample.html", "Sample"), ("security.html", "Security")]),
 }
 LAYOUT = r"""<!doctype html>
@@ -353,6 +353,52 @@ def home_proof(out, bom, vpn):
             + frames(vpn_rows(*vpn)[2:6], "home-agree", (VPN_BAR, "Acxelin VPN: two sites agree their tunnel's keys over post-quantum mutual TLS; once revoked, the branch is refused."), 3, VPN_KEYS, start=3))
 
 
+def readiness_kinds(bom):
+    """The five kinds of asset a CBOM holds, each with what is recorded and how many the sample scan found."""
+    from acxelin_readiness.coverage import KINDS
+    seen = {}
+    for c in bom["components"]:
+        kind = c.get("cryptoProperties", {}).get("assetType") or c.get("type")
+        seen[kind] = seen.get(kind, 0) + 1
+    cards = []
+    for k in KINDS:
+        key, title, what, recorded = k["key"], k["title"], k["what"], k["recorded"]
+        n = seen.get(key, 0)
+        cards.append(f'<article class="kind"><h3>{title}</h3><p>{what}</p><p class="recorded"><span>Recorded</span> {recorded}</p>'
+                     f'<p class="count">{n} in the sample scan</p></article>')
+    return f'<div class="kinds">{"".join(cards)}</div>'
+
+
+def readiness_catalog():
+    """Every algorithm in Readiness's catalogue, grouped by primitive, with its quantum verdict and its replacement."""
+    from acxelin_readiness.catalog import CATALOG
+    from acxelin_readiness.coverage import PRIMITIVES, THREATS as THREAT, strength
+    keys = "".join(f'<span><span class="key {k}" aria-hidden="true"></span>{html.escape(v)}</span>' for k, v in THREAT.values())
+    out = [f'<p class="legend catalog-legend">{keys}</p>']
+    for primitive, title in PRIMITIVES:
+        algos = [a for a in CATALOG.values() if a.primitive == primitive]
+        if not algos:
+            continue
+        rows = []
+        for a in algos:
+            kind, word = THREAT[a.threat]
+            level = strength(a)
+            rows.append(f'<tr><td><code>{html.escape(a.name)}</code></td><td><span class="verdict-chip {kind}"><span class="key {kind}" aria-hidden="true"></span>'
+                        f'{html.escape(word)}</span></td><td>{html.escape(level)}</td><td>{html.escape(a.replace) or "-"}</td></tr>')
+        out.append(f'<h3>{title} <span class="sub">({len(algos)})</span></h3><div class="scroll" tabindex="0" role="region" aria-label="Table: {title}">'
+                   f'<table class="catalog"><thead><tr><th>Algorithm</th><th>Verdict</th><th>Strength</th><th>Migrate to</th></tr></thead>'
+                   f'<tbody>{"".join(rows)}</tbody></table></div>')
+    return "".join(out)
+
+
+def readiness_sources():
+    """Where Readiness looks: the product's own list, which a test keeps equal to the manual's table."""
+    from acxelin_readiness.coverage import SOURCES
+    body = "".join(f'<tr><th scope="row">{inline(x["name"])}</th><td>{inline(x["what"])}</td></tr>' for x in SOURCES)
+    return (f'<div class="scroll" tabindex="0" role="region" aria-label="Table: where it looks"><table><thead><tr><th>Source</th>'
+            f'<th>What is read</th></tr></thead><tbody>{body}</tbody></table></div>', len(SOURCES))
+
+
 def mosca(bom):
     """Mosca's inequality drawn from the numbers the sample scan itself used: secrecy + migration against the assumed quantum year.
     Two drawings of the same numbers: a wide one, and a narrow one whose labels sit above the bars so a phone shows the whole verdict."""
@@ -490,10 +536,14 @@ def main():
     tour, log = tls_tour()
     vpn = vpn_tour()
     from acxelin_readiness import __version__ as readiness_version
+    from acxelin_readiness.catalog import CATALOG as catalog
+    sources = readiness_sources()
     from acxelin_tls import __version__ as tls_version
     from acxelin_vpn import __version__ as vpn_version
     fill = {"{{CBOM_EXCERPT}}": excerpt, "{{TLS_TOUR}}": html.escape(tour), "{{TLS_CAPTURE}}": tls_capture(f"{tour}\n{log}"), "{{TLS_LADDER}}": policy_ladder(),
             "{{READINESS_CAPTURE}}": readiness_capture(bom), "{{MOSCA}}": mosca(bom),
+            "{{READINESS_KINDS}}": readiness_kinds(bom), "{{READINESS_CATALOG}}": readiness_catalog(), "{{READINESS_SOURCES}}": sources[0],
+            "{{READINESS_ALGORITHM_COUNT}}": str(len(catalog)), "{{READINESS_SOURCE_COUNT}}": str(sources[1]),
             "{{VPN_CAPTURE}}": vpn_capture(*vpn), "{{VPN_LOG}}": html.escape(vpn[0].strip()), "{{HOME_PROOF}}": home_proof(f"{tour}\n{log}", bom, vpn)}
     versions = {"tls": tls_version, "readiness": readiness_version, "vpn": vpn_version}
     mark = logo()

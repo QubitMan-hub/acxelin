@@ -163,3 +163,22 @@ def test_no_page_has_a_browser_error(browser, site):
         page.wait_for_load_state("networkidle")
     assert problems == []
     page.close()
+
+
+def test_the_assets_page_shows_everything_readiness_tracks_from_the_product_itself(browser, site):
+    """Every algorithm in Readiness's catalogue, every kind of asset its CBOM holds and every source its manual lists, so the page
+    cannot promise what the product does not do or leave out what it does."""
+    from acxelin_readiness.catalog import CATALOG
+    base, _ = site
+    page = browser.new_page()
+    page.goto(base + "/readiness/assets.html")
+    text = page.locator("main").inner_text()
+    missing = [name for name in CATALOG if name not in text]
+    assert not missing, missing
+    for kind in ("Algorithms", "Protocols", "Certificates", "Keys and key material", "Libraries"):
+        assert page.get_by_role("heading", name=kind, exact=True).count() == 1, kind
+    manual = (ROOT / "products/readiness/docs/manual.md").read_text(encoding="utf-8")
+    sources = re.findall(r"^\| ([A-Z][^|]+?) \|", manual.split("### What it reads", 1)[1].split("###", 1)[0], re.M)
+    assert len(sources) >= 6 and all(s.strip() in text for s in sources if s.strip() != "Source"), sources
+    assert page.get_by_text("quantum-safe", exact=False).count() and page.get_by_text("broken today", exact=False).count()
+    page.close()

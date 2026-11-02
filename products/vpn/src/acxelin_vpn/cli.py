@@ -104,7 +104,7 @@ def cmd_invite(a):
     out = Path(a.out or f"{a.name}.acxinvite")
     if out.exists():
         raise ValueError(f"{out} already exists; choose another --out")
-    data, expires = join.make(CA(a.dir), a.name, a.enroll, a.gateway, a.server_name, a.hours)
+    data, expires = join.make(CA(a.dir), a.name, a.enroll, a.gateway, a.server_name, a.hours, a.keep_minutes)
     write(out, data, secret=True)
     audit.record(a.dir, "invite", name=a.name, expires=expires)
     print(f"wrote {out}: it lets {a.name} enroll once before {expires} and then connect to {a.gateway}.\n"
@@ -132,7 +132,7 @@ def cmd_join(a):
         print(f"Enrolled: certificate valid until {cert.not_valid_after_utc.date()}, key encrypted in {device}. The invitation's one-time token is used up.", flush=True)
     elif passphrase is None and encrypted(device / "key.pem"):
         passphrase = ask("Device key passphrase: ", "supply --key-passphrase-env with a protected environment variable")
-    return connect(a, inv["gateway"], device, passphrase, inv.get("server_name"))
+    return connect(a, inv["gateway"], device, passphrase, inv.get("server_name"), join.keep_minutes(inv))
 
 
 def cmd_app(a):
@@ -240,10 +240,12 @@ def cmd_wireguard(a):
     return connect(a, a.keyring, a.cert_dir, passphrase)
 
 
-def connect(a, keyring, cert_dir, passphrase, server_name=None):
+def connect(a, keyring, cert_dir, passphrase, server_name=None, keep=None):
     from . import wireguard as wg
+    keep = getattr(a, "keep_minutes", None) if getattr(a, "keep_minutes", None) is not None else keep
     c = wg.Client(keyring, cert_dir, a.interface, server_name or getattr(a, "server_name", None), not a.no_apply, getattr(a, "config_out", None),
-                  passphrase, ca=getattr(a, "ca", None), on_status=lambda s: print(describe_vpn(s), flush=True))
+                  passphrase, ca=getattr(a, "ca", None), on_status=lambda s: print(describe_vpn(s), flush=True),
+                  keep_minutes=wg.KEEP_MINUTES if keep is None else keep)
     if a.once:
         r = c.once()
         print(f"key agreement confirmed for {r['address']} through {r['endpoint']}; routes {', '.join(r['routes'])}; "
@@ -270,12 +272,17 @@ def describe_vpn(s, details=False):
         lines = [f"Connecting. Keys agreed with {s['gateway']}; waiting for the tunnel's first handshake."]
     elif state == "agreed":
         lines = [f"Keys agreed with {s['gateway']} for {s['address']}; no tunnel configured (--no-apply), so this machine is not protected."]
+    elif state == "degraded":
+        left = round(s.get("degraded_left_s", 0) / 60)
+        lines = [f"Degraded. Key renewal is failing ({s.get('error')}), but the tunnel still works, so it stays on the last key for at most "
+                 f"{left} more minute{'s' if left != 1 else ''}, then stops. Retrying automatically."]
     elif state == "disconnected":
         lines = ["Disconnected. The tunnel is down and nothing is blocked."]
     elif state == "stopped":
         lines = [f"Not running. The VPN client last reported at {s['last_seen']}; start it again with `acxelin-vpn join` or `acxelin-vpn connect`."]
     else:
         lines = [f"Not protected. {s.get('error') or 'Not connected yet'}. Retrying automatically; full-tunnel traffic stays blocked meanwhile."]
+    if state in ("degraded", "not_protected"):
         if s.get("renewal_failures", 0) > 1:
             lines.append(f"  {s['renewal_failures']} renewals in a row have failed; the next try is in {s.get('retry_in_s', 0)} s"
                          + (f"; the last good key was agreed {ago(s['last_key_s'])}" if s.get("last_key_s") is not None else ""))
@@ -296,6 +303,24 @@ def describe_vpn(s, details=False):
             c = s["kill_switch_changed"]
             lines.append(f"  {c['action']} since {c['time']} (this computer's audit log)")
     return "\n".join(lines)
+
+
+def cmd_access(a):
+    from . import access, wireguard as wg
+    cfg = wg.load_gateway(a.config)
+    state = Path(cfg.state)
+    leases = json.loads(state.read_text(encoding="utf-8")) if state.exists() else {}
+    if a.action == "show":
+        if not cfg.access:
+            print("nobody is restricted: every user gets all the routes. To limit someone, add them to [wireguard.access] (see the manual)")
+            return 0
+        for name, nets in sorted(cfg.access.items()):
+            print(f"{name}: {', '.join(nets)} (tunnel address {leases.get(name, 'not leased yet')})")
+        others = [u for u in cfg.users if u not in cfg.access] if cfg.users else []
+        print(f"everyone else{' (' + ', '.join(others) + ')' if others else ''} gets all routes: {', '.join(cfg.routes) or 'none'}")
+        return 0
+    print(access.ruleset(cfg.interface, {n: (leases[n], nets) for n, nets in cfg.access.items() if n in leases}), end="")
+    return 0
 
 
 def cmd_inventory(a):
@@ -395,6 +420,8 @@ def parser():
     p.add_argument("--server-name", help="the gateway's certificate name, if it differs from HOST")
     p.add_argument("--hours", type=positive(float), default=24, help="how long the invitation can be used (default: 24)")
     p.add_argument("--out", help="the invitation file (default: NAME.acxinvite)")
+    p.add_argument("--keep-minutes", type=int, metavar="N", help="how long the laptop may stay on its last key, shown as degraded, while key renewal fails "
+                   "but the tunnel still works (0 to 1440; default 15; 0 drops the tunnel at once as before)")
     p = v.add_parser("join", help="enroll this computer from an invitation file and connect it, in one step")
     p.add_argument("invitation", help="the .acxinvite file from your administrator")
     p.add_argument("--device", help="folder for this computer's certificate and key (default: next to the invitation, named after it)")
@@ -432,6 +459,8 @@ def parser():
             p.add_argument("--config-out", help="also write a wg-quick configuration here after every key agreement")
             p.add_argument("--key-passphrase-env")
             p.add_argument("--once", action="store_true", help="agree once and exit")
+            p.add_argument("--keep-minutes", type=int, choices=range(0, 1441), metavar="N",
+                           help="stay on the last key, shown as degraded, for at most N minutes while renewal fails but the tunnel works (default 15; 0: drop at once)")
     p = v.add_parser("disconnect", help="take the tunnel down and lift the kill switch")
     p.add_argument("--interface", default="wg0")
     v.add_parser("uninstall", help="stop starting the VPN with this machine")
@@ -439,10 +468,15 @@ def parser():
     p.add_argument("--config", action="append", required=True, metavar="FILE", help="a site or gateway configuration (repeatable)")
     p.add_argument("--cbom", default="cbom.json", metavar="FILE", help="where to write it (default: cbom.json)")
     p.add_argument("--name", default="Acxelin VPN", help="what the CBOM is about, e.g. \"Acme VPN\" (default: Acxelin VPN)")
+    p = v.add_parser("access", help="what each person may reach through the gateway: show it, or print the packet-filter rules that enforce it")
+    p.add_argument("action", nargs="?", default="show", choices=["show", "rules"],
+                   help="show (the default): who is limited to what; rules: the nftables text for the leases the gateway holds now")
+    p.add_argument("--config", required=True, help="the gateway configuration (see config/gateway.toml)")
     for name, c in v.choices.items():
-        if name not in ("doctor", "inventory"):
+        if name not in ("doctor", "inventory", "access"):
             c.set_defaults(func=cmd_vpn)
     v.choices["inventory"].set_defaults(func=cmd_inventory)
+    v.choices["access"].set_defaults(func=cmd_access)
     ca_commands.add(v, common)
     from . import console
     console.add(v)

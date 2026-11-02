@@ -2,7 +2,8 @@
 
 Accounts sign requests with classical keys (RS256, ES256/384/512 or EdDSA), as every ACME client does. The certificates they
 get are ML-DSA: the CSR must carry an ML-DSA public key (certbot `--csr`, or `acxelin-tls ca csr` generating it). Identifiers are
-proved with http-01 (RFC 8555) for DNS names and IP addresses (RFC 8738). External account binding (RFC 8555 7.3.4) keeps
+proved with http-01 (RFC 8555) for DNS names and IP addresses (RFC 8738), and, when the operator provides a DNS lookup command, with dns-01
+(which also makes wildcard names possible). External account binding (RFC 8555 7.3.4) keeps
 strangers from registering. The ACME service itself speaks ordinary HTTPS: give it a classical certificate for broad client
 compatibility, or run it on localhost behind a terminating proxy. Strict PQC policy is not enforced on this listener.
 """
@@ -16,9 +17,12 @@ import http.client
 import ipaddress
 import json
 import logging
+import os
+import re
 import secrets
 import socket
 import ssl
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -38,6 +42,16 @@ log = logging.getLogger(__name__)
 ERR = "urn:ietf:params:acme:error:"
 CURVES = {"P-256": (ec.SECP256R1(), hashes.SHA256(), "ES256"), "P-384": (ec.SECP384R1(), hashes.SHA384(), "ES384"),
           "P-521": (ec.SECP521R1(), hashes.SHA512(), "ES512")}
+
+
+LABEL = r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?"
+DNS_NAME = re.compile(rf"{LABEL}(?:\.{LABEL})*")  # ASCII (punycode) names: nothing that could be an option or a shell trick reaches the lookup command
+DNS_ENV = ("PATH", "SYSTEMROOT", "HOME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP")  # what a lookup command inherits; the CA's own secrets are not in it
+DNS_OUTPUT_LIMIT = 65536
+
+
+class Lookup(Exception):
+    pass
 
 
 METADATA = {ipaddress.ip_address(a) for a in ("169.254.169.254", "169.254.170.2", "fd00:ec2::254", "fd20:ce::254", "100.100.100.200")}
@@ -157,8 +171,9 @@ class Service:
     MAX_OPEN_ORDERS unfinished orders, and orders and authorizations 30 days past their expiry are dropped."""
     MAX_OPEN_ORDERS = 300
 
-    def __init__(self, ca, base_url, allow=(), require_eab=False, http_port=80, validate_async=True, days=90, allow_local=False):
+    def __init__(self, ca, base_url, allow=(), require_eab=False, http_port=80, validate_async=True, days=90, allow_local=False, dns_command=None):
         self.ca, self.base, self.days, self.allow_local = ca, base_url.rstrip("/"), days, allow_local
+        self.dns_command, self.dns_timeout = [str(c) for c in dns_command] if dns_command else None, 15
         self.allow, self.require_eab, self.http_port, self.validate_async = list(allow), require_eab, http_port, validate_async
         self.dir = Path(ca.root) / "acme"
         self.lock = threading.RLock()
@@ -323,8 +338,14 @@ class Service:
                     v = str(ipaddress.ip_address(v))
                 except ValueError:
                     raise Problem("rejectedIdentifier", f"{v} is not an IP address") from None
-            elif t != "dns" or not v or "*" in v or len(v) > 253:
-                raise Problem("rejectedIdentifier", f"{v or t}: only DNS names (no wildcards: http-01 cannot prove them) and IP addresses")
+            elif t != "dns" or not v or len(v) > 253:
+                raise Problem("rejectedIdentifier", f"{v or t}: only DNS names and IP addresses")
+            else:
+                base = v[2:] if v.startswith("*.") else v
+                if v.startswith("*.") and not self.dns_command:
+                    raise Problem("rejectedIdentifier", f"{v}: a wildcard can only be proved with dns-01; start the service with --dns-command (see the manual)")
+                if not DNS_NAME.fullmatch(base):
+                    raise Problem("rejectedIdentifier", f"{v}: not a DNS name this service can check (letters, digits, hyphens and dots, in ASCII: write internationalised names in punycode)")
             if not self.allowed(v):
                 raise Problem("rejectedIdentifier", f"this CA does not issue for {v}")
             clean.append({"type": t, "value": v})
@@ -334,12 +355,15 @@ class Service:
         oid, expires = secrets.token_hex(8), now() + dt.timedelta(days=7)
         authz = []
         for ident in clean:
-            reuse = next((i for i, a in self.state["authz"].items() if a["account"] == account and a["identifier"] == ident
+            wild = ident["type"] == "dns" and ident["value"].startswith("*.")
+            subject = {"type": ident["type"], "value": ident["value"][2:] if wild else ident["value"]}  # RFC 8555 7.1.3: the authorization is for the base name
+            reuse = next((i for i, a in self.state["authz"].items() if a["account"] == account and a["identifier"] == subject and bool(a.get("wildcard")) == wild
                           and a["status"] == "valid" and a["expires"] > _iso(now())), None)
             if not reuse:
                 reuse = secrets.token_hex(8)
-                self.state["authz"][reuse] = {"account": account, "identifier": ident, "status": "pending", "expires": _iso(now() + dt.timedelta(days=30)),
-                                              "token": b64u(secrets.token_bytes(32)), "challenge_status": "pending", "error": None, "validated": None}
+                self.state["authz"][reuse] = {"account": account, "identifier": subject, "status": "pending", "expires": _iso(now() + dt.timedelta(days=30)),
+                                              "token": b64u(secrets.token_bytes(32)), "challenge_status": "pending", "error": None, "validated": None,
+                                              "wildcard": wild, "dns_token": b64u(secrets.token_bytes(32)), "dns_status": "pending", "dns_error": None, "dns_validated": None}
             authz.append(reuse)
         self.state["orders"][oid] = {"account": account, "status": "pending", "identifiers": clean, "authorizations": authz,
                                      "expires": _iso(expires), "cert": None, "error": None}
@@ -397,16 +421,55 @@ class Service:
             c["error"] = a["error"]
         return c
 
+    def dns_view(self, aid):
+        a = self.state["authz"][aid]
+        for field, value in (("dns_token", b64u(secrets.token_bytes(32))), ("dns_status", "pending"), ("dns_error", None), ("dns_validated", None)):
+            a.setdefault(field, value)  # an authorization made before dns-01 existed gets its token the first time it is looked at
+        c = {"type": "dns-01", "url": self.url("chall", aid + "-dns"), "token": a["dns_token"], "status": a["dns_status"]}
+        if a["dns_validated"]:
+            c["validated"] = a["dns_validated"]
+        if a["dns_error"]:
+            c["error"] = a["dns_error"]
+        return c
+
+    def challenge_views(self, aid):
+        a = self.state["authz"][aid]
+        views = [] if a.get("wildcard") else [self.challenge_view(aid)]
+        if self.dns_command and a["identifier"]["type"] == "dns":
+            views.append(self.dns_view(aid))
+        return views
+
     def authz(self, aid, p, account):
         a = self._own("authz", aid, account)
         if p and p.get("status") == "deactivated":
             a["status"] = "deactivated"
             self.save()
-        return 200, {"status": a["status"], "expires": a["expires"], "identifier": a["identifier"], "challenges": [self.challenge_view(aid)]}, {
-            "Link": f'<{self.url("authz", aid)}>;rel="up"'}
+        body = {"status": a["status"], "expires": a["expires"], "identifier": a["identifier"], "challenges": self.challenge_views(aid)}
+        if a.get("wildcard"):
+            body["wildcard"] = True
+        return 200, body, {"Link": f'<{self.url("authz", aid)}>;rel="up"'}
 
     def challenge(self, aid, p, account):
+        dns = aid.endswith("-dns")
+        aid = aid[:-4] if dns else aid
         a = self._own("authz", aid, account)
+        if dns:
+            if not self.dns_command or a["identifier"]["type"] != "dns":
+                raise Problem("malformed", "no such resource", 404)
+            self.dns_view(aid)
+            if p is not None and a["dns_status"] == "pending" and a["status"] == "pending":
+                if self.validate_async and not self.checking.acquire(blocking=False):
+                    raise Problem("rateLimited", "too many validations are running; try again in a minute", 429)
+                a["dns_status"] = "processing"
+                self.save()
+                key_authz = f"{a['dns_token']}.{self.state['accounts'][account]['thumbprint']}"
+                if self.validate_async:
+                    threading.Thread(target=self._validate_then_release, args=(aid, key_authz, True), daemon=True).start()
+                else:
+                    self.validate_dns(aid, key_authz)
+            return 200, self.dns_view(aid), {"Link": f'<{self.url("authz", aid)}>;rel="up"'}
+        if a.get("wildcard"):
+            raise Problem("malformed", "no such resource", 404)
         if p is not None and a["challenge_status"] == "pending" and a["status"] == "pending":
             if self.validate_async and not self.checking.acquire(blocking=False):
                 raise Problem("rateLimited", "too many validations are running; try again in a minute", 429)
@@ -419,11 +482,71 @@ class Service:
                 self.validate(aid, key_authz)
         return 200, self.challenge_view(aid), {"Link": f'<{self.url("authz", aid)}>;rel="up"'}
 
-    def _validate_then_release(self, aid, key_authz):
+    def _validate_then_release(self, aid, key_authz, dns=False):
         try:
-            self.validate(aid, key_authz)
+            (self.validate_dns if dns else self.validate)(aid, key_authz)
         finally:
             self.checking.release()
+
+    def dns_txt(self, name):
+        """The TXT values at _acme-challenge.NAME, from the operator's lookup command (run without a shell, with a scrubbed environment, a time limit and an output limit)."""
+        fqdn = f"_acme-challenge.{name}"
+        env = {k: v for k, v in os.environ.items() if k in DNS_ENV or k.startswith("ACXELIN_DNS_")}
+        try:
+            proc = subprocess.Popen([*self.dns_command, fqdn], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        except OSError as e:
+            log.warning("dns-01: cannot start the lookup command %s: %s", self.dns_command[0], e)
+            raise Lookup(f"could not look up {fqdn} (see the CA's log)") from None
+        timer = threading.Timer(self.dns_timeout, proc.kill)
+        timer.start()
+        try:
+            out = proc.stdout.read(DNS_OUTPUT_LIMIT + 1)
+            if len(out) > DNS_OUTPUT_LIMIT:
+                proc.kill()
+                log.warning("dns-01: the lookup command answered with more than %d bytes for %s", DNS_OUTPUT_LIMIT, fqdn)
+                raise Lookup(f"could not look up {fqdn} (see the CA's log)")
+            proc.wait(timeout=5)
+            err = proc.stderr.read(300).decode(errors="replace").strip()
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise Lookup(f"could not look up {fqdn} (see the CA's log)") from None
+        finally:
+            timer.cancel()
+            proc.kill()
+            proc.stdout.close()
+            proc.stderr.close()
+        if proc.returncode:
+            log.warning("dns-01: the lookup command failed for %s (exit %s): %s", fqdn, proc.returncode, err or "no message")
+            raise Lookup(f"could not look up {fqdn} (see the CA's log)")
+        values = [line.strip().strip('"') for line in out.decode(errors="replace").splitlines()[:100]]
+        return [v for v in values if v]
+
+    def validate_dns(self, aid, key_authz):
+        a = self.state["authz"][aid]
+        name = a["identifier"]["value"]
+        expected = b64u(hashlib.sha256(key_authz.encode()).digest())
+        try:
+            values = self.dns_txt(name)
+            if expected in values:
+                ok, detail = True, ""
+            elif values:
+                ok, detail, kind = False, f"the TXT records at _acme-challenge.{name} do not contain the expected value", "incorrectResponse"
+            else:
+                ok, detail, kind = False, f"no TXT record at _acme-challenge.{name}", "dns"
+        except Lookup as e:
+            ok, detail, kind = False, str(e), "dns"
+        with self.lock:
+            if a["status"] != "pending":
+                return
+            if a.get("expires") and a["expires"] <= _iso(now()):
+                ok, detail, kind = False, "the authorization expired during validation", "unauthorized"
+            a["dns_status"] = a["status"] = "valid" if ok else "invalid"
+            if ok:
+                a["dns_validated"] = _iso(now())
+            else:
+                a["dns_error"] = {"type": ERR + kind, "detail": detail}
+            self.save()
+        log.info("dns-01 for %s: %s", name, "valid" if ok else detail)
 
     def validate(self, aid, key_authz):
         a = self.state["authz"][aid]

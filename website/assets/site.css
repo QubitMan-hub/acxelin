@@ -275,3 +275,23 @@ footer a { color: var(--muted); }
 .steps details[open] summary { margin-bottom: 8px; }
 .steps details pre { margin-block: 6px 8px; }
 .steps > li > ul { margin: 0 0 10px; padding-left: 1.3em; display: grid; gap: 4px; }
+
+/* What Readiness tracks: the five kinds of asset, and the algorithm catalogue with its verdicts. */
+.kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 18px; }
+@media (min-width: 1100px) { .kinds { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.kind { background: var(--pane); border: 1px solid var(--rule); border-top: 3px solid var(--amber); border-radius: 8px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.kind h3 { font-size: 1.05rem; }
+.kind p { margin: 0; font-size: .92rem; }
+.kind .recorded { color: var(--muted); font-size: .86rem; }
+.kind .recorded span { display: block; font: 500 .74rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--ink); }
+.kind .count { font: 400 .82rem/1.4 var(--mono); color: var(--ink); border-top: 1px solid var(--rule); padding-top: 8px; margin-top: auto; }
+.catalog-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 14px 0 8px; font-size: .88rem; color: var(--muted); }
+#algorithms ~ h3, section[aria-labelledby="algorithms"] h3 { margin-top: 28px; margin-bottom: 6px; }
+.catalog-legend > span { display: inline-flex; align-items: center; gap: 7px; }
+table.catalog td:first-child { white-space: nowrap; }
+.verdict-chip { display: inline-flex; align-items: center; gap: 7px; font-size: .86rem; white-space: nowrap; }
+.verdict-chip.ok { color: var(--ok); }
+.verdict-chip.bad { color: var(--bad); }
+.verdict-chip.exposed { color: var(--exposed); }
+.verdict-chip.grover { color: var(--muted); }
+.key.grover { background: var(--pane); outline: 1px solid var(--rule-strong); outline-offset: -1px; }

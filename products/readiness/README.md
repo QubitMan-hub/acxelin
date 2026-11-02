@@ -54,7 +54,8 @@ Grades, accepted groups and SSH algorithms need nothing extra. To read the certi
 
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
 - Live probes are paced (2 new connections a second to a host and port, one at a time), so scanning many endpoints on one host is slow; `--aggressive` removes the pacing. Pacing is not an authorisation to scan hosts you do not own.
-- The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
+- The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code. For code it was never tuned on, see the held-out evaluation (`heldout/README.md`): on OWASP Benchmark for Java v1.2, precision 0.89 and recall 0.85 for its weak-cryptography labels, with the protocol, intervals and what it does not show.
+- A live endpoint given by IP address is asked for with no server name. A server that picks its certificate by name (a load balancer, or an Acxelin edge with `sni` routes) may then refuse or show another certificate; give the name it serves instead.
 
 More: `docs/manual.md`, `docs/upgrade.md` (coming from Wolf Pack) and `docs/threat-model.md`.
 

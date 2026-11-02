@@ -1,6 +1,7 @@
 name: dependency-audit
 on:
   push:
+    branches: [main]  # branches other than main run once, as a pull request
     paths: ["core/pyproject.toml", "products/*/pyproject.toml", ".github/workflows/dependency-audit.yml"]
   schedule:
     - cron: "23 4 * * 1"

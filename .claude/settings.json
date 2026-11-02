@@ -1,8 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx skills add tt-a1i/archify:*)",
-      "Bash(npx -y skills add tt-a1i/archify:*)",
       "Bash(npx skills add tt-a1i/impeccable:*)",
       "Bash(npx -y skills add tt-a1i/impeccable:*)",
       "Bash(npx skills add tt-a1i/ponytail:*)",

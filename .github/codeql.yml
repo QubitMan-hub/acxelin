@@ -1,8 +1,7 @@
 # Deliberately weak cryptography that Acxelin Readiness's quality corpus and example project must find, not product code;
-# tests, which use TLS 1.0, world-readable files and the like on purpose to prove the products refuse or report them; and
-# third-party agent skills vendored for Claude Code sessions (.claude/skills). None of these is shipped.
+# and tests, which use TLS 1.0, world-readable files and the like on purpose to prove the products refuse or report them.
+# None of these is shipped.
 paths-ignore:
-  - .claude/skills
   - products/readiness/bench/corpus
   - products/readiness/examples
   - '**/tests'

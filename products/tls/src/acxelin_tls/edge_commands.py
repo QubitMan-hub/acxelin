@@ -30,12 +30,14 @@ def cmd_tls(a):
         return 0
     host, port = hostport(a.target, "")
     ctx = tls.client_context(policies.policy(a.policy), a.ca, a.cert, a.key, env_passphrase(a.key_passphrase_env))
+    ctx.request_staple = True
     try:
         conn = tls.connect(host, port, ctx, a.server_name, a.timeout)
     except socket.gaierror as e:
         raise tls.TLSError(f"{host}: {explain(e)}; connect by address and name the certificate with --server-name {host}") from None
     with conn:
         out = conn.info()
+        out["ocsp"] = _staple(conn)
         if a.send is None and (refused := _refused(conn)):
             raise tls.TLSError(refused)
         if a.send is not None:
@@ -53,6 +55,23 @@ def cmd_tls(a):
             out["reply"] = reply.decode(errors="replace")
     show(out, a.json)
     return 0
+
+
+def _staple(conn):
+    """What the OCSP answer the server stapled says about its certificate, or that it stapled none."""
+    from acxelin_core.pki import CAError, ocsp
+    der, chain = conn.staple, conn.peer_chain()
+    if not der:
+        return "none stapled"
+    if len(chain) < 2:
+        return "stapled, but not checked (the server's chain was not verified)"
+    try:
+        status = ocsp.check(der, chain[0], chain[1])
+    except CAError as e:
+        return f"stapled but not usable: {e}"
+    from cryptography.x509 import ocsp as x509_ocsp
+    until = x509_ocsp.load_der_ocsp_response(der).next_update_utc
+    return f"{status.name.lower()}, signed by the CA, valid until {until:%Y-%m-%d %H:%M} UTC"
 
 
 def _refused(conn):

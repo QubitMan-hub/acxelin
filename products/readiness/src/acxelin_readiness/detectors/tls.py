@@ -3,6 +3,7 @@ import socket
 import ssl
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 from .. import pacing
 from ..catalog import lookup, curve, pq_from_text, HYBRIDS
@@ -18,6 +19,24 @@ def _ctx():
     c.check_hostname = False
     c.verify_mode = ssl.CERT_NONE
     return c
+
+
+def _openssl_35():
+    from acxelin_core import openssl
+    return openssl.available() is None
+
+
+def _post_quantum_handshake(host, port, timeout):
+    """The group and certificate from a real TLS 1.3 handshake through OpenSSL 3.5, for a server that offers only post-quantum key
+    exchange (which the TLS library Python ships with cannot complete). None when OpenSSL 3.5 is not here or the handshake fails."""
+    if not _openssl_35():
+        return None
+    from acxelin_core.openssl import TLSError
+    from ..endpoints import BROWSER_GROUPS, _hello
+    try:
+        return _hello(host, port, BROWSER_GROUPS, host, timeout)
+    except (TLSError, OSError):
+        return None
 
 
 def _handshake(host, port, ctx, timeout):
@@ -82,11 +101,18 @@ def probe(target, timeout=6.0):
     if not version and ("error" in g or not g.get("supported")):
         ep["error"] = failed
         return sights, arts, [f"{loc}: handshake failed ({failed})"], ep
+    if not version and (pq := _post_quantum_handshake(host, port, timeout)):
+        group, cert = pq
+        version = ep["version"] = "TLSv1.3"
+        ep["group"] = group
+        add(lookup("TLSv1.3"), f"TLSv1.3 {group}, completed through OpenSSL 3.5", negotiated=True)
+        der = cert.public_bytes(serialization.Encoding.DER) if cert else None
     if not version:
         ep["version"] = "TLSv1.3"
         add(lookup("TLSv1.3"), "server answered a TLS 1.3 HelloRetryRequest", negotiated=True)
         notes.append(f"{loc}: the local OpenSSL could not finish a handshake ({failed}); key-exchange groups come from the "
-                     "raw ClientHello probe, and the certificate, which TLS 1.3 encrypts, was not read")
+                     "raw ClientHello probe, and the certificate, which TLS 1.3 encrypts, was not read"
+                     + ("" if _openssl_35() else ". With OpenSSL 3.5 or newer (ACXELIN_OPENSSL) it would be"))
     if "error" in g:
         notes.append(f"{loc}: group probe failed ({g['error']})")
     else:
