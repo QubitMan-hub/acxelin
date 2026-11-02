@@ -221,6 +221,10 @@ class Gateway:
                 self.counts["revoked_refused" if revoked else "refused"] += 1
                 log.warning("keyring: refused %s from %s: %s", cn, addr[0], e)
                 self.event("refused", cn, source=addr[0], reason="revoked" if revoked else "revocation list unusable")
+                try:
+                    read_line(conn)  # closing with the laptop's request unread makes Windows reset the connection and drop the refusal
+                except tls.TLSError:
+                    pass
                 agreement.send(conn, {"ok": False, "reason": "revoked" if revoked else "crl"})
                 return
         msg = read_line(conn)

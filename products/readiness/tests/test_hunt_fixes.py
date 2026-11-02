@@ -5,6 +5,8 @@ workspace, other tools' line numbers, and the 200-repository limit."""
 import datetime as dt
 import json
 
+import pytest
+
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec
@@ -133,3 +135,34 @@ def test_a_damaged_saved_deadline_choice_does_not_break_the_overview(tmp_path):
     (tmp_path / "home" / "workspace.json").write_text(json.dumps(data))
     o = r("GET", "/api/overview")
     assert o["board"]["next_deadline"]["year"] == 2030
+
+
+def test_a_workspace_read_while_another_thread_replaces_the_file_waits_instead_of_failing(tmp_path, monkeypatch):
+    """On Windows, os.replace over a file that is being opened (or opening a file mid-replace) raises PermissionError for a moment."""
+    import pathlib
+
+    from acxelin_readiness.workspace import ProjectStore
+    store = ProjectStore(tmp_path / "workspace.json")
+    store.update(lambda d: d["registrations"].setdefault("k", ["a"]))
+    real, calls = pathlib.Path.open, []
+
+    def flaky(self, *a, **k):
+        if self.name == "workspace.json" and len(calls) < 3:
+            calls.append(1)
+            raise PermissionError(13, "Permission denied")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "open", flaky)
+    assert store.read()["registrations"] == {"k": ["a"]} and len(calls) == 3
+
+
+def test_a_workspace_that_stays_unreadable_is_reported_not_retried_forever(tmp_path, monkeypatch):
+    import pathlib
+
+    from acxelin_readiness.workspace import ProjectStore
+    store = ProjectStore(tmp_path / "workspace.json")
+    store.update(lambda d: None)
+    monkeypatch.setattr(pathlib.Path, "open", lambda self, *a, **k: (_ for _ in ()).throw(PermissionError(13, "Permission denied")))
+    monkeypatch.setattr("acxelin_readiness.workspace.time.sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        store.read()

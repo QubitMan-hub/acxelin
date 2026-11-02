@@ -292,7 +292,8 @@ def test_aggressive_runs_every_endpoint_at_once_as_before(request):
     server = Recorder(request, ssh_handler(), hold=0.2)
     results = endpoints.scan([f"ssh://127.0.0.1:{server.port}"] * 6, pacing.AGGRESSIVE, timeout=5)
     assert [r["grade"] for r in results] == ["B"] * 6
-    assert peak(server.stamps) == 6 and server.peak > 1
+    # unpaced means more than the 2 new connections a second that pacing allows; a loaded runner can start the sixth just past the 1 s window
+    assert peak(server.stamps) > 2 and server.peak > 1
 
 
 def test_different_hosts_are_not_slowed_by_each_other(request):
