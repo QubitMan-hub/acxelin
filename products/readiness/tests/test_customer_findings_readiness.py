@@ -26,3 +26,13 @@ def test_scan_reads_the_certificate_of_a_post_quantum_only_server(tmp_path, requ
     assert any("ML-DSA" in (d.algo or "") for d in sights), [d.algo for d in sights]
     assert not any("was not read" in n for n in notes), notes
     assert ep.get("version") == "TLSv1.3", ep
+
+
+def test_a_quiet_scan_that_fails_its_gate_still_says_why(tmp_path, capsys):
+    """`-q` in CI exited 2 with nothing printed: the job failed and nobody could see what for."""
+    from acxelin_readiness import cli
+    (tmp_path / "Pay.java").write_text('class Pay { Object c = javax.crypto.Cipher.getInstance("DES/ECB/PKCS5Padding"); }\n')
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["scan", str(tmp_path), "-o", str(tmp_path / "out"), "--fail-on", "high", "-q"])
+    assert stop.value.code == 2
+    assert "failing: " in capsys.readouterr().err

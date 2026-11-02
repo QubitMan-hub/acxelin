@@ -256,15 +256,14 @@ def main(argv=None):
         print(report.terminal(r))
         print(f"\nwrote {out / 'cbom.json'}, {out / 'report.html'}, {out / 'readiness.sarif'}, {out / 'findings.json'}, {out / 'relationships.json'}")
     if a.fail_on_policy and r.compliance and not r.compliance["passed"]:
-        if not a.quiet:
-            print(f"\nfailing: {r.compliance['overdue']} policy rule(s) already broken")
+        print(f"\nfailing: {r.compliance['overdue']} policy rule(s) already broken", file=sys.stderr if a.quiet else sys.stdout)
         sys.exit(2)
     if a.fail_on:
         bad = TIERS[:TIERS.index(a.fail_on) + 1]
         hits = [x for x in r.assets if x.tier in bad and (x.new_files or not a.baseline)]
         if hits:
-            if not a.quiet:
-                print(f"\nfailing: {len(hits)} asset(s) at {a.fail_on} or worse" + (" introduced since the baseline" if a.baseline else ""))
+            print(f"\nfailing: {len(hits)} asset(s) at {a.fail_on} or worse" + (" introduced since the baseline" if a.baseline else ""),
+                  file=sys.stderr if a.quiet else sys.stdout)
             sys.exit(2)
     return 0
 

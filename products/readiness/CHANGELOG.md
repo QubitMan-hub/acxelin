@@ -2,7 +2,7 @@
 
 ## 1.1.1
 
-- Found in a first-time customer test: `scan --tls` completes the handshake through OpenSSL 3.5 (`ACXELIN_OPENSSL`) when Python's TLS library cannot, so it reads the certificate of post-quantum-only servers (an Acxelin edge with policy cnsa2 was reported without its certificate), as the README already said; without OpenSSL 3.5 the note says it would. The README points to the held-out evaluation and says that endpoints given by IP address are asked for with no server name.
+- Found in a first-time customer test: `scan --tls` completes the handshake through OpenSSL 3.5 (`ACXELIN_OPENSSL`) when Python's TLS library cannot, so it reads the certificate of post-quantum-only servers (an Acxelin edge with policy cnsa2 was reported without its certificate), as the README already said; without OpenSSL 3.5 the note says it would. The README points to the held-out evaluation and says that endpoints given by IP address are asked for with no server name. A quiet scan (`-q`) whose `--fail-on` or `--fail-on-policy` gate fails says why on stderr; before, CI saw only exit code 2.
 - `--changed-since` no longer reports every tracked file as changed on Windows: with `core.autocrlf` the index holds LF while the file on disk has CRLF, which the hash check added in this release counted as an edit (the whole repository was scanned). A real edit is still a change.
 - The project workspace read waits out the brief PermissionError Windows raises while another thread replaces the file (a console overview failed with it on Windows).
 - Security: a GitHub download follows redirects only to the same host or to GitHub's own hosts, never elsewhere on the
