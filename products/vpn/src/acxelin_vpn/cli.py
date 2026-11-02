@@ -305,7 +305,7 @@ def cmd_access(a):
     leases = json.loads(state.read_text(encoding="utf-8")) if state.exists() else {}
     if a.action == "show":
         if not cfg.access:
-            print("nobody is restricted: every user gets all the routes. To limit someone, add her to [wireguard.access] (see the manual)")
+            print("nobody is restricted: every user gets all the routes. To limit someone, add them to [wireguard.access] (see the manual)")
             return 0
         for name, nets in sorted(cfg.access.items()):
             print(f"{name}: {', '.join(nets)} (tunnel address {leases.get(name, 'not leased yet')})")
@@ -458,7 +458,8 @@ def parser():
     p.add_argument("--cbom", default="cbom.json", metavar="FILE", help="where to write it (default: cbom.json)")
     p.add_argument("--name", default="Acxelin VPN", help="what the CBOM is about, e.g. \"Acme VPN\" (default: Acxelin VPN)")
     p = v.add_parser("access", help="what each person may reach through the gateway: show it, or print the packet-filter rules that enforce it")
-    p.add_argument("action", choices=["show", "rules"], help="show: who is limited to what; rules: the nftables text for the leases the gateway holds now")
+    p.add_argument("action", nargs="?", default="show", choices=["show", "rules"],
+                   help="show (the default): who is limited to what; rules: the nftables text for the leases the gateway holds now")
     p.add_argument("--config", required=True, help="the gateway configuration (see config/gateway.toml)")
     for name, c in v.choices.items():
         if name not in ("doctor", "inventory", "access"):

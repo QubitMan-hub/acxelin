@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Found in a first-time customer test: `doctor` fails a route whose certificate its policy cannot use (cnsa2 with an ML-DSA-65 certificate passed `doctor` and then stopped the edge), and warns when a stapled OCSP answer is missing or ends within a day; `ca renew` says when the folder the certificate was issued to still holds the old one and how to renew in place; `connect` shows the stapled OCSP answer.
 - `ca init --pkcs11-module LIBRARY --pkcs11-token LABEL --pkcs11-key LABEL [--pkcs11-generate]` keeps the CA key in a PKCS#11 token (needs core with `pkcs11`; the PIN is read from `ACXELIN_PKCS11_PIN`).
 - Short-lived certificates: `ca issue --hours N` (and `ca renew --hours N`) issue certificates that live for hours. `ca maintain` now renews a certificate in the last 30 days of its life, or in the last third if its life is shorter, and `--renew-within-hours` sets the window in hours (the old `--renew-within DAYS` still works). A renewal of a certificate that lived up to 7 days keeps its lifetime; longer ones still renew for 397 days. `ca maintain` says when nothing needed renewing, and `doctor` says how often `ca maintain` must run and warns about a certificate that is due.
 - **Behaviour change:** `doctor` no longer counts every certificate expiring within 30 days as a problem; it warns about certificates that are due for renewal (in their last 30 days, or the last third of a shorter life).

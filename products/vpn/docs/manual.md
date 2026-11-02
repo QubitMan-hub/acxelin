@@ -216,7 +216,7 @@ The file holds the enrollment address, the CA fingerprint the laptop will trust,
 
 ### Step 6: Alice connects
 
-Alice installs the desktop app (section 3), opens it, chooses **Choose the invitation file**, picks `alice.acxinvite`, chooses a passphrase for this computer's key, and presses **Connect**. Her system asks once for administrator approval, because the VPN changes the computer's network. The window then says **Protected**, and the tray shield turns green.
+Alice installs the desktop app (section 3), opens it, chooses **Choose the invitation file**, picks `alice.acxinvite`, chooses a passphrase for this computer's key, and presses **Connect**. Alice's computer asks once for administrator approval, because the VPN changes the computer's network. The window then says **Protected**, and the tray shield turns green.
 
 Without the app, in an administrator terminal: `acxelin-vpn join alice.acxinvite`. It enrolls (the key is made on the laptop, never leaves it, and is stored encrypted) and connects.
 
@@ -258,7 +258,7 @@ By default everyone in `users` is told every route in `routes`. To give a person
 
 Each network must lie inside `routes`, the person must be in `users` (if you use it), and IPv4 only. People with no entry get all routes, as before. Check the result with `acxelin-vpn access show --config gateway.toml`.
 
-Two things make it true. The person is told only her networks at her next key agreement. And on a Linux gateway that manages its interface, the gateway loads packet-filter rules (nftables) that drop everything from her tunnel address that is not going to one of her networks, including other people's addresses and the gateway itself. The rules are loaded before she is told her address; if they cannot be loaded she is refused, and the gateway will not start without `nft` when anyone is restricted. A change to the table takes effect at once, and a change whose rules cannot be loaded is not applied.
+Two things make it true. The person is told only their networks at their next key agreement. And on a Linux gateway that manages its interface, the gateway loads packet-filter rules (nftables) that drop everything from their tunnel address that is not going to one of their networks, including other people's addresses and the gateway itself. The rules are loaded before the person is told their address; if they cannot be loaded the person is refused, and the gateway will not start without `nft` when anyone is restricted. A change to the table takes effect at once, and a change whose rules cannot be loaded is not applied.
 
 Limits: the enforcement is Linux only. Where `manage_interface = false` (a gateway you run yourself, or on another platform) the gateway cannot load rules: run `acxelin-vpn access rules --config gateway.toml` and load the output into your own firewall, and re-run it when someone gets their first address. Without the rules the routes are advice, which anyone can bypass. The rules apply to traffic that crosses the gateway; they do not look inside it. Full-tunnel gateways cannot use `access`.
 

@@ -2,7 +2,9 @@
 gateway's ML-DSA certificate, a revocation list, and a checked gateway.toml with absolute paths, then the three commands
 that start enrollment, start the gateway and invite the first person."""
 import ipaddress
+import os
 import re
+import shlex
 from pathlib import Path
 
 from acxelin_core.files import write
@@ -39,6 +41,14 @@ def gateway(folder, name, address=None, pool="10.99.0.0/24", routes=(), dns=(), 
     return conf
 
 
+def _arg(path):
+    """A path as it must be typed: quoted when it has spaces or other characters a shell splits on (PowerShell quoting on Windows)."""
+    text = str(path)
+    if os.name == "nt":
+        return f'"{text}"' if any(c in text for c in ' &()[]{}^=;!\'+,`~$') else text
+    return shlex.quote(text)
+
+
 def next_steps(conf, name):
     d = conf.parent
     return (f"Gateway {name} is set up in {d}:\n"
@@ -47,10 +57,10 @@ def next_steps(conf, name):
             f"  gateway.toml  its settings, checked\n\n"
             f"Next, on this machine:\n"
             f"  1. Enrollment, where invitations are redeemed (port 9443):\n"
-            f"     acxelin-vpn ca serve --dir {d / 'pki'} --cert {d / 'gateway' / 'chain.pem'} --key {d / 'gateway' / 'key.pem'}\n"
+            f"     acxelin-vpn ca serve --dir {_arg(d / 'pki')} --cert {_arg(d / 'gateway' / 'chain.pem')} --key {_arg(d / 'gateway' / 'key.pem')}\n"
             f"  2. The gateway (as root, with WireGuard installed):\n"
-            f"     acxelin-vpn gateway --config {conf}\n"
+            f"     acxelin-vpn gateway --config {_arg(conf)}\n"
             f"  3. Invite someone, and send them the file:\n"
-            f"     acxelin-vpn invite alice --dir {d / 'pki'} --enroll https://{name}:9443 --gateway {name}:7443\n"
-            f"Laptops need to reach UDP 51820 and TCP 7443 and 9443. `acxelin-vpn console --ca {d / 'pki'}` shows who is connected once\n"
+            f"     acxelin-vpn invite alice --dir {_arg(d / 'pki')} --enroll https://{name}:9443 --gateway {name}:7443\n"
+            f"Laptops need to reach UDP 51820 and TCP 7443 and 9443. `acxelin-vpn console --ca {_arg(d / 'pki')}` shows who is connected once\n"
             f"you add the gateway's status address, http://127.0.0.1:9101.")

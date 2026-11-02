@@ -3,9 +3,12 @@ import datetime as dt
 import os
 from pathlib import Path
 
+from acxelin_core import tls
 from acxelin_core.config import read_toml
 from acxelin_core.pki import CA, CAError, encrypted, now, signed_by
 from cryptography import x509
+
+from . import policies
 
 
 def _private(path):
@@ -105,10 +108,20 @@ def config(path):
     if "edge" not in doc:
         return [("fail", f"{path}: no [[edge]] section")]
     try:
-        load_config(path)
+        routes, _ = load_config(path)
     except (OSError, ValueError, CAError) as e:
         return [("fail", f"{path}: {e}")]
-    out = [("ok", f"{path}: edge configuration loads")]
+    out = []
+    for r in routes:
+        if r.mode == "terminate" and r.cert:
+            try:
+                tls._check_certificate(policies.policy("transition" if r.shadow else r.policy), r.cert)
+            except tls.TLSError as e:
+                out.append(("fail", f"{path} edge {r.name}: {e}"))
+        if r.ocsp_staple:
+            out += _staple(f"{path} edge {r.name}", r)
+    if not any(level == "fail" for level, _ in out):
+        out.insert(0, ("ok", f"{path}: edge configuration loads"))
     keys = ("cert", "key", "ca", "crl", "fallback_cert", "fallback_key")
     for i, r in enumerate(doc["edge"]):
         where = f"{path} edge {r.get('name', i + 1)}"
@@ -120,6 +133,24 @@ def config(path):
         if r.get("crl") and not r.get("crl_url"):
             out.append(("warn", f"{where}: the CRL is a local file; unless this machine is the CA, set crl_url so revocations arrive"))
     return out
+
+
+def _staple(where, r):
+    """The OCSP answer an edge staples: present, for its certificate, and not ending within a day (a long weekend)."""
+    from acxelin_core.pki.ocsp import StapleFile
+    try:
+        chain = x509.load_pem_x509_certificates(Path(r.cert).read_bytes())
+    except (OSError, ValueError):
+        return []
+    if len(chain) < 2:
+        return []
+    follow = StapleFile(r.ocsp_staple, chain[1], chain[0])
+    if follow() is None:
+        return [("warn", f"{where}: no OCSP answer is stapled: {follow.problem}. Run `acxelin-tls ca ocsp` (daily)")]
+    left = follow.kept[1].next_update_utc - dt.datetime.now(dt.timezone.utc)
+    if left < dt.timedelta(days=1):
+        return [("warn", f"{where}: the stapled OCSP answer ends in {max(0, int(left.total_seconds() // 3600))} hours; run `acxelin-tls ca ocsp` again")]
+    return [("ok", f"{where}: the stapled OCSP answer is valid for {left.days} more days" if left.days else f"{where}: the stapled OCSP answer is valid for {int(left.total_seconds() // 3600)} more hours")]
 
 
 def prerequisites():

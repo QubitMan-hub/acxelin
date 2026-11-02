@@ -222,6 +222,9 @@ class Router:
     def add(self, server, sni=(), alpn=()):
         with self.lock:
             self.routes.append((server, tuple(n.lower() for n in sni), tuple(alpn)))
+        host = self.sock.getsockname()[0] or "*"
+        log.info("%s: on %s:%d, for %s and %s", getattr(server, "name", "route"), f"[{host}]" if ":" in host else host, self.port,
+                 f"server names {', '.join(sni)}" if sni else "any server name", f"protocols {', '.join(alpn)}" if alpn else "any protocol")
 
     def remove(self, server):
         with self.lock:

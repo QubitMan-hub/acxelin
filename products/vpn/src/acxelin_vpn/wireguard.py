@@ -242,7 +242,7 @@ class Gateway:
                 ip = self.lease(cn)
             except CAError as e:
                 return self.refuse(conn, cn, addr, str(e))
-            if cn in self.cfg.access:  # her restriction must be in force before she hears her address
+            if cn in self.cfg.access:  # the restriction must be in force before the person hears their address
                 try:
                     self.enforce(self.cfg)
                 except access.AccessError as e:

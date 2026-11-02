@@ -203,7 +203,8 @@ class CA:
         """The one certificate whose serial is `serial` or starts with it; at least 8 hex characters, so an empty or tiny prefix
         can never pick a certificate by accident."""
         if not isinstance(serial, str) or not re.fullmatch(r"[0-9a-fA-F]{8,40}", serial.strip()):
-            raise CAError(f"a serial is written in hex, at least its first 8 characters (as `ca list` shows them), not {serial!r}")
+            raise CAError("that is not a serial: a serial is written in hex, at least its first 8 characters (as `ca list` shows them). "
+                          "What was typed is not repeated here, in case it was something else, such as a passphrase")
         serial = serial.strip().lower()
         match = [r for r in self.records() if r.serial == serial or r.serial.startswith(serial)]
         if len(match) != 1:

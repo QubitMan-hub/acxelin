@@ -11,7 +11,9 @@ def build(cls, d, where, **extra):
     fields = cls.__dataclass_fields__
     unknown = set(d) - set(fields)
     if unknown:
-        raise ValueError(f"{where}: unknown settings {', '.join(sorted(unknown))}")
+        import difflib
+        hints = [f"{u} (did you mean {m[0]}?)" if (m := difflib.get_close_matches(u, fields, 1, 0.8)) else u for u in sorted(unknown)]
+        raise ValueError(f"{where}: unknown settings {', '.join(hints)}")
     missing = [n for n, f in fields.items() if n not in d and n not in extra and f.default is MISSING and f.default_factory is MISSING]
     if missing:
         raise ValueError(f"{where}: missing {', '.join(missing)}")

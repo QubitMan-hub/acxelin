@@ -63,6 +63,9 @@ def cmd_ca(a):
             raise ValueError(f"{rec.common_name}'s key is encrypted: renew with --key-passphrase-env so the new key is encrypted too")
         out, r = ca.renew(a.serial, a.days, a.algorithm, a.out, env_passphrase(a.key_passphrase_env), hours=a.hours)
         print(f"renewed as {r.serial}, valid until {r.not_after}, in {out}")
+        if rec.path and Path(rec.path).resolve() != Path(out).resolve():
+            print(f"{rec.path} still holds the old certificate, and an edge using it keeps serving it: point the edge at {out}, "
+                  f"or renew into the same folder with --out {rec.path} (`ca maintain` does that)")
     elif a.ca_cmd == "token":
         from acxelin_core.pki.est import create_token
         t = create_token(ca, a.common_name, a.kind, a.san, a.hours)

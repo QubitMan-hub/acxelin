@@ -240,7 +240,7 @@ Clients that ask can learn that the edge's own certificate is still good (or rev
 acxelin-tls ca ocsp --dir pki --cert shop/chain.pem --out shop/staple.der --hours 24
 ```
 
-then set `ocsp_staple = "shop/staple.der"` on the route. The route's `cert` must be the `chain.pem` that includes the CA. Run `ca ocsp` again before the answer ends (daily from cron is enough for 24 hours); the edge picks up the new file without a restart.
+then set `ocsp_staple = "shop/staple.der"` on the route. `acxelin-tls connect` shows what the edge staples, and `acxelin-tls doctor --config` warns when the answer is missing or ends within a day. The route's `cert` must be the `chain.pem` that includes the CA. Run `ca ocsp` again before the answer ends (daily from cron is enough for 24 hours); the edge picks up the new file without a restart.
 
 What it does and does not do:
 

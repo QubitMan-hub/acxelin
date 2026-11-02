@@ -31,7 +31,7 @@ def _check_certificate(p, cert):
         return
     found = algorithm_of(leaf.public_key())
     if found != p.cert_algorithm:
-        raise TLSError(f"the {p.name} policy needs a {p.cert_algorithm} certificate, but {cert} holds {found or 'a non-ML-DSA key'}; "
+        raise TLSError(f"the {p.name} policy needs an {p.cert_algorithm} certificate, but {cert} holds {found or 'a non-ML-DSA key'}; "
                        f"issue one with --algorithm {p.cert_algorithm}")
 
 

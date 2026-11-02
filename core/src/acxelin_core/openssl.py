@@ -414,8 +414,12 @@ class Connection:
             if result:
                 hint = " (the certificate names another host: connect by that name, or give it as the server name)" if result in (62, 64) else ""
                 raise TLSError(f"certificate rejected: {L_.X509_verify_cert_error_string(result).decode()}{hint}") from None
-            hint = " (is this port speaking TLS?)" if any(x in str(e) for x in ("packet length too long", "wrong version number")) else ""
-            raise TLSError(f"handshake failed: {e}{hint}") from None
+            text = str(e)
+            text = text if text.startswith("handshake failed") else f"handshake failed: {text}"
+            hint = " (is this port speaking TLS?)" if any(x in text for x in ("packet length too long", "wrong version number")) else \
+                " (the server hung up during the handshake: it may not serve this server name, or it refuses this client; its log says which)" \
+                if not self.ctx.server and any(x in text for x in ("peer closed", "unexpected eof")) else ""
+            raise TLSError(f"{text}{hint}") from None
 
     def _io(self, op, what, deadline=None, wait=True):
         L_ = lib()

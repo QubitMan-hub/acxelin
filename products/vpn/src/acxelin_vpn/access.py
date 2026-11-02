@@ -1,7 +1,7 @@
 """Per-user route sets: which networks each person may reach through the gateway, and the packet filter that makes it true.
 
-The key agreement tells a restricted person only her networks. That alone is advice: anyone can add a route by hand. The filter is the
-enforcement: for each restricted address (the one the gateway leased to her) every packet from the tunnel that is not going to one of her
+The key agreement tells a restricted person only their networks. That alone is advice: anyone can add a route by hand. The filter is the
+enforcement: for each restricted address (the one the gateway leased to them) every packet from the tunnel that is not going to one of their
 networks is dropped, whether it is forwarded to the office (forward) or aimed at the gateway itself (input). WireGuard already drops packets
 whose source is not the peer's own address, so the source cannot be faked. Linux only (nftables).
 """
@@ -72,7 +72,7 @@ def validate(cfg):
         if not isinstance(nets, list):
             raise ValueError(f"access for {name!r} must be a list of networks, for example [\"10.20.0.0/24\"]")
         if not nets:
-            raise ValueError(f"access for {name!r} needs at least one network; to give a person nothing, remove her from users")
+            raise ValueError(f"access for {name!r} needs at least one network; to give a person nothing, remove them from users")
         if len(nets) > 256:
             raise ValueError(f"access for {name!r} lists {len(nets)} networks; at most 256")
         for n in nets:
