@@ -13,7 +13,7 @@ from acxelin_core.config import env_passphrase
 from acxelin_core.http import JSON, METRICS, ConfigWatch, explain, restart, serve_http
 from acxelin_core.pki import CA, CAError, encrypted
 
-from . import NAME, __version__, audit, ca_commands, checks
+from . import NAME, __version__, audit, ca_commands, checks, evidence_commands
 from .charon import CharonError
 from .platforms import WGError
 
@@ -468,6 +468,7 @@ def parser():
     p.add_argument("--config", action="append", required=True, metavar="FILE", help="a site or gateway configuration (repeatable)")
     p.add_argument("--cbom", default="cbom.json", metavar="FILE", help="where to write it (default: cbom.json)")
     p.add_argument("--name", default="Acxelin VPN", help="what the CBOM is about, e.g. \"Acme VPN\" (default: Acxelin VPN)")
+    evidence_commands.add(v)
     p = v.add_parser("access", help="what each person may reach through the gateway: show it, or print the packet-filter rules that enforce it")
     p.add_argument("action", nargs="?", default="show", choices=["show", "rules"],
                    help="show (the default): who is limited to what; rules: the nftables text for the leases the gateway holds now")
