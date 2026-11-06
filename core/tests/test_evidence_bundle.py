@@ -139,7 +139,7 @@ def fake_dist(root, files):
     rows = []
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_text(text)
+        (root / name).write_bytes(text.encode())  # bytes, as a wheel installs them: write_text would turn \n into \r\n on Windows
         digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
         rows.append(f"{name},sha256={digest},{len(text)}")
     (info / "RECORD").write_text("\n".join(rows + ["demo-1.0.dist-info/RECORD,,"]) + "\n")
@@ -151,7 +151,7 @@ def test_installed_files_are_checked_against_the_wheels_record(tmp_path):
     dist = fake_dist(tmp_path, {"demo/__init__.py": "x = 1\n", "demo/core.py": "y = 2\n"})
     r = evidence.installed(dist)
     assert (r["name"], r["version"], r["files"], r["modified"], r["missing"]) == ("demo", "1.0", 2, [], [])
-    (tmp_path / "demo/core.py").write_text("y = 3  # patched on the server\n")
+    (tmp_path / "demo/core.py").write_bytes(b"y = 3  # patched on the server\n")
     (tmp_path / "demo/__init__.py").unlink()
     r = evidence.installed(dist)
     assert r["modified"] == ["demo/core.py"] and r["missing"] == ["demo/__init__.py"]
