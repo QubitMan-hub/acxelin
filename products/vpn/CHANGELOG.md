@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `evidence create` and `evidence verify`: one signed zip with a site's or gateway's build, configuration, `doctor`'s findings, certificates (public parts), its CBOM and what it reports while running (`--status`). Keys, passphrases and a partner's pre-shared keys never go in.
+
 ## 1.1.1
 
 - New profile `cnsa2-rfc9370`, the form NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) gives for IKEv2: a P-384 exchange, then ML-KEM-1024 (RFC 9370), with AES-256-GCM and SHA-384. The older `cnsa2` (ML-KEM-1024 alone) is not NSA's IKEv2 form; it still loads and works unchanged in 1.x so running tunnels stay up, and the gateway warns at start. Move both gateways of a tunnel to `cnsa2-rfc9370` together: the two profiles do not negotiate with each other.

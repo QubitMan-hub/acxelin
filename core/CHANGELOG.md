@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `acxelin_core.evidence`: evidence bundles. A zip whose `manifest.json` lists every file with its SHA-256, optionally signed with an ML-DSA key (`manifest.sig`, `signer.pem`); `verify` reads it in memory without unpacking, and reports any changed, added or removed file, a bad signature, or a signer that does not chain to the given CA. A part holding a private key is refused. `installed()` checks an installed distribution's files against its wheel's RECORD.
+
 ## 1.2.0
 
 - Found in a first-time customer test: a passphrase typed where a serial goes is no longer repeated in the error; a misspelled setting names the one that was probably meant; a client whose server hangs up mid-handshake gets one "handshake failed" and a hint (another server name, or a refused client); a route on a shared port logs its address and the names and protocols it serves; "needs an ML-DSA-87 certificate"; a full disk while issuing says the certificate is recorded and how to write its files or withdraw it, instead of only "No space left on device".

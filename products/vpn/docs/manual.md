@@ -309,6 +309,17 @@ and ChaCha20 are outside the suite), so a CNSA 2.0 network leaves it off.
 
 `acxelin-vpn inventory` writes what the VPN uses as a CycloneDX 1.6 CBOM: tunnels, key exchanges, ciphers, certificates, and whether a PSK and a PPK are present (type and size only, never a value). Any CBOM tool reads it.
 
+`evidence create` puts a site or gateway's build, configuration, doctor findings, certificates (public parts), this CBOM and what
+it reports while running into one zip, signed with an ML-DSA key from your CA; `evidence verify` checks every file and the signature:
+
+```
+acxelin-vpn evidence create --config hq.toml --status http://127.0.0.1:9101 --sign-cert auditor/chain.pem --sign-key auditor/key.pem --out hq-evidence.zip
+acxelin-vpn evidence verify hq-evidence.zip --ca pki/ca.crt
+```
+
+Keys, passphrases and a partner's pre-shared keys never go in. `verify` fails on any changed, added or removed file, a signature
+that does not match, or a signer whose certificate does not chain to your CA; it does not check revocation.
+
 ## 6. The console
 
 ```

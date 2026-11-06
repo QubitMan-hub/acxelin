@@ -371,6 +371,30 @@ With `--metrics HOST:PORT`, an edge serves `/healthz`, `/metrics` (Prometheus) a
 | `acxelin_tls_events_total{edge,event}` | handshakes accepted and refused, by reason |
 | `acxelin_tls_group_total{edge,group}` | connections by negotiated key-exchange group |
 
+### Evidence for an audit or a pilot
+
+`evidence create` puts what an edge is and does into one zip, signed with an ML-DSA key from your CA:
+
+```
+acxelin-tls evidence create --config edge.toml --connect 127.0.0.1:8443 --ca pki/ca.crt --server-name web.corp.example --status http://127.0.0.1:9100 --sign-cert auditor/chain.pem --sign-key auditor/key.pem --out pilot.zip
+acxelin-tls evidence verify pilot.zip --ca pki/ca.crt
+```
+
+| File | What it holds |
+|---|---|
+| `build.json` | Versions of Acxelin TLS, core and `cryptography`, and whether each installed file still matches its wheel; Python, platform and OpenSSL |
+| `config.toml` | The configuration, byte for byte |
+| `doctor.json` | What `doctor` finds about this machine and the configuration |
+| `certificates.json` | Each route's certificates: subject, issuer, serial, algorithm, validity, SHA-256 fingerprint |
+| `connect-N.json` | One handshake per `--connect`: group, cipher suite, the server's key, the stapled OCSP answer; or why it was refused |
+| `status.json` | What the running edge reports at `--status` |
+
+`manifest.json` lists every file with its SHA-256 and is signed (`manifest.sig`, with the signer's certificate in `signer.pem`).
+`verify` reads the zip without unpacking it and fails if any file was changed, added or removed, if the signature does not match,
+or if the signer's certificate does not chain to the CA you give. It does not check whether that certificate was revoked since.
+Private keys, passphrases and the traffic itself never go in; a bundle that would hold a private key is refused. Issue the
+signing certificate with `acxelin-tls ca issue client auditor.acme --out auditor`.
+
 ## 9. Enrolling many machines
 
 | Service | Command | For |

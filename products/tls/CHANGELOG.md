@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `evidence create` and `evidence verify`: one signed zip with the build (and whether the installed files still match the wheel), the configuration, `doctor`'s findings, the routes' certificates (public parts), live handshakes (`--connect`) and the edge's counters (`--status`), for an audit or a pilot. Keys and passphrases never go in. See the manual, "Evidence for an audit or a pilot".
+
 ## 1.1.1
 
 - **Behaviour change:** policy `cnsa2` offers and accepts pure ML-KEM-1024 (`MLKEM1024`) only, no longer `SecP384r1MLKEM1024`: NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) counts a hybrid as CNSA 2.0 only where NSA named it, and it names no TLS hybrid. A client that offers only the P-384 hybrid is refused by a `cnsa2` route, and shadow mode says so.
