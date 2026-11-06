@@ -1,2 +1,2 @@
 """Shared mechanisms for the Acxelin products. Policy (what to allow, which defaults) belongs to each product."""
-__version__ = "1.2.0"
+__version__ = "1.3.0"

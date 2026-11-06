@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - `acxelin_core.evidence`: evidence bundles. A zip whose `manifest.json` lists every file with its SHA-256, optionally signed with an ML-DSA key (`manifest.sig`, `signer.pem`); `verify` reads it in memory without unpacking, and reports any changed, added or removed file, a bad signature, or a signer that does not chain to the given CA. A part holding a private key is refused. `installed()` checks an installed distribution's files against its wheel's RECORD.
 
