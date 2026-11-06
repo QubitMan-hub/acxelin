@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - `evidence create` and `evidence verify`: one signed zip with a site's or gateway's build, configuration, `doctor`'s findings, certificates (public parts), its CBOM and what it reports while running (`--status`). Keys, passphrases and a partner's pre-shared keys never go in.
 

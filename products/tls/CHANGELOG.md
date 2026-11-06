@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - `evidence create` and `evidence verify`: one signed zip with the build (and whether the installed files still match the wheel), the configuration, `doctor`'s findings, the routes' certificates (public parts), live handshakes (`--connect`) and the edge's counters (`--status`), for an audit or a pilot. Keys and passphrases never go in. See the manual, "Evidence for an audit or a pilot".
 
