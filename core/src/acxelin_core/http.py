@@ -24,6 +24,8 @@ HTTP_IDLE = 30  # seconds an HTTP client may stay silent before its connection i
 
 def explain(e):
     """An OSError in words: 'host not found' rather than '[Errno -2] Name or service not known'."""
+    if isinstance(getattr(e, "reason", None), OSError):  # urllib wraps the socket error
+        e = e.reason
     if isinstance(e, socket.gaierror):
         return "host not found (not in DNS or the hosts file)"
     if isinstance(e, ConnectionRefusedError):

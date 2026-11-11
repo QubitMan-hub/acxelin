@@ -1,5 +1,7 @@
 """TLS 1.3 + mTLS: the edge, its bundles, and a test server and client."""
+import logging
 import os
+import re
 import socket
 import sys
 import threading
@@ -13,6 +15,13 @@ from . import policies
 from .bundles import SERVICES
 from .common import ca_passphrase, policy, tls_client_args
 
+log = logging.getLogger("acxelin_tls.edge")
+
+
+
+def unescape(text):
+    """`--send` text with \\r, \\n, \\t and \\\\ turned into what they stand for, as the manual writes requests."""
+    return re.sub(r"\\([rnt\\])", lambda m: {"r": "\r", "n": "\n", "t": "\t", "\\": "\\"}[m.group(1)], text)
 
 def cmd_tls(a):
     if a.cmd == "serve":
@@ -40,7 +49,7 @@ def cmd_tls(a):
             raise tls.TLSError(refused)
         if a.send is not None:
             try:
-                conn.sendall(a.send.encode())
+                conn.sendall(unescape(a.send).encode())
                 reply = conn.recv()
                 while reply and (more := _more(conn)):
                     reply += more
@@ -107,7 +116,11 @@ def cmd_edge(a):
         serve_metrics(metrics, edges, workers)
     for e in edges:
         threading.Thread(target=e.serve_forever, daemon=True, name=e.route.name).start()
-    watch = ConfigWatch(a.config, load_config, lambda new: reconcile(edges, new[0], shared)) if a.config else None
+    def apply(new):
+        reconcile(edges, new[0], shared)
+        if new[1] != metrics:
+            log.warning("the [metrics] listen address changed to %s; restart the edge to move it (it stays on %s)", new[1], metrics)
+    watch = ConfigWatch(a.config, load_config, apply) if a.config else None
     done = threading.Event()
 
     def stop():

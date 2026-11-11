@@ -109,10 +109,12 @@ class CATest(unittest.TestCase):
 
     def test_renew_keeps_names_with_a_new_key(self):
         out1, r1 = self.ca.issue("svc", "server", ["svc.local"])
+        old_key = (out1 / "key.pem").read_bytes()
         out2, r2 = self.ca.renew(r1.serial)
         self.assertNotEqual(r1.serial, r2.serial)
         self.assertEqual(r2.names, ["svc", "svc.local"])
-        self.assertNotEqual((out1 / "key.pem").read_bytes(), (out2 / "key.pem").read_bytes())
+        self.assertEqual(out2, out1, "renewed in place, where its server reads it")
+        self.assertNotEqual(old_key, (out2 / "key.pem").read_bytes())
         self.assertEqual({r.common_name for r in self.ca.expiring(within_days=400)}, {"svc"})
 
     def test_concurrent_renewals_leave_a_matching_key_and_certificate(self):

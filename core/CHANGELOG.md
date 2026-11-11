@@ -2,6 +2,12 @@
 
 ## 1.1.1
 
+- Fixed: `CA.renew` without `out` renews in place, in the certificate's own folder, as `maintain` and the consoles do; it
+  wrote a second folder before. A certificate signed from a request (CSR, EST, ACME) is not renewed here, since its key is
+  with whoever asked for it; nor is a CA certificate. `expiring` counts only the newest certificate per folder and leaves out
+  expired ones, so a renewed certificate is no longer reported as expiring.
+- Fixed: a refused `localhost` connection reports the refusal on machines without IPv6; `explain` reads the socket error inside
+  a urllib error; an OpenSSL folder whose libssl does not match its libcrypto is reported in words, not as a traceback.
 - Consoles open from the owner-only launch page (`console.launch_page`): opening the page itself (GET /, a top-level
   navigation) is accepted from another site, since the browser calls a file:// redirect cross-site. Every API call still
   has to be same-origin with a session token, and the page is still refused inside another site's frame.

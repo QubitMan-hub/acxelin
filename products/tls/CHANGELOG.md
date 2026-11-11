@@ -2,6 +2,10 @@
 
 ## 1.0.3
 
+- Fixed: `doctor --config` reads relative paths from the configuration file's folder, as the edge does; `connect --send`
+  understands `\r`, `\n` and `\t`, so the manual's example works; `ca acme --days`, `ca maintain --renew-within` and `ca list
+  --expiring` refuse 0 and negative numbers; `ca serve` asks for the CA passphrase once; a bundle made with `--ca` names the
+  real CA file in its README; changing the `[metrics]` address while the edge runs says that it needs a restart.
 - Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
   `--allow-local-validation`; a challenge fetch has 15 seconds in all, so a server trickling its answer cannot hold it; at
   most 32 validations run at once; an account holds at most 300 unfinished orders, and orders and authorizations 30 days

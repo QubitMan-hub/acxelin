@@ -161,7 +161,12 @@ class _Lib:
         for lib_, table in ((crypto, PROTOTYPES["crypto"]), (ssl, PROTOTYPES["ssl"])):
             held = ctypes.PyDLL(lib_._name, handle=lib_._handle)
             for name, args, res in table:
-                fn = getattr(held if name in KEEP_GIL else lib_, name)
+                try:
+                    fn = getattr(held if name in KEEP_GIL else lib_, name)
+                except AttributeError:
+                    hint = " On Linux, set LD_LIBRARY_PATH to the same folder as ACXELIN_OPENSSL." if platform.system() == "Linux" else ""
+                    raise OpenSSLUnavailable(f"{lib_._name} lacks {name}: it is not OpenSSL 3.5 or newer, or it was loaded with an older "
+                                             f"libssl or libcrypto.{hint}") from None
                 fn.argtypes, fn.restype = args, res
                 setattr(self, name, fn)
 

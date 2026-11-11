@@ -70,5 +70,8 @@ def _dial(host, port, timeout):
         return socket.create_connection((host, port), timeout=timeout)
     try:
         return socket.create_connection(("127.0.0.1", port), timeout=timeout)
-    except ConnectionRefusedError:
-        return socket.create_connection(("::1", port), timeout=timeout)
+    except ConnectionRefusedError as refused:
+        try:
+            return socket.create_connection(("::1", port), timeout=timeout)
+        except OSError:
+            raise refused from None  # no IPv6 here, or nothing there either: the refusal is the answer

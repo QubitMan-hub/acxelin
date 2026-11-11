@@ -60,7 +60,7 @@ def cmd_ca(a):
     elif a.ca_cmd == "serve":
         from cryptography.x509 import load_pem_x509_certificate
         from acxelin_core.pki.est import fingerprint, serve
-        srv = serve(a.dir, a.listen, a.cert, a.key, ca_passphrase(a.dir), env_passphrase(a.key_passphrase_env))
+        srv = serve(a.dir, a.listen, a.cert, a.key, ca.passphrase, env_passphrase(a.key_passphrase_env))
         print(f"EST enrollment on https://{a.listen}/.well-known/est; CA fingerprint (give it to clients):\n{fingerprint(load_pem_x509_certificate(ca.anchor.read_bytes()))}")
         run_until_signal(srv.serve_forever, srv.stop)
     elif a.ca_cmd == "publish":
@@ -194,10 +194,10 @@ def add(sub, common):
     p = ca.add_parser("crl", parents=[common], help="re-sign the CRL (do this before it expires)")
     p.add_argument("--days", type=positive(int), default=7, help="how long the CRL is valid (default: 7); re-sign it before then")
     p = ca.add_parser("maintain", parents=[common], help="renew what expires soon and refresh the CRL (run daily)")
-    p.add_argument("--renew-within", type=int, default=30, metavar="DAYS", help="renew certificates expiring within DAYS (default: 30)")
+    p.add_argument("--renew-within", type=positive(int), default=30, metavar="DAYS", help="renew certificates expiring within DAYS (default: 30)")
     p.add_argument("--crl-days", type=positive(int), default=7, help="how long the re-signed CRL is valid (default: 7 days)")
     p = ca.add_parser("list", parents=[common], help="list issued certificates")
-    p.add_argument("--expiring", type=int, metavar="DAYS", help="only those expiring within DAYS")
+    p.add_argument("--expiring", type=positive(int), metavar="DAYS", help="only those expiring within DAYS")
     p.add_argument("--json", action="store_true")
     p = ca.add_parser("token", parents=[common], help="one-time enrollment token for one name (for `ca enroll`)")
     p.add_argument("kind", choices=["server", "client", "site"])
@@ -236,7 +236,7 @@ def add(sub, common):
     p.add_argument("--http-port", type=int, default=80, help="port for http-01 validation")
     p.add_argument("--allow-local-validation", action="store_true",
                    help="let http-01 validation reach loopback and link-local addresses (refused by default; private networks are allowed)")
-    p.add_argument("--days", type=int, default=90, help="lifetime of issued certificates")
+    p.add_argument("--days", type=positive(int), default=90, help="lifetime of issued certificates")
     p.add_argument("--tls-cert", help="a certificate ACME clients trust (classical: clients cannot verify ML-DSA yet)")
     p.add_argument("--tls-key")
     p = ca.add_parser("eab", parents=[common], help="an ACME external account binding key for one client")

@@ -71,12 +71,15 @@ def ca(root):
     return out
 
 
-def _files(where, d, names):
+def _files(where, d, names, base=None):
+    """Each named file must exist; relative paths are read from `base`, the configuration file's folder, as the edge reads them."""
     out = []
     for k in [n for n in names if not (n == "crl" and d.get("crl_url"))]:  # with crl_url the copy appears at the first fetch
         p = d.get(k)
         if not p:
             continue
+        if base is not None and not Path(p).is_absolute():
+            p = str(Path(base) / p)
         if not Path(p).exists():
             out.append(("fail", f"{where}: {k} = {p} does not exist"))
         elif k in ("key", "private_key"):
@@ -103,7 +106,7 @@ def config(path):
     keys = ("cert", "key", "ca", "crl", "fallback_cert", "fallback_key")
     for i, r in enumerate(doc["edge"]):
         where = f"{path} edge {r.get('name', i + 1)}"
-        out += _files(where, r, keys)
+        out += _files(where, r, keys, Path(path).parent)
         if r.get("policy") == "transition":
             out.append(("warn", f"{where}: policy transition lets clients without post-quantum key exchange in; fine for browsers, use strict for everything else"))
         if r.get("require_client_cert") and not r.get("crl"):

@@ -86,9 +86,10 @@ def _create(service, s, out, host, ca, ca_dir, require_client_cert, policy):
                   "Keep it fresh: run `acxelin-tls ca maintain --dir <ca dir>` daily (cron or a scheduled task)."]
     notes += ["", "Create MQTT users first: docker run --rm -v $PWD:/w eclipse-mosquitto:2 mosquitto_passwd -b /w/passwd USER PASS"] if service == "mqtt" else []
     notes += ["", "The CA private key is in ca.key.KEEP-OFFLINE. Move it off this machine; you need it to renew or revoke."] if not ca_dir else []
+    anchor = (Path(ca_dir).resolve() / "ca.crt").as_posix() if ca_dir else "pki/ca.crt"
     write(out / "README.txt", "\n".join([
         f"{service} behind post-quantum TLS ({policy} policy{', mutual TLS' if require_client_cert else ''})", "",
-        "1. docker compose up -d", f"2. Connect: {s['use'].format(host=host)}", f"3. Check:   acxelin-tls connect {host}:{s['public']} --ca pki/ca.crt", "",
-        "Certificates: edge/ (the edge's), pki/ca.crt (give this to clients).",
+        "1. docker compose up -d", f"2. Connect: {s['use'].format(host=host)}", f"3. Check:   acxelin-tls connect {host}:{s['public']} --ca {anchor}", "",
+        f"Certificates: edge/ (the edge's), {anchor} (give this to clients).",
         "Renew: acxelin-tls ca renew <serial> --dir <ca dir> --out edge   (the edge picks it up without a restart)", *notes, ""]).encode())
     return out
