@@ -150,8 +150,8 @@ def test_sha_1_inside_rsa_oaep_is_not_called_broken_but_sha_1_elsewhere_still_is
 
 
 def test_a_findings_places_in_real_code_come_before_its_places_in_tests(tmp_path):
-    (tmp_path / "a_tests").mkdir()
-    (tmp_path / "a_tests/test_k.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
+    (tmp_path / "tests").mkdir()  # sorts before z.py: the order is the rule, not the alphabet
+    (tmp_path / "tests/test_k.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
     (tmp_path / "z.py").write_text("import hashlib\nhashlib.md5(b'x')\n")
     assert next(a for a in workspace.scan(tmp_path)["assets"] if a["name"] == "MD5")["locations"][0][0] == "z.py"
 

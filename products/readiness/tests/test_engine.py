@@ -263,6 +263,23 @@ class Operations(unittest.TestCase):
             self.assertEqual({a.algo for a in r.assets}, {"SHA-1"})
 
 
+    def test_changed_since_does_not_call_a_file_changed_for_its_line_endings(self):
+        """With core.autocrlf (Git for Windows' default) the index holds LF while the file on disk has CRLF: that is not a change."""
+        import subprocess
+        import tempfile
+        from acxelin_readiness.cli import changed_files
+        with tempfile.TemporaryDirectory() as d:
+            git = lambda *a: subprocess.run(["git", "-C", d, *a], check=True, capture_output=True)
+            git("init", "-q")
+            (Path(d) / "old.py").write_bytes(b"import hashlib\nhashlib.md5(b'x')\n")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+            (Path(d) / "old.py").write_bytes(b"import hashlib\r\nhashlib.md5(b'x')\r\n")
+            self.assertEqual(changed_files(Path(d), "HEAD"), set())
+            (Path(d) / "old.py").write_bytes(b"import hashlib\r\nhashlib.md5(b'y')\r\n")
+            self.assertEqual(changed_files(Path(d), "HEAD"), {"old.py"}, "a real edit is still a change")
+
+
 class Formats(unittest.TestCase):
     def test_noise_and_jose(self):
         from acxelin_readiness.detectors.suites import noise_name, jose_alg
@@ -597,12 +614,21 @@ class Probe(unittest.TestCase):
 
 
 class Scope(unittest.TestCase):
-    def test_test_and_benchmark_directories(self):
-        from acxelin_readiness.detectors import is_test
-        for p in ("UnitTestsNet46/jwk/JwkTest.cs", "src/Jose.Tests/A.cs", "benches/x25519.rs", "browserTest/perf.js", "tests/a.py", "src/itest/resources/id_ecdsa", "t/unit/security/__init__.py", "lib/Crypto/SelfTest/PublicKey/vector.pem", "test_vectors/wycheproof/rsa.json", "regress/rsa_openssh.pub", "test-ca/rsa-3072/ca.cert"):
+    def test_only_conventional_test_folders_count_unless_the_customer_names_more(self):
+        from acxelin_readiness.detectors import is_test, extra_test_paths
+        for p in ("tests/a.py", "src/Jose/Tests/A.cs", "src/test/java/a/KeyTest.java", "web/__tests__/a.js", "spec/a_spec.rb"):
             self.assertTrue(is_test(p), p)
-        for p in ("src/contests/a.py", "src/attestation/a.py", "latest/a.go", "src/jwt/a.py", "src/digest/a.java", "wittest/a.py", "src/units/convert.py", "unit.py", "src/selftest_loader.py", "src/test_vectors_service/crypto.py", "src/progress/a.py", "testament/a.py"):
+        # Owner's decision: substrings and other folder names no longer count by themselves (they used to).
+        named = ("UnitTestsNet46/jwk/JwkTest.cs", "src/Jose.Tests/A.cs", "benches/x25519.rs", "browserTest/perf.js", "src/itest/resources/id_ecdsa",
+                 "t/unit/security/__init__.py", "lib/Crypto/SelfTest/PublicKey/vector.pem", "test_vectors/wycheproof/rsa.json", "regress/rsa_openssh.pub",
+                 "test-ca/rsa-3072/ca.cert")
+        for p in named + ("src/contests/a.py", "src/attestation/a.py", "latest/a.go", "src/jwt/a.py", "src/digest/a.java", "wittest/a.py",
+                          "src/units/convert.py", "unit.py", "src/selftest_loader.py", "src/test_vectors_service/crypto.py", "src/progress/a.py", "testament/a.py"):
             self.assertFalse(is_test(p), p)
+        with extra_test_paths(["UnitTestsNet46", "Jose.Tests", "benches", "browserTest", "itest", "t/unit/*", "SelfTest", "test_vectors", "regress", "test-ca"]):
+            for p in named:
+                self.assertTrue(is_test(p), p)
+            self.assertFalse(is_test("src/test_vectors_service/crypto.py"))
 
 
 class Regressions(unittest.TestCase):

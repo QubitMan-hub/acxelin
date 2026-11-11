@@ -1,0 +1,35 @@
+<!-- title: What Acxelin Readiness tracks -->
+<!-- description: Every kind of cryptographic asset Acxelin Readiness finds, every algorithm it knows and its verdict, and every place it looks. -->
+<section>
+<h1>Every cryptographic asset it tracks</h1>
+<p class="lead">Acxelin Readiness records five kinds of asset in a CycloneDX 1.6 CBOM, knows {{READINESS_ALGORITHM_COUNT}} algorithms by name and size, and looks in {{READINESS_SOURCE_COUNT}} kinds of place. This page is built from the product itself, so it lists what it does today.</p>
+</section>
+
+<section aria-labelledby="kinds">
+<h2 id="kinds">Five kinds of asset</h2>
+<p>Each one gets a tier from critical to ok, the place it was seen, and what to change. The counts are from the <a href="sample.html">sample scan</a> of a small payments service.</p>
+{{READINESS_KINDS}}
+</section>
+
+<section aria-labelledby="algorithms">
+<h2 id="algorithms">Every algorithm it knows</h2>
+<p>Grouped by what the algorithm does. The verdict is about a quantum computer, not about how it is used: the report also weighs key size, mode and what the data protects.</p>
+{{READINESS_CATALOG}}
+</section>
+
+<section aria-labelledby="sources">
+<h2 id="sources">Where it looks</h2>
+<p>The same table is in the <a href="manual.html">manual</a>.</p>
+{{READINESS_SOURCES}}
+</section>
+
+<section aria-labelledby="limits">
+<div class="limits">
+<h2 id="limits">What this list does not promise</h2>
+<ul>
+<li>A missing finding is not proof that cryptography is absent. Code that builds an algorithm's name at run time, or reads it from a file outside the scan, can be missed.</li>
+<li>An algorithm named in configuration is offered, not necessarily used. Live endpoints and packet captures show what is actually negotiated.</li>
+<li>Key material is never read or written out: a key is recorded by its algorithm, size, format and place.</li>
+</ul>
+</div>
+</section>

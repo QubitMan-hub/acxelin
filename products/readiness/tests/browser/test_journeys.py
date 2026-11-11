@@ -618,3 +618,23 @@ def test_choosing_countries_and_sectors_sets_the_next_deadline_on_the_board(page
     card.get_by_text("2029").wait_for()
     assert "India" in card.inner_text()
     assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_what_it_tracks_lists_every_kind_and_algorithm_and_passes_axe(browser, console, scheme):
+    from acxelin_readiness.catalog import CATALOG
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900}, color_scheme=scheme)
+    page = ctx.new_page()
+    try:
+        open_console(page, console)
+        page.get_by_role("tab", name="What it tracks").click()
+        page.get_by_role("heading", name="Every algorithm it knows").wait_for()
+        text = page.locator("#panel").inner_text()
+        assert not [name for name in CATALOG if name not in text]
+        for kind in ("Algorithms", "Protocols", "Certificates", "Keys and key material", "Libraries"):
+            assert page.get_by_role("heading", name=kind, exact=True).count() == 1, kind
+        assert page.evaluate(AXE.read_text() + ";axe.run().then(r=>r.violations.map(v=>v.id+': '+v.help))") == []
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    finally:
+        ctx.close()

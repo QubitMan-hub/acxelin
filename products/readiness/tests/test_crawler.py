@@ -161,13 +161,13 @@ def test_incremental_parsing_recomputes_relationships_and_invalidates_edits(tmp_
 
 
 def test_production_precedes_tests_and_budget_names_omissions(tmp_path, monkeypatch):
-    (tmp_path/'a_tests').mkdir()
-    (tmp_path/'a_tests/test_big.py').write_text('test_call()\n'*30)
+    (tmp_path/'tests').mkdir()  # sorts before z_service.py, so the order below is the rule, not the alphabet
+    (tmp_path/'tests/test_big.py').write_text('test_call()\n'*30)
     (tmp_path/'z_service.py').write_text('production_call()\n')
     monkeypatch.setattr('acxelin_readiness.crawler.LIMIT_CALLS', 2)
     graph = pipeline.run(tmp_path, 'budget').relationships
     assert graph['calls'][0]['file'] == 'z_service.py'
-    assert graph['truncated_files'] == {'a_tests/test_big.py': {'calls (including unvisited nested calls)': 29}}
+    assert graph['truncated_files'] == {'tests/test_big.py': {'calls (including unvisited nested calls)': 29}}
 
 
 def test_nonsecurity_partition_and_same_line_security_trap(tmp_path):

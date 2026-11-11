@@ -14,7 +14,7 @@ from cryptography.utils import CryptographyDeprecationWarning
 from . import pacing, verify, rank, remedy
 from .crawler import CodeCrawler
 from .detectors.lexer import LANGS
-from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns, aws as cloud
+from .detectors import iter_files, MAX_BYTES, source, config, artifacts, volumes, deps, tls, binary, implementations, params, capture, carried_hashes, oversized, snapshot, pyflow, patterns, extra_test_paths, aws as cloud
 
 DETECTORS = ("source", "implementations", "config", "artifacts", "volumes", "binary")
 
@@ -158,7 +158,13 @@ def load_baseline(path):
     return seen
 
 
-def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None, aws=(), aws_session=None,
+def run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, *rest, **kw):
+    """Scan `root`; the customer's test paths in `scope` apply to everything this scan decides."""
+    with extra_test_paths(getattr(scope, "tests", ())):
+        return _run(root, project, tls_targets, horizon, threshold, scope, *rest, **kw)
+
+
+def _run(root, project, tls_targets=(), horizon=None, threshold=0.6, scope=False, ssh_targets=(), baseline=None, captures=(), cache=None, aws=(), aws_session=None,
         pacer=None, workers=1):
     t0 = time.time()
     scope = snapshot(root, scope)

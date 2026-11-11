@@ -1,16 +1,33 @@
 # Changelog
 
-## 1.0.3
+## 1.2.0
 
 - Fixed: `doctor --config` reads relative paths from the configuration file's folder, as the edge does; `connect --send`
   understands `\r`, `\n` and `\t`, so the manual's example works; `ca acme --days`, `ca maintain --renew-within` and `ca list
   --expiring` refuse 0 and negative numbers; `ca serve` asks for the CA passphrase once; a bundle made with `--ca` names the
   real CA file in its README; changing the `[metrics]` address while the edge runs says that it needs a restart.
+- `evidence create` and `evidence verify`: one signed zip with the build (and whether the installed files still match the wheel), the configuration, `doctor`'s findings, the routes' certificates (public parts), live handshakes (`--connect`) and the edge's counters (`--status`), for an audit or a pilot. Keys and passphrases never go in. See the manual, "Evidence for an audit or a pilot".
+
+## 1.1.1
+
+- **Behaviour change:** policy `cnsa2` offers and accepts pure ML-KEM-1024 (`MLKEM1024`) only, no longer `SecP384r1MLKEM1024`: NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) counts a hybrid as CNSA 2.0 only where NSA named it, and it names no TLS hybrid. A client that offers only the P-384 hybrid is refused by a `cnsa2` route, and shadow mode says so.
+
+## 1.1.0
+
+- Found in a first-time customer test: `doctor` fails a route whose certificate its policy cannot use (cnsa2 with an ML-DSA-65 certificate passed `doctor` and then stopped the edge), and warns when a stapled OCSP answer is missing or ends within a day; `ca renew` says when the folder the certificate was issued to still holds the old one and how to renew in place; `connect` shows the stapled OCSP answer.
+- `ca init --pkcs11-module LIBRARY --pkcs11-token LABEL --pkcs11-key LABEL [--pkcs11-generate]` keeps the CA key in a PKCS#11 token (needs core with `pkcs11`; the PIN is read from `ACXELIN_PKCS11_PIN`).
+- Short-lived certificates: `ca issue --hours N` (and `ca renew --hours N`) issue certificates that live for hours. `ca maintain` now renews a certificate in the last 30 days of its life, or in the last third if its life is shorter, and `--renew-within-hours` sets the window in hours (the old `--renew-within DAYS` still works). A renewal of a certificate that lived up to 7 days keeps its lifetime; longer ones still renew for 397 days. `ca maintain` says when nothing needed renewing, and `doctor` says how often `ca maintain` must run and warns about a certificate that is due.
+- **Behaviour change:** `doctor` no longer counts every certificate expiring within 30 days as a problem; it warns about certificates that are due for renewal (in their last 30 days, or the last third of a shorter life).
+- ACME dns-01 and wildcard names: `ca acme --dns-command ARG...` runs your command to read the TXT records of `_acme-challenge.NAME` (no shell, 15 seconds, 64 KB, no secrets in its environment). With it the service offers dns-01, and `*.` names, which only dns-01 can prove. Without it nothing changes. Names are now checked to be plain ASCII DNS names before an order is accepted. Authorizations made by 1.0.x and earlier get a dns-01 token the first time they are looked at.
+- OCSP stapling: `ca ocsp` writes a signed answer about a certificate and a route's `ocsp_staple` sends it to clients that ask, following the file as it is refreshed and never sending a stale, forged or wrong-certificate one. Fails open (no staple) and says why in the log. It does not replace the CRL for client certificates.
+- Enrol with a company sign-in: `ca oidc` sets up the identity provider (issuer, audience, signing keys, allowed domains and groups) and `ca enroll --oidc` takes the ID token from `ACXELIN_TLS_OIDC_TOKEN` (never from the command line) and gets a client certificate named by the person's email. See the manual, section 9, for what is and is not covered.
+- One port, several services: routes that listen on the same address are chosen per connection by the server name (`sni`, exact or `*.example.com`) and application protocol (`alpn`) in the ClientHello, which is read without being consumed. The most specific route wins, one route may be the default, each keeps its own certificate, policy, client-certificate rule and limits, a name nothing serves is closed and counted, and routes can be changed while running. Mistakes (two routes asking for the same thing, two defaults, a bad name) are named when the configuration loads. A route alone on its port with no `sni` or `alpn` is served exactly as before.
+
 - Security: ACME http-01 never fetches from cloud metadata addresses (AWS, GCP and Alibaba, IPv4 and IPv6), even with
   `--allow-local-validation`; a challenge fetch has 15 seconds in all, so a server trickling its answer cannot hold it; at
   most 32 validations run at once; an account holds at most 300 unfinished orders, and orders and authorizations 30 days
   past their expiry are dropped from `state.json`.
-- Security (with core 1.1.1): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
+- Security (with core 1.2.0): revoking a certificate revokes its EST renewals; revoked clients are cut off after a
   configuration reload; one /24 or /64 holds at most `max_per_client` connections at any load; a connection where neither
   side sends anything within `first_data_timeout` (30 seconds, new) after the handshake is closed, so idle connections cannot
   hold every slot for the hour of `idle_timeout`.
@@ -28,7 +45,7 @@
   configured, and the root's CRL can revoke the intermediate (concatenate both CRLs into the `crl` file).
 - A route with `crl` needs `ca` and `require_client_cert = true`; without them the CRL checked nothing. `idle_timeout`,
   `handshake_timeout`, `max_connections`, `max_per_client` and `max_rate_per_client` are range-checked.
-- Relative paths in a configuration file are read from the file's folder, so the systemd unit finds them.
+- **Behaviour change:** relative paths in a configuration file are read from the file's folder, so the systemd unit finds them. An edge that was started from another folder with relative paths used to look for the files in that folder; use absolute paths, or start it as before from the file's folder, to see no difference.
 - Renewing a certificate whose key is encrypted needs `--key-passphrase-env` (the console refuses it), so the new key stays
   encrypted.
 - `connect` reports a server that refused the client certificate instead of a successful handshake.

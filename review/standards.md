@@ -68,10 +68,18 @@ No product here is FIPS validated, and none claims to be. CMVP, read from csrc.n
 - Rule for wording: "implements FIPS 203/204/205 algorithms" is accurate; anything that says validated, certified or compliant
   is not.
 
-## Not read: CNSA 2.0
+## CNSA 2.0: read from NSA's FAQ
 
-`www.nsa.gov` and `media.defense.gov` answered HTTP 403 from this environment, with the same request that reached the
-other hosts. I did not try to get around it. So the CNSA 2.0 milestone dates and algorithm list are **unverified**. Readiness's
-`cnsa-2.0` policy and the `cnsa2` profiles name ML-KEM-1024, ML-DSA-87 and AES-256; check them against NSA's CNSA 2.0
-advisory and FAQ before quoting dates anywhere. To read it yourself: the CNSA 2.0 FAQ PDF on media.defense.gov and the
-NSA cybersecurity advisory page for CNSA 2.0.
+Read from the PDF the owner supplied: NSA Cybersecurity Information Sheet "Commercial National Security Algorithm Suite 2.0 and
+Quantum Computing Frequently Asked Questions", U/OO/6072712-26, PP-26-3194, October 2026, Ver. 2.2 (31 pages). `nsa.gov` itself
+still answers 403 from this environment.
+
+| What the FAQ says | Page | What we do |
+|---|---|---|
+| Suite: AES-256, ML-KEM-1024, ML-DSA-87, SHA-384 or SHA-512; LMS and XMSS for signing firmware and software; SHA3-384/512 only inside hardware integrity checks | 7-8 | Readiness `cnsa-2.0` checks exactly this suite; LMS and XMSS are "compliant for signing firmware and software only" |
+| HSS and XMSS^MT are not allowed; SLH-DSA is not allowed; HashML-DSA is not allowed; FN-DSA will not be added | 11, 15 | XMSS^MT was reported compliant by the evidence report (name prefix match): fixed, `test_cnsa2_faq_readiness.py` |
+| Required in new acquisitions from 1 January 2027; equipment that cannot support it phased out by 31 December 2030; mandatory by 31 December 2031; NSM-10 goal 2035 | 17-19 | Readiness used NSA's 2022 dates (2030 and 2033) and a 2033 default: now 2027, 2030 and 2031, default 2031 |
+| A hybrid is CNSA 2.0 compliant only where NSA identified it; few hybrids use CNSA 2.0 algorithms | 28 | TLS `cnsa2` accepted SecP384r1MLKEM1024 too, and Readiness and shadow counted it: now pure MLKEM1024 only |
+| IKEv2: NSA's CNSA 2.0 profile keeps a CNSA 1.0 exchange (P-384) fortified by ML-KEM-1024 (RFC 9370), because ML-KEM-1024 alone does not fit the unencrypted exchange well | 29 | New VPN profile `cnsa2-rfc9370`; the older `cnsa2` (ML-KEM-1024 alone) still loads in 1.x with a warning |
+| Pre-shared keys (RFC 8773, RFC 8784) may be appropriate in specialised cases, by policy | 22, 30 | Unchanged: the VPN's classical fallback still labels classical+PPK "not quantum safe", as the owner decided |
+| CNSA 2.0 is required for National Security Systems only; NIAP and FIPS validation are required for products in them | 6, 25 | No product here is NIAP or FIPS validated; "follows the CNSA 2.0 algorithms" is accurate, "CNSA 2.0 certified" is not |

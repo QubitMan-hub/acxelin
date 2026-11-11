@@ -29,6 +29,7 @@ PUBLIC = {"ML-DSA-44": mldsa.MLDSA44PublicKey, "ML-DSA-65": mldsa.MLDSA65PublicK
 USAGE = {"server": [ExtendedKeyUsageOID.SERVER_AUTH], "client": [ExtendedKeyUsageOID.CLIENT_AUTH],
          "site": [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]}
 CA_ALGORITHMS = list(PUBLIC) + signers.SLH_DSA
+SHORT_LIVED = dt.timedelta(days=7)  # up to this long is a short-lived certificate: renewals keep the lifetime
 REASONS = {r.value: r for r in x509.ReasonFlags if r not in (x509.ReasonFlags.unspecified, x509.ReasonFlags.remove_from_crl)}
 
 
@@ -195,13 +196,15 @@ class CA:
         return [Record(**r) for r in json.loads((self.root / "index.json").read_text(encoding="utf-8"))]
 
     def _save(self, records):
-        write(self.root / "index.json", ("[\n" + ",\n".join(json.dumps(vars(r)) for r in records) + "\n]\n").encode())
+        # `replaces` is written only for an EST renewal: a CA that has none stays readable by the releases before it existed
+        write(self.root / "index.json", ("[\n" + ",\n".join(json.dumps({k: v for k, v in vars(r).items() if v or k != "replaces"}) for r in records) + "\n]\n").encode())
 
     def find(self, serial):
         """The one certificate whose serial is `serial` or starts with it; at least 8 hex characters, so an empty or tiny prefix
         can never pick a certificate by accident."""
         if not isinstance(serial, str) or not re.fullmatch(r"[0-9a-fA-F]{8,40}", serial.strip()):
-            raise CAError(f"a serial is written in hex, at least its first 8 characters (as `ca list` shows them), not {serial!r}")
+            raise CAError("that is not a serial: a serial is written in hex, at least its first 8 characters (as `ca list` shows them). "
+                          "What was typed is not repeated here, in case it was something else, such as a passphrase")
         serial = serial.strip().lower()
         match = [r for r in self.records() if r.serial == serial or r.serial.startswith(serial)]
         if len(match) != 1:
@@ -215,12 +218,17 @@ class CA:
             rec = self._record(cert, common_name, kind, algorithm, not_after, names, replaces=replaces)
         return cert, rec
 
-    def _certify(self, public_key, common_name, kind, names, days):
+    def _certify(self, public_key, common_name, kind, names, days, hours=None):
         if not isinstance(kind, str) or kind not in USAGE:
             raise CAError(f"kind must be one of {', '.join(USAGE)}")
-        if not isinstance(days, int) or isinstance(days, bool) or days < 1:
-            raise CAError(f"days must be a whole number of at least 1, not {days!r}")
-        days = min(days, 36500)
+        if hours is not None:
+            if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 1 <= hours <= 24 * 36500:
+                raise CAError(f"hours must be a number from 1 to {24 * 36500}, not {hours!r}")
+            lifetime = dt.timedelta(hours=hours)
+        else:
+            if not isinstance(days, int) or isinstance(days, bool) or days < 1:
+                raise CAError(f"days must be a whole number of at least 1, not {days!r}")
+            lifetime = dt.timedelta(days=min(days, 36500))
         if not isinstance(common_name, str) or not all(isinstance(n, str) for n in names):
             raise CAError("the common name and other names must be text")
         algorithm = algorithm_of(public_key)
@@ -230,7 +238,7 @@ class CA:
             raise CAError("the common name must be 1 to 64 characters")
         names = list(names) or ([common_name] if kind != "client" else [])
         general_names(names)
-        not_after = min(now() + dt.timedelta(days=days), self.cert.not_valid_after_utc)
+        not_after = min(now() + lifetime, self.cert.not_valid_after_utc)
         b = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
              .issuer_name(self.cert.subject).public_key(public_key).serial_number(x509.random_serial_number())
              .not_valid_before(now()).not_valid_after(not_after)
@@ -249,23 +257,34 @@ class CA:
         self._save(self.records() + [rec])
         return rec
 
-    def issue(self, common_name, kind, names=(), days=397, algorithm="ML-DSA-65", out=None, passphrase=None, replace=False):
+    def issue(self, common_name, kind, names=(), days=None, algorithm="ML-DSA-65", out=None, passphrase=None, replace=False, hours=None):
         """Generate a key pair and certificate; writes cert.pem, key.pem and chain.pem to `out`, which must not hold a key yet
-        unless `replace` (renewal in place). Holds the CA lock throughout, so two renewals of one folder cannot mix their files."""
+        unless `replace` (renewal in place). Lives `days` (default 397) or, for a short-lived certificate, `hours`. Holds the CA lock
+        throughout, so two renewals of one folder cannot mix their files."""
+        if days is not None and hours is not None:
+            raise CAError("give either days or hours, not both")
+        if hours is None and days is None:
+            days = 397
         with locked(self.root):
             if out and not replace and (Path(out) / "key.pem").exists():
                 raise CAError(f"{out} already holds a key; choose another --out, or replace it with 'ca renew SERIAL --out {out}'")
             key = generate(algorithm)
             names = list(dict.fromkeys(([common_name] if kind != "client" else []) + list(names)))
-            cert, algorithm, not_after, names = self._certify(key.public_key(), common_name, kind, names, days)
+            cert, algorithm, not_after, names = self._certify(key.public_key(), common_name, kind, names, days, hours)
             safe = re.sub(r"[^\w.-]", "_", common_name)
             out = Path(out or self.root / "issued" / f"{safe}-{format(cert.serial_number, 'x')[:8]}")
             # recorded before any file holds it: a crash in between leaves a record without files, which can still be revoked,
             # never a certificate on disk that the CA does not know about
             rec = self._record(cert, common_name, kind, algorithm, not_after, names, str(out.resolve()))
-            write(out / "key.pem", key_pem(key, passphrase), secret=True)
-            write(out / "cert.pem", cert_pem(cert))
-            write(out / "chain.pem", cert_pem(cert) + self.chain())
+            try:
+                write(out / "key.pem", key_pem(key, passphrase), secret=True)
+                write(out / "cert.pem", cert_pem(cert))
+                write(out / "chain.pem", cert_pem(cert) + self.chain())
+            except OSError as e:
+                short = rec.serial[:12]
+                raise CAError(f"certificate {short} for {common_name} is recorded, but its files could not be written to {out}: "
+                              f"{e.strerror or e}. Once that is fixed, write them with `ca renew {short} --out {out}`, "
+                              f"or withdraw it with `ca revoke {short}`") from None
         return out, rec
 
     def sign_csr(self, csr_pem, kind, days=397):
@@ -331,10 +350,12 @@ class CA:
         write(self.root / "crl.pem", data)
         return data
 
-    def renew(self, serial, days=397, algorithm=None, out=None, passphrase=None):
+    def renew(self, serial, days=None, algorithm=None, out=None, passphrase=None, hours=None):
         """A new key and certificate with the same name, SANs and (unless `algorithm` is given) algorithm, written over the old
-        one's files (or to `out`); the old one stays valid until it expires or is revoked. A certificate signed from a request
-        (a CSR, EST or ACME) has no key here, so it is renewed by whoever holds its key."""
+        one's files (or to `out`); the old one stays valid until it expires or is revoked. Lives `days` or `hours` if given;
+        otherwise a short-lived certificate (up to 7 days, the CA/Browser Forum's line) lives as long as the one it replaces and
+        any other for 397 days. A certificate signed from a request (a CSR, EST or ACME) has no key here, so it is renewed by
+        whoever holds its key."""
         with locked(self.root):
             r = self.find(serial)
             if r.status == "revoked":
@@ -344,22 +365,43 @@ class CA:
             if not (out or r.path):
                 raise CAError(f"{r.common_name} was signed from a request, so its key is with whoever asked for it: they renew it "
                               "(EST, ACME, or a new CSR), or give --out to make a new key here")
-            return self.issue(r.common_name, r.kind, r.names, days, algorithm or r.algorithm, out or r.path, passphrase, replace=True)
+            if days is None and hours is None and self.lifetime(r) <= SHORT_LIVED:
+                hours = self.lifetime(r).total_seconds() / 3600  # a short-lived certificate stays short-lived; longer ones renew for 397 days, as they always did
+            return self.issue(r.common_name, r.kind, r.names, days, algorithm or r.algorithm, out or r.path, passphrase, replace=True, hours=hours)
 
-    def maintain(self, renew_within=30, crl_days=7, algorithm=None):
-        """Re-sign the CRL, and renew certificates expiring within `renew_within` days into the folder they were issued to, where
-        edges pick them up without a restart. Run it daily. Encrypted leaf keys are reported, not renewed."""
+    def lifetime(self, rec):
+        """How long the certificate in the record's folder was issued for (397 days when its file cannot be read)."""
+        try:
+            cert = x509.load_pem_x509_certificate((Path(rec.path) / "cert.pem").read_bytes())
+            return max(cert.not_valid_after_utc - cert.not_valid_before_utc, dt.timedelta(hours=1))
+        except (OSError, ValueError):
+            return dt.timedelta(days=397)
+
+    def remaining(self, rec):
+        return dt.datetime.fromisoformat(rec.not_after) - now()
+
+    def due(self, rec):
+        """Time to renew: in its last 30 days, or in the last third of its life if that is shorter (a 24-hour certificate is due at 8 hours)."""
+        return self.remaining(rec) < min(dt.timedelta(days=30), self.lifetime(rec) / 3)
+
+    def maintain(self, renew_within=None, crl_days=7, algorithm=None, renew_within_hours=None):
+        """Re-sign the CRL, and renew certificates into the folder they were issued to, where edges pick them up without a restart.
+        Without a window a certificate is renewed when `due`; with `renew_within` (days) or `renew_within_hours`, when it expires within
+        that. Run it daily, or at least every third of the shortest certificate's life. Encrypted leaf keys are reported, not renewed."""
+        if renew_within is not None and renew_within_hours is not None:
+            raise CAError("give either a window in days or in hours, not both")
         with locked(self.root):
-            return self._maintain(renew_within, crl_days, algorithm)
+            return self._maintain(renew_within, crl_days, algorithm, renew_within_hours)
 
-    def _maintain(self, renew_within, crl_days, algorithm):
+    def _maintain(self, renew_within, crl_days, algorithm, renew_within_hours=None):
         newest = {}
         for r in self.records():
             if r.status == "valid" and r.kind != "ca" and r.path and (r.path not in newest or r.not_after > newest[r.path].not_after):
                 newest[r.path] = r
-        cutoff, renewed, skipped = now() + dt.timedelta(days=renew_within), [], []
+        window = dt.timedelta(days=renew_within) if renew_within is not None else dt.timedelta(hours=renew_within_hours) if renew_within_hours is not None else None
+        renewed, skipped = [], []
         for r in newest.values():
-            if dt.datetime.fromisoformat(r.not_after) > cutoff:
+            if (self.remaining(r) > window) if window is not None else not self.due(r):
                 continue
             key = Path(r.path) / "key.pem"
             if not key.exists() or encrypted(key):

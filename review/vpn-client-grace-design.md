@@ -1,6 +1,6 @@
-# VPN client: keep the last good key when a key agreement fails (design, not built)
+# VPN client: keep the last good key when a key agreement fails
 
-Status: proposal for the owner. Nothing here is implemented. It follows stage 4, where the gateway and the sites gained an
+Status: built on the owner's decision (client-side only, no wire change, customer-set hard cap, revoked clients always cut off, a "degraded" status in the tray), with one change found while testing: with a full tunnel, a timed-out agreement means the tunnel is dead, so there is no grace (the real full-tunnel namespace test caught it). Tests: `test_client_grace.py`. The text below is the design as proposed. It follows stage 4, where the gateway and the sites gained an
 opt-in outage grace (`outage_grace_minutes`). That grace is no use to a laptop if the laptop takes its own tunnel down first.
 
 ## The question

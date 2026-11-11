@@ -25,9 +25,9 @@ It never changes the files it scans and never sends them anywhere.
 
 The release folder installs on Linux (x86-64 and ARM), Windows (x64) and Macs with Apple silicon, with Python 3.11 to 3.14. On an Intel Mac, use the Docker image.
 
-Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v1.1.1) and save them in one folder:
+Get two files from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v1.2.1) and save them in one folder:
 
-- `acxelin-readiness-1.1.1-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access, including the code crawler that follows values through JavaScript, TypeScript, Java and Go
+- `acxelin-readiness-1.2.1-wheelhouse.tar.gz`: the program, with everything it needs, so it installs without internet access, including the code crawler that follows values through JavaScript, TypeScript, Java and Go
 - `SHA256SUMS`: a fingerprint of every file in the release
 
 Then open a terminal in that folder. On Windows, use PowerShell.
@@ -45,24 +45,24 @@ You should see the file's name followed by `OK`.
 On macOS:
 
 ```
-shasum -a 256 acxelin-readiness-1.1.1-wheelhouse.tar.gz
+shasum -a 256 acxelin-readiness-1.2.1-wheelhouse.tar.gz
 ```
 
 On Windows:
 
 ```
-Get-FileHash .\acxelin-readiness-1.1.1-wheelhouse.tar.gz
+Get-FileHash .\acxelin-readiness-1.2.1-wheelhouse.tar.gz
 ```
 
 On macOS and Windows this prints the file's fingerprint, a long string of letters and numbers. It should match the one next to the file's name in `SHA256SUMS` (capital or small letters do not matter). If the check fails, delete the file and download it again. Do not install it.
 
-Optional: if you use the GitHub command line, `gh attestation verify acxelin-readiness-1.1.1-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
+Optional: if you use the GitHub command line, `gh attestation verify acxelin-readiness-1.2.1-wheelhouse.tar.gz --owner AcxelinQuantum` shows that our release workflow built the file. You should see `Verification succeeded`.
 
 **Step 2: unpack it.** The same two lines work in PowerShell:
 
 ```
-tar xzf acxelin-readiness-1.1.1-wheelhouse.tar.gz
-cd acxelin-readiness-1.1.1-wheelhouse
+tar xzf acxelin-readiness-1.2.1-wheelhouse.tar.gz
+cd acxelin-readiness-1.2.1-wheelhouse
 ```
 
 **Step 3: install.** Still in that folder:
@@ -79,8 +79,8 @@ The installer checks your Python, puts `acxelin-readiness` on your PATH, runs `a
 **With Docker instead:** each release publishes an image. Pull it and give it a short name:
 
 ```
-docker pull ghcr.io/acxelinquantum/acxelin-readiness:1.1.1
-docker tag ghcr.io/acxelinquantum/acxelin-readiness:1.1.1 acxelin-readiness
+docker pull ghcr.io/acxelinquantum/acxelin-readiness:1.2.1
+docker tag ghcr.io/acxelinquantum/acxelin-readiness:1.2.1 acxelin-readiness
 ```
 
 ## 4. Your first scan in five minutes
@@ -94,7 +94,7 @@ acxelin-readiness scan path/to/your/project
 The terminal shows the ranking at once:
 
 ```
-acxelin-readiness 1.1.1  payments-api
+acxelin-readiness 1.2.1  payments-api
 detectors 49 raw  ->  verify 26 verified, 0 held, 0 rejected, 0 suppressed  ->  rank 0 promoted, 1 trails  ->  16 assets
 quantum-safe asymmetric: 1/6 (17%)   hybrid KEX: yes
 
@@ -218,7 +218,7 @@ Scan on every pull request, and fail only when someone adds new cryptography at 
 acxelin-readiness scan . --baseline cbom.json --fail-on high
 ```
 
-`--baseline` compares with the CBOM you kept, so old findings do not block new work. `--changed-since origin/main` scans only the files a pull request changes.
+`--baseline` compares with the CBOM you kept, so old findings do not block new work. `--changed-since origin/main` scans only the files a pull request changes. With `-q` the scan prints nothing on success; when a gate fires it still prints why (`failing: 2 asset(s) at high or worse introduced since the baseline`) on stderr and exits 2.
 
 **GitHub Actions:**
 
@@ -233,12 +233,17 @@ acxelin-readiness scan . --baseline cbom.json --fail-on high
 
 **Docker** (any CI): `docker run --rm -v "$PWD:/scan" acxelin-readiness`. On Linux, add `--user "$(id -u):$(id -g)"` so the scan can write `readiness-out` into your folder.
 
+### Test code
+
+A finding in test code is lowered one step in priority. It is never hidden: it stays in the report, the CBOM and `findings.json`. Folders named `test`, `tests`, `__tests__` or `spec` are test code, matched as whole folder names, so `testcode`, `latest` or `contests` are not. Name anything else in `test_paths` (or `--test-path`): a name glob such as `benches` or `*_test.go` matches any folder or file name, and a path such as `qa/load` matches that folder and everything in it.
+
 ### Settings
 
 Put settings in `.acxelin-readiness.toml` at the root of the scanned folder, so every scan of it uses the same ones. The keys are the long option names with underscores:
 
 ```
 exclude = ["generated", "*.min.js"]
+test_paths = ["benches", "*_test.go"]  # also test code: lowers priority, never hides
 shelf_life = 10                       # years the protected data must stay secret
 migration = 5                         # years your migration will take
 crqc_year = 2035                      # assumed year a quantum computer can break today's keys
@@ -446,9 +451,13 @@ the host GitHub redirects the download to, and never shown again. **Remove token
 A downloaded repository's own `.acxelin-readiness.toml` is ignored, so a stranger's repository cannot choose which hosts
 your computer probes. Pass `--config` to use settings you trust.
 
+### What it tracks
+
+The **What it tracks** tab lists the five kinds of asset Readiness records (algorithms, protocols, certificates, keys and key material, libraries), every algorithm it knows with its verdict, strength and replacement, and every place it looks. The website shows the same list.
+
 ### Full TLS handshakes
 
-Grades, accepted groups and SSH algorithms need nothing extra. To read the certificate of a server that offers only post-quantum key exchange, Acxelin Readiness completes a real TLS 1.3 handshake through OpenSSL 3.5 or newer. Point `ACXELIN_OPENSSL` at the folder that holds it; `doctor` says whether it is found. Without it, the report says those certificates were not observed. It never marks them as passing.
+Grades, accepted groups and SSH algorithms need nothing extra. To read the certificate of a server that offers only post-quantum key exchange, Acxelin Readiness completes a real TLS 1.3 handshake through OpenSSL 3.5 or newer, in `scan --tls` and in `grade`. Point `ACXELIN_OPENSSL` at the folder that holds it; `doctor` says whether it is found. Without it, the report says those certificates were not observed. It never marks them as passing.
 
 ## 8. How a finding becomes a result
 
@@ -475,7 +484,7 @@ The tier follows Mosca's inequality: an asset is urgent when the years its data 
 
 ### Standards
 
-`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87). A key size that was not observed is reported as unverified, never as compliant. `--policy india-dst` follows the roadmap of
+`--policy nist-ir-8547` flags quantum-vulnerable public-key cryptography with NIST's deprecation (2030) and disallowance (2035) dates, and anything below 112 bits now. `--policy cnsa-2.0` checks the CNSA 2.0 suite (AES-256, SHA-384/512, ML-KEM-1024, ML-DSA-87) with the dates in NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026): required in new acquisitions from 2027, equipment that cannot do it phased out by the end of 2030, mandatory by the end of 2031 (the default `cnsa_deadline`). LMS and XMSS count for signing firmware and software only; HSS and XMSS^MT do not count. For TLS, only pure ML-KEM-1024 counts: the FAQ names no TLS hybrid. A key size that was not observed is reported as unverified, never as compliant. `--policy india-dst` follows the roadmap of
 India's DST National Quantum Mission task force (2026): anything broken now is overdue, and quantum-vulnerable public-key
 cryptography is due by the end of 2029, the date for critical information infrastructure. Other enterprises have until 2033:
 set `india_deadline = 2033` under `[policy]`.
@@ -515,6 +524,8 @@ set `india_deadline = 2033` under `[policy]`.
 
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
 - The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
+- On code it was never tuned on, the held-out evaluation (`heldout/README.md`, run once, protocol written first) measured precision 0.890 [0.845, 0.923] and recall 0.846 [0.797, 0.884] on OWASP Benchmark for Java v1.2's weak-cryptography labels. Every miss was a test that reads the algorithm name from a properties file outside the scanned files. That is one synthetic Java benchmark, not a rate for your code.
+- A live endpoint given by IP address is asked for with no server name. A server that chooses its certificate by name (a load balancer, or an edge with several routes on one port) may refuse that, or show a different certificate; give the name it serves.
 - An algorithm listed in configuration is offered, not necessarily used. Live endpoints and packet captures show what is actually negotiated.
 - Pacing is per host name and port as written, in one scan. Several ports on one host each get their own allowance, so the host
   as a whole can see that many times the rate; two names for one address are not merged; two scans at once do not share a limit.

@@ -6,6 +6,7 @@ import socket
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -73,10 +74,11 @@ class EdgeReloadTest(unittest.TestCase):
             self.addCleanup(app.shutdown)
             self.apps[name] = f"127.0.0.1:{app.server_address[1]}"
 
-    def port(self):
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            return s.getsockname()[1]
+    def bound(self, edge):
+        """An edge started on port 0, with its route naming the port it got, as a configuration with that port would. Picking a free
+        port first and binding it later left a window in which another socket of the test run could take it (seen on CI)."""
+        edge.route = replace(edge.route, listen=f"127.0.0.1:{edge.port}")
+        return edge
 
     def route(self, name, port, app, **kw):
         from acxelin_tls.edge import Route
@@ -96,14 +98,15 @@ class EdgeReloadTest(unittest.TestCase):
 
     def test_changed_routes_apply_and_untouched_ones_keep_running(self):
         from acxelin_tls.edge import Edge, reconcile
-        a, b, c = self.port(), self.port(), self.port()
-        edges = [Edge(r).bind() for r in (self.route("web", a, "one"), self.route("api", b, "one"))]
+        edges = [self.bound(Edge(r).bind()) for r in (self.route("web", 0, "one"), self.route("api", 0, "one"))]
+        a, b = (e.port for e in edges)
         for e in edges:
             threading.Thread(target=e.serve_forever, daemon=True).start()
         self.addCleanup(lambda: [e.stop(0) for e in list(edges)])
         api = edges[1]
         self.assertEqual(self.get(a), "one")
-        reconcile(edges, [self.route("web", a, "two"), self.route("api", b, "one"), self.route("new", c, "two")])
+        reconcile(edges, [self.route("web", a, "two"), self.route("api", b, "one"), self.route("new", 0, "two")])
+        c = next(e.port for e in edges if e.route.name == "new")
         self.assertEqual(self.get(a), "two")
         self.assertEqual(self.get(c), "two")
         self.assertIs(next(e for e in edges if e.route.name == "api"), api)
@@ -145,9 +148,9 @@ class EdgeReloadTest(unittest.TestCase):
         who, rec = self.ca.issue("laptop", "client", out=self.d / "laptop")
         httpd = serve_http("127.0.0.1:0", {"/crl.pem": (PEM, lambda: (self.d / "pki" / "crl.pem").read_text())})
         self.addCleanup(httpd.shutdown)
-        port = self.port()
-        e = Edge(self.route("mtls", port, "one", require_client_cert=True, crl=str(self.d / "edge-crl.pem"),
+        e = Edge(self.route("mtls", 0, "one", require_client_cert=True, crl=str(self.d / "edge-crl.pem"),
                             crl_url=f"http://127.0.0.1:{httpd.server_address[1]}/crl.pem", crl_every=5)).start()
+        port = e.port
         self.addCleanup(e.stop, 0)
         self.assertEqual(self.get(port, who), "one")
         self.ca.revoke(rec.serial)

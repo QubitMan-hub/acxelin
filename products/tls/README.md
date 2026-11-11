@@ -11,9 +11,9 @@ Acxelin TLS has three parts:
 
 Python 3.11 to 3.14, and OpenSSL 3.5 or newer (Debian 13 and macOS with `brew install openssl@3` have it; on Windows, `choco install openssl`). It installs for your user only, without internet access, on Linux (x86-64, ARM), Windows (x64) and Apple-silicon Macs:
 
-1. Download `acxelin-tls-1.0.3-wheelhouse.tar.gz` and `SHA256SUMS` from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/tls-v1.0.3).
+1. Download `acxelin-tls-1.2.0-wheelhouse.tar.gz` and `SHA256SUMS` from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/tls-v1.2.0).
 2. Check the download: `sha256sum -c SHA256SUMS --ignore-missing` should print `OK` (on macOS and Windows, compare the fingerprint by hand; the manual shows how).
-3. Unpack it: `tar xzf acxelin-tls-1.0.3-wheelhouse.tar.gz`, then `cd acxelin-tls-1.0.3-wheelhouse`.
+3. Unpack it: `tar xzf acxelin-tls-1.2.0-wheelhouse.tar.gz`, then `cd acxelin-tls-1.2.0-wheelhouse`.
 4. Install: `sh install.sh`, which puts `acxelin-tls` on your PATH. On Windows, `Unblock-File .\install.ps1`, then `powershell -ExecutionPolicy RemoteSigned -File .\install.ps1`.
 
 The installer checks your Python, finds OpenSSL 3.5, runs `acxelin-tls doctor` and says what to do next. `sh install.sh --uninstall` (or `-Uninstall`) removes it.
@@ -44,8 +44,12 @@ A one-minute tour with nothing to set up: a CA, an ordinary web server, the edge
 | Check an edge or a CA folder | `acxelin-tls doctor --config edge.toml --ca pki` |
 | See what a running edge reports | `acxelin-tls status --url http://127.0.0.1:9100` |
 | Test a connection | `acxelin-tls connect host:8443 --ca pki/ca.crt` |
+| Staple an OCSP answer to an edge's certificate | `acxelin-tls ca ocsp --dir pki --cert web/chain.pem --out web/staple.der`, then `ocsp_staple` on the route |
+| Let people enrol with their company sign-in (OIDC) | `acxelin-tls ca oidc --dir pki --issuer ... --audience ...` |
 
 Enrollment services: `ca serve` (EST), `ca acme` (ACME), `ca publish` (the CA certificate and CRL over HTTP).
+
+The manual (`docs/manual.md`) covers every task, including how to watch the post-quantum handshake in Wireshark (section 11).
 
 ### Policies
 
@@ -53,7 +57,7 @@ Enrollment services: `ca serve` (EST), `ca acme` (ACME), `ca publish` (the CA ce
 |---|---|
 | `strict` (default) | post-quantum key exchange and ML-DSA certificates only |
 | `transition` | also classical clients while you migrate; use it with `fallback_cert` for browsers, which cannot verify ML-DSA yet |
-| `cnsa2` | NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only |
+| `cnsa2` | NSA CNSA 2.0: pure ML-KEM-1024, ML-DSA-87 and AES-256 only |
 
 ## The console
 

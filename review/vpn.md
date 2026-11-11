@@ -49,7 +49,7 @@ and CRLs.
 
 | Claim | Test | What it shows |
 |---|---|---|
-| Every exchange is hybrid ML-KEM except the strict profile, which uses ML-KEM-1024 alone | `test_vpn::test_every_exchange_is_post_quantum_and_hybrid_except_the_strict_profile`, `test_cnsa2::test_ike_and_esp_use_ml_kem_1024_alone_with_aes_256_and_sha_384` | Generated strongSwan configuration |
+| Every exchange is hybrid ML-KEM except the older `cnsa2` profile, which uses ML-KEM-1024 alone; `cnsa2-rfc9370` is NSA's P-384 then ML-KEM-1024 form | `test_vpn::test_every_exchange_is_post_quantum_and_hybrid_except_the_strict_profile`, `test_cnsa2::test_ike_and_esp_use_ml_kem_1024_alone_with_aes_256_and_sha_384`, `test_cnsa2_nsa_ikev2::test_ike_and_esp_do_p_384_then_ml_kem_1024_with_aes_256_and_sha_384` | Generated strongSwan configuration |
 | A PPK is required and pinned per peer | `test_vpn::test_conn_requires_a_ppk_and_pins_it_per_peer` | |
 | Both ends derive the same keys from one session; labels and contexts are pinned | `test_agreement::test_one_session_gives_both_sides_the_same_keys`, `test_agreement::test_labels_and_contexts_are_pinned` | Today's constants; no previous release is run against this one |
 | A wrong peer, a revoked peer or a refusal loads no keys | `test_vpn::test_the_wrong_peer_a_revoked_peer_and_a_refusal_load_no_keys`, `test_vpn::test_the_responder_refuses_what_it_should_not_accept` | |

@@ -165,13 +165,16 @@ def test_crypto_test_vectors_remain_visible_without_production_migration_candida
     root = tmp_path / directory
     root.mkdir(parents=True)
     fixture(root)
-    result = scan(tmp_path)
+    named = {"test_paths": [directory]}  # only conventional test folders count by themselves; the customer names the rest
+    result = scan(tmp_path, settings=named)
     assert result['assets']
     assert all(a['test_only'] for a in result['assets'])
     assert result['summary']['migration_candidates'] == 0
+    unnamed = scan(tmp_path)
+    assert unnamed['assets'] and not any(a['test_only'] for a in unnamed['assets']), "not named: an ordinary finding, never hidden"
     # The same algorithm used in production must remain a migration candidate.
     fixture(tmp_path)
-    mixed = scan(tmp_path)
+    mixed = scan(tmp_path, settings=named)
     assert mixed['summary']['migration_candidates'] > 0
     assert any(not a['test_only'] for a in mixed['assets'])
 

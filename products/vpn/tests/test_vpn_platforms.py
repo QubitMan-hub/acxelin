@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -85,7 +86,7 @@ class TunnelTest(unittest.TestCase):
         t.up("[Interface]\n")
         conf = str(self.dir / "wg0.conf")
         self.assertEqual(self.run.commands(), [["icacls", conf, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"],
-                                               ["wireguard", "/installtunnelservice", conf], ["wg", "show", "wg0"]])
+                                               ["wireguard", "/installtunnelservice", conf], ["wg", "show", "wg0", "peers"]])
         t.down()
         self.assertEqual(self.run.commands()[-1], ["wireguard", "/uninstalltunnelservice", "wg0"])
 
@@ -350,12 +351,31 @@ class ToolFailureTest(unittest.TestCase):
 
     def test_windows_gives_up_when_the_tunnel_service_never_starts(self):
         run = Recorder(fail=[("wg", "show")])
-        clock = iter([0, 5, 25])
-        with mock.patch.object(platforms.time, "monotonic", lambda: next(clock)), mock.patch.object(platforms.time, "sleep") as sleep:
+        clock, me, slept, real = iter([0, 5, 25]), threading.get_ident(), [], (time.monotonic, time.sleep)
+        mine = lambda: threading.get_ident() == me  # time is shared: other threads keep the real clock and sleep
+        tick = lambda: next(clock) if mine() else real[0]()
+        nap = lambda s: slept.append(s) if mine() else real[1](s)
+        with mock.patch.object(platforms.time, "monotonic", tick), mock.patch.object(platforms.time, "sleep", nap):
             with self.assertRaisesRegex(WGError, "wg show wg0"):
                 WindowsTunnel("wg0", self.dir, run).up("[Interface]\n")
-        sleep.assert_called_once_with(0.5)
+        self.assertEqual(slept, [0.5])
         self.assertEqual([c[0] for c in run.commands()], ["icacls", "wireguard", "wg", "wg"])
+
+    def test_windows_waits_until_the_service_has_loaded_the_peers(self):
+        """The tunnel service answers `wg show` before it has applied the configuration; a key set then would hit an empty tunnel."""
+        answers = iter(["", "", "PEER=\n"])
+
+        class Slow(Recorder):
+            def __call__(self, cmd, secret=None, env=None):
+                super().__call__(cmd, secret, env)
+                return next(answers) if Path(cmd[0]).stem == "wg" else ""
+
+        run, me, slept, real = Slow(), threading.get_ident(), [], time.sleep
+        nap = lambda s: slept.append(s) if threading.get_ident() == me else real(s)  # sleep is shared with other threads
+        with mock.patch.object(platforms.time, "sleep", nap):
+            WindowsTunnel("wg0", self.dir, run).up("[Interface]\nPrivateKey = x\n[Peer]\nPublicKey = PEER=\n")
+        self.assertEqual([c for c in run.commands() if c[0] == "wg"], [["wg", "show", "wg0", "peers"]] * 3)
+        self.assertEqual(slept, [0.5, 0.5])
 
     def test_windows_leaves_the_kill_switch_to_wireguard(self):
         run = Recorder()

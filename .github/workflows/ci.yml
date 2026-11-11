@@ -1,15 +1,24 @@
 name: repository
 on:
   push:
+    branches: [main]  # branches other than main run once, as a pull request
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:  # a newer push to the same pull request cancels its older runs; main and dispatched runs are never cancelled
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      ACXELIN_REQUIRE_OPENSSL: "3.5+"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # the upgrade and rollback tests extract the released code from git history
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"

@@ -13,7 +13,7 @@ from acxelin_core.cli import JSONFormatter, explain_options
 from acxelin_core.http import explain, serve_http
 from acxelin_core.pki import CA, CAError
 
-from . import NAME, __version__, ca_commands, checks, edge_commands, policies
+from . import NAME, __version__, ca_commands, checks, edge_commands, evidence_commands, policies
 
 HELP = {
     "key_passphrase_env": "the key's passphrase is in this environment variable",
@@ -161,6 +161,7 @@ def parser():
     p.add_argument("--json", action="store_true")
     p.add_argument("--timeout", type=float, default=5.0)
     edge_commands.add(sub)
+    evidence_commands.add(sub)
     ca_commands.add(sub, common)
     from . import console
     console.add(sub)

@@ -9,8 +9,9 @@ POLICIES = {
     "strict": Policy("strict", PQC_GROUPS, "mldsa87:mldsa65:mldsa44", CIPHERSUITES),
     # prefers post-quantum, still talks to classical peers
     "transition": Policy("transition", PQC_GROUPS + ":X25519:secp256r1:secp384r1", None, CIPHERSUITES),
-    # NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only
-    "cnsa2": Policy("cnsa2", "SecP384r1MLKEM1024:MLKEM1024", "mldsa87", "TLS_AES_256_GCM_SHA384", "ML-DSA-87"),
+    # NSA CNSA 2.0: ML-KEM-1024, ML-DSA-87 and AES-256 only. Pure ML-KEM-1024: the CNSA 2.0 FAQ (ver. 2.2, p. 28) counts a hybrid
+    # only where NSA named it, and it names no TLS hybrid
+    "cnsa2": Policy("cnsa2", "MLKEM1024", "mldsa87", "TLS_AES_256_GCM_SHA384", "ML-DSA-87"),
 }
 
 

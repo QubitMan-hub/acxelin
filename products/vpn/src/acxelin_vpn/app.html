@@ -52,6 +52,7 @@ main { --state: var(--muted); }
 main[data-state="protected"] { --state: var(--ok); }
 main[data-state="connecting"], main[data-state="agreed"] { --state: var(--exposed); }
 main[data-state="not_protected"] { --state: var(--bad); }
+main[data-state="degraded"] { --state: var(--exposed); }
 .hero { background: var(--pane); border: 1px solid var(--rule); border-radius: 8px; padding: 22px 20px 16px;
   display: grid; justify-items: center; text-align: center; gap: 4px; }
 .dial { position: relative; width: 132px; height: 132px; margin-bottom: 10px; }
@@ -65,7 +66,7 @@ main[data-state="connecting"] .dial svg.ring { animation: spin 1.4s linear infin
 .core svg { width: 44px; height: 44px; }
 .core .i { display: none; }
 main[data-state="protected"] .i-ok, main[data-state="connecting"] .i-wait, main[data-state="agreed"] .i-wait,
-main[data-state="not_protected"] .i-bad, main[data-state="disconnected"] .i-off, main[data-state="none"] .i-off { display: block; }
+main[data-state="not_protected"] .i-bad, main[data-state="degraded"] .i-bad, main[data-state="disconnected"] .i-off, main[data-state="none"] .i-off { display: block; }
 #word { margin: 0; font: 500 28px/1.15 var(--display); letter-spacing: -.02em; color: var(--ink); text-wrap: balance; }
 #line { margin: 2px 0 0; color: var(--muted); max-width: 36ch; text-wrap: pretty; }
 .kicker { margin: 6px 0 0; font: 400 13px/1.4 var(--mono); color: var(--body); }
@@ -231,7 +232,7 @@ history.replaceState(null, "", location.pathname);
 let token = "";
 try { token = store?.getItem("vpn-key") || ""; } catch {}
 
-const WORDS = {none: "Not set up", protected: "Protected", connecting: "Connecting…", agreed: "Keys agreed, not protected", not_protected: "Not protected", disconnected: "Disconnected"};
+const WORDS = {none: "Not set up", protected: "Protected", connecting: "Connecting…", agreed: "Keys agreed, not protected", degraded: "Degraded", not_protected: "Not protected", disconnected: "Disconnected"};
 const RING = 2 * Math.PI * 92;
 let busy = false, timer = null, last = null, clock = null;
 
@@ -300,6 +301,8 @@ function render(s) {
     none: s.error ? "That invitation could not be used. Open the file your administrator sent." : "Open the invitation file your administrator sent to get started.",
     protected: scope,
     connecting: "Keys are agreed with the gateway. Waiting for the tunnel's first handshake.",
+    degraded: "Key renewal is failing (" + (st.error || "the gateway cannot be reached") + "), but the tunnel still works, so it stays on the last key for at most " +
+      Math.max(0, Math.round((st.degraded_left_s || 0) / 60)) + " more minutes, then stops. Retrying automatically.",
     agreed: "Keys were agreed, but no tunnel is configured (started with --no-apply), so this computer is not protected.",
     not_protected: /revoked/.test(st.error || "") ? "Your access was revoked, so this computer is not protected. Disconnect, then open the new invitation your administrator sends."
       : /revocation list/.test(st.error || "") ? "The gateway cannot check revocations right now, so it lets no one in. Tell your administrator; this keeps trying meanwhile."

@@ -22,7 +22,7 @@ from .detectors.tls import scheme_port
 log = logging.getLogger(__name__)
 CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"  # every TLS 1.3 suite, so the probe never limits what the server can pick
 PQ = ["X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024", "MLKEM768", "MLKEM1024"]
-CNSA2_GROUPS = {"SecP384r1MLKEM1024", "MLKEM1024"}
+CNSA2_GROUPS = {"MLKEM1024"}  # the CNSA 2.0 FAQ (ver. 2.2, p. 28) names no TLS hybrid
 CLASSICAL = ["X25519", "secp256r1", "secp384r1", "secp521r1", "X448", "ffdhe2048", "ffdhe3072"]
 CANON = {g.lower(): g for g in PQ + CLASSICAL}
 

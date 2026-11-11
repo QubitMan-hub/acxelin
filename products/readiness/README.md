@@ -11,9 +11,9 @@ Acxelin Readiness reads source code, configuration, keys and certificates, binar
 
 Python 3.11 to 3.14, on Linux, Windows or macOS. It installs for your user only, without internet access, on Linux (x86-64, ARM), Windows (x64) and Apple-silicon Macs:
 
-1. Download `acxelin-readiness-1.1.1-wheelhouse.tar.gz` and `SHA256SUMS` from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v1.1.1).
+1. Download `acxelin-readiness-1.2.1-wheelhouse.tar.gz` and `SHA256SUMS` from the [release page](https://github.com/AcxelinQuantum/AQPQCSuite/releases/tag/readiness-v1.2.1).
 2. Check the download: `sha256sum -c SHA256SUMS --ignore-missing` should print `OK` (on macOS and Windows, compare the fingerprint by hand; the manual shows how).
-3. Unpack it: `tar xzf acxelin-readiness-1.1.1-wheelhouse.tar.gz`, then `cd acxelin-readiness-1.1.1-wheelhouse`.
+3. Unpack it: `tar xzf acxelin-readiness-1.2.1-wheelhouse.tar.gz`, then `cd acxelin-readiness-1.2.1-wheelhouse`.
 4. Install: `sh install.sh`, which puts `acxelin-readiness` on your PATH. On Windows, `Unblock-File .\install.ps1`, then `powershell -ExecutionPolicy RemoteSigned -File .\install.ps1`.
 
 The installer checks your Python, finds OpenSSL 3.5, runs `acxelin-readiness doctor` and says what to do next. `sh install.sh --uninstall` (or `-Uninstall`) removes it.
@@ -54,7 +54,8 @@ Grades, accepted groups and SSH algorithms need nothing extra. To read the certi
 
 - A missing finding is not proof that cryptography is absent. Code that builds algorithm names at run time, or loads them from outside the scanned files, can be missed.
 - Live probes are paced (2 new connections a second to a host and port, one at a time), so scanning many endpoints on one host is slow; `--aggressive` removes the pacing. Pacing is not an authorisation to scan hosts you do not own.
-- The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code.
+- The quality gate's precision and recall come from a labelled corpus that was tuned on, so they guard against regressions. They are not a claim about unseen code. For code it was never tuned on, see the held-out evaluation (`heldout/README.md`): on OWASP Benchmark for Java v1.2, precision 0.89 and recall 0.85 for its weak-cryptography labels, with the protocol, intervals and what it does not show.
+- A live endpoint given by IP address is asked for with no server name. A server that picks its certificate by name (a load balancer, or an Acxelin edge with `sni` routes) may then refuse or show another certificate; give the name it serves instead.
 
 More: `docs/manual.md`, `docs/upgrade.md` (coming from Wolf Pack) and `docs/threat-model.md`.
 

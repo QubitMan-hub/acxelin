@@ -338,6 +338,11 @@ class Readiness:
         added = [self.github({"url": u})[1]["project"] for u in new[:room]]
         return 200, {"added": len(added), "projects": added, "left_out": len(new) - len(added)}
 
+    def coverage(self, body):
+        """What Readiness tracks: kinds of asset, every algorithm with its verdict, and every place it looks."""
+        from .coverage import summary
+        return 200, summary()
+
     def overview(self, body):
         """Every project's latest result side by side, findings by business service across them, and the scheduled scans."""
         with self.lock:
@@ -373,10 +378,12 @@ class Readiness:
                         key=lambda s: (-s["risk"], -s["critical"], -s["high"], s["service"]))
         libs = sorted(({**x, "projects": sorted(x["projects"])} for x in libraries.values()), key=lambda x: (x["pq"], -len(x["projects"]), x["name"]))
         choice = self.store.deadline_choice()
+        default = ["us"], ["enterprise"]  # nothing chosen: NIST IR 8547, not NSA's national-security dates
         try:
-            due = [d for d in compliance.deadlines(choice.get("countries") or ["us"], choice.get("sectors") or []) if not d["passed"]]
+            chosen = (choice.get("countries"), choice.get("sectors")) if choice.get("countries") or choice.get("sectors") else default
+            due = [d for d in compliance.deadlines(chosen[0] or ["us"], chosen[1] or []) if not d["passed"]]
         except (ValueError, TypeError):  # a damaged saved choice: show the default, and the form can save a good one
-            choice, due = {"countries": [], "sectors": []}, [d for d in compliance.deadlines(["us"], []) if not d["passed"]]
+            choice, due = {"countries": [], "sectors": []}, [d for d in compliance.deadlines(*default) if not d["passed"]]
         return 200, {"projects": rows, "services": ranked, "libraries": libs, "scan_all": scan_all, "watch": watch_runs(self.home),
                      "board": summary(board, actions, ranked, libs) | {"next_deadline": due[0] if due else None, "deadlines": due},
                      "deadline_choice": choice, "countries": compliance.COUNTRIES, "sectors": compliance.SECTORS}
@@ -584,7 +591,7 @@ def build(home):
               ("POST", "/api/projects/select"): r.select, ("POST", "/api/projects/scan"): r.scan, ("POST", "/api/projects/cancel"): r.stop, ("POST", "/api/projects/track"): r.track,
               ("GET", "/api/endpoints/status"): r.endpoint_status, ("POST", "/api/endpoints/scan"): r.endpoint_scan,
               ("POST", "/api/endpoints/cbom"): r.endpoint_cbom, ("POST", "/api/projects/csv"): r.project_csv,
-              ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
+              ("POST", "/api/projects/scan-all"): r.scan_all, ("POST", "/api/projects/github-org"): r.github_org, ("GET", "/api/overview"): r.overview, ("GET", "/api/coverage"): r.coverage, ("POST", "/api/endpoints/csv"): r.endpoint_csv}
     return core.App(page(), routes, limits={("POST", "/api/projects/import"): 16_000_000, ("POST", "/api/projects/owners"): 2_000_000})  # a CBOM can be large; read only after sign-in
 
 

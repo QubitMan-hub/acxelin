@@ -23,14 +23,15 @@ def run(*argv):
 def commands():
     sub = next(a for a in cli.parser()._actions if a.dest == "cmd").choices
     for name, p in sub.items():
-        nested = next((a for a in p._actions if a.dest == "ca_cmd"), None)
+        nested = next((a for a in p._actions if a.dest in ("ca_cmd", "evidence_cmd")), None)
         yield from ([(name, n) for n in nested.choices] if nested else [(name,)])
 
 
 def test_every_command_has_help():
     found = list(commands())
     expected = {"doctor", "up", "status", "check", "setup", "invite", "join", "app", "desktop", "gateway", "connect", "install", "disconnect",
-                "uninstall", "console", "inventory"} | {f"ca {c}" for c in ("init", "issue", "revoke", "crl", "maintain", "list", "serve")}
+                "uninstall", "console", "inventory", "access"} | {f"ca {c}" for c in ("init", "issue", "revoke", "crl", "maintain", "list", "serve")} \
+        | {"evidence create", "evidence verify"}
     assert {" ".join(c) for c in found} == expected
     for c in found:
         code, text = run(*c, "--help")

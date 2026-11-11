@@ -15,7 +15,7 @@ def blocks(text):
     for block in re.findall(r"```\n(.*?)```", text, re.S):
         for line in block.replace("\\\n", " ").splitlines():
             parts = re.split(r"(?:^|\s)acxelin-vpn\s", line)
-            if len(parts) > 1 and not line.startswith(("wrote", "Send", "acxelin-vpn 1.0")):
+            if len(parts) > 1 and not line.startswith(("wrote", "Send")) and not re.match(r"acxelin-vpn \d", line):
                 yield parts[-1].split("  #")[0].strip()
 
 

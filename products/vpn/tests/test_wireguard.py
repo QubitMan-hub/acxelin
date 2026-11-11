@@ -15,6 +15,7 @@ from unittest import mock
 
 from acxelin_core import tls
 from acxelin_core.pki import CA
+from acxelin_vpn import wireguard as wg_module
 from acxelin_vpn.wireguard import Client, Gateway, GatewayConfig, private_key
 from support_vpn import REASON
 
@@ -178,6 +179,12 @@ class GatewayTest(unittest.TestCase):
         self.gw.shutdown()
         c.due = 0
         c.step()
+        # Owner's decision (client grace): the tunnel still handshakes, so the laptop stays on its last key, shown as degraded
+        self.assertEqual(seen[-1]["state"], "degraded")
+        self.assertIn("Degraded.", describe_vpn(seen[-1]))
+        tunnel.age = 200  # the tunnel itself has gone quiet: no grace, not protected, as before
+        c.due = 0
+        c.step()
         self.assertEqual(seen[-1]["state"], "not_protected")
         self.assertIn("Not protected.", describe_vpn(seen[-1]))
         c.close()
@@ -231,7 +238,8 @@ class GatewayTest(unittest.TestCase):
             c.due = 0
             c.step()
         s = c.status()
-        self.assertEqual((s["state"], s["renewal_failures"]), ("not_protected", 2))
+        # Owner's decision (client grace): the tunnel still handshakes, so this is degraded, with the same renewal details
+        self.assertEqual((s["state"], s["renewal_failures"]), ("degraded", 2))
         self.assertGreaterEqual(s["last_key_s"], 2 * rotate + 1)
         self.assertGreaterEqual(s["retry_in_s"], 0)
         text = describe_vpn(s)
@@ -435,6 +443,22 @@ class GatewayTest(unittest.TestCase):
         self.gw.expire(self.gw.revocation)
         self.assertNotIn("alice", self.gw.leases)
         self.assertEqual(self.client("bob").agree()[0]["address"], "10.99.0.2/24")
+
+    def test_the_gateway_reads_a_revoked_laptops_request_before_it_refuses(self):
+        """A close with the laptop's request still unread makes Windows reset the connection, which can discard the refusal in flight
+        (the laptop then sees 'message missing' instead of 'revoked')."""
+        from unittest import mock
+        alice = self.client("alice")
+        alice.agree()
+        self.ca.revoke(self.recs["alice"].serial, "keyCompromise")
+        time.sleep(0.05)
+        order = []
+        real_read, real_send = wg_module.read_line, wg_module.agreement.send
+        with mock.patch.object(wg_module, "read_line", lambda *a, **k: order.append(("read", threading.current_thread())) or real_read(*a, **k)), \
+                mock.patch.object(wg_module.agreement, "send", lambda c, m: order.append(("send", threading.current_thread())) or real_send(c, m)):
+            with self.assertRaisesRegex(tls.TLSError, "revoked"):
+                alice.agree()
+        self.assertEqual([op for op, who in order if who is not threading.current_thread()], ["read", "send"], "the gateway reads the laptop's request, then refuses")
 
     def test_a_broken_crl_still_removes_laptops_that_stopped_renewing(self):
         from unittest.mock import Mock

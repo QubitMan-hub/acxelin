@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.3
+## 1.2.0
 
 - Fixed: a full-tunnel laptop renews its keys with DNS blocked by its kill switch; before, it used fresh name lookups and lost
   the tunnel for good when its DNS server was unreachable.
@@ -11,6 +11,21 @@
 - Fixed: `doctor` no longer fails a gateway `setup` just made because its WireGuard key does not exist yet (it is created on
   first start); `setup` checks the pool, routes and DNS before writing anything; `rotate_minutes` is limited to 1440, the
   most a laptop accepts; a tunnel that stays silent after new keys is rebuilt instead of re-agreeing keys every 5 seconds.
+- `evidence create` and `evidence verify`: one signed zip with a site's or gateway's build, configuration, `doctor`'s findings, certificates (public parts), its CBOM and what it reports while running (`--status`). Keys, passphrases and a partner's pre-shared keys never go in.
+
+## 1.1.1
+
+- New profile `cnsa2-rfc9370`, the form NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026) gives for IKEv2: a P-384 exchange, then ML-KEM-1024 (RFC 9370), with AES-256-GCM and SHA-384. The older `cnsa2` (ML-KEM-1024 alone) is not NSA's IKEv2 form; it still loads and works unchanged in 1.x so running tunnels stay up, and the gateway warns at start. Move both gateways of a tunnel to `cnsa2-rfc9370` together: the two profiles do not negotiate with each other.
+
+## 1.1.0
+
+- On Windows the client waits until the tunnel service has loaded the gateway as its peer before it carries on. The service answers before it has applied its configuration, so a key set at once could find no peer (seen in CI as an empty `wg show`).
+- Classical fallback for a partner gateway that cannot do hybrid ML-KEM: `classical_fallback = true` on that one `[[peer]]` (off by default, no site-wide form) with a static `fallback_psk_file` and an optional `fallback_ppk_file`. It offers hybrid ML-KEM first, then classical with the RFC 8784 PPK, then plain classical. Anything below hybrid is labelled NOT QUANTUM SAFE in the log, `/status` (`quantum_safe`, `tier`), the metrics (`acxelin_vpn_tunnel_quantum_safe`, `acxelin_vpn_tunnel_tier`), the CBOM (`acxelin:quantum-safe`) and the console. Every other peer's strongSwan configuration is unchanged byte for byte.
+- **Behaviour change:** when a laptop's key renewal fails while its tunnel still works, it stays on its last key, shown as **Degraded** in the tray, the window and `status`, for at most `keep_minutes` (15 by default, 0 to 1440; set per person with `invite --keep-minutes` or per computer with `connect --keep-minutes`; 0 restores dropping at once). Before, it dropped a working tunnel within seconds. A revoked computer, or a gateway that cannot read its revocation list, is cut off at once; with a full tunnel, a timed-out agreement drops at once (the tunnel is dead). Client only: nothing on the wire changed; `keep_minutes` is an optional invitation field older apps ignore.
+- Found in a first-time customer test: the commands `setup` prints quote paths with spaces, so they work when copied (a folder such as `C:\Users\First Last` broke them); `access` shows who is limited when no action is given; messages, comments and the manual no longer assume a person's gender.
+- Per-user route sets: `[wireguard.access]` limits a person to some of the gateway's `routes`. The person is told only those networks, and a Linux gateway that manages its interface loads nftables rules that drop everything else from their tunnel address (forwarded traffic and traffic to the gateway itself) before they hear their address; if the rules cannot be loaded they are refused, and the gateway will not start without `nft`. `acxelin-vpn access show` and `access rules` show who is limited and print the rules for a firewall you run yourself. Changes apply while running; one whose rules cannot be loaded is not applied. People with no entry are unchanged. The refusal a laptop sees when the gateway says no now lists the usual reasons.
+
+- A revoked laptop is told it was revoked on Windows too: the gateway now reads the laptop's request before it refuses, because closing with it unread makes Windows reset the connection and drop the refusal (the laptop saw "key agreement message missing").
 - The tray's app window is opened through the owner-only launch page too, so no launch ticket is on any command line.
 - Security: the console and `acxelin-vpn app` open the browser through an owner-only page, so the launch ticket is not on
   the browser's command line, where other users of the machine could read it.
