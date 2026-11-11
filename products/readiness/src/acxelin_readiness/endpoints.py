@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import re
+import socket
 from concurrent.futures import ThreadPoolExecutor
 
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
@@ -273,6 +274,9 @@ def probe(target, server_name=None, timeout=8.0):
         out["negotiated"], cert = _hello(host, port, BROWSER_GROUPS, server_name or host, timeout)
         out["negotiated"] = canonical(out["negotiated"])
     except (TLSError, OSError) as e:
+        if isinstance(e, (ConnectionRefusedError, socket.gaierror)):  # nothing listens there, or no such name: no other probe can answer
+            out["error"], out["grade"] = explain(e), "F"
+            return out
         try:
             if isinstance(e, OpenSSLUnavailable):
                 version, cert = _newest(host, port, server_name or host, timeout)

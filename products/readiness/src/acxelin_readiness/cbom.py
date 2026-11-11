@@ -182,7 +182,7 @@ def sarif(assets, alerts, patterns=()):
     for a in assets:
         if a.tier not in LEVEL:
             continue
-        rid = f"WP-{a.algo.replace(' ', '')}"
+        rid = f"ACX-{a.algo.replace(' ', '')}"
         fixes = "".join(f"\n- {w}: {f}" for w, f in a.remedies)
         tags = ["security", "cryptography", "external/cwe/" + cwe(a).lower()]
         rule = rules.setdefault(rid, {"id": rid, "name": a.algo, "shortDescription": {"text": f"{a.algo} usage"},
@@ -203,8 +203,8 @@ def sarif(assets, alerts, patterns=()):
         if sev not in LEVEL:
             continue
         f, _, ln = where.rpartition(":")
-        rules.setdefault("WP-ALERT", {"id": "WP-ALERT", "name": "hygiene", "shortDescription": {"text": "Crypto hygiene alert"}})
-        results.append({"ruleId": "WP-ALERT", "level": LEVEL[sev], "message": {"text": f"{title}. {fix}".strip()},
+        rules.setdefault("ACX-ALERT", {"id": "ACX-ALERT", "name": "hygiene", "shortDescription": {"text": "Crypto hygiene alert"}})
+        results.append({"ruleId": "ACX-ALERT", "level": LEVEL[sev], "message": {"text": f"{title}. {fix}".strip()},
                         "locations": [{"physicalLocation": {"artifactLocation": {"uri": quote(f, safe="/")}, "region": {"startLine": max(1, int(ln or 1))}}}]})
     for p in patterns:
         rules.setdefault(p.rule, {"id": p.rule, "name": p.title, "shortDescription": {"text": p.title}, "help": {"text": p.fix, "markdown": p.fix},

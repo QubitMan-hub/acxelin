@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
+- Breaking for code scanning: SARIF rule IDs no longer carry Wolf Pack's initials. `WP-<algorithm>` is now `ACX-<algorithm>`,
+  `WP-ALERT` is `ACX-ALERT`, and the pattern rules `WPC001` to `WPC005` are `ACX-P001` to `ACX-P005`. GitHub treats them as new
+  rules: the open alerts close once and open again under the new IDs at the first upload, and their dismissals do not carry over.
+- Fixed: a constant declared inside a function no longer reaches a same-named value in another function; one at the left margin
+  still reaches the whole file. Rust unit tests in `#[cfg(test)] mod` blocks count as tests. `grade` stops after one
+  connection when a port is refused or a name does not resolve (it made seven).
 - Fixed, found on real projects:
   - SLH-DSA certificates are "ready (FIPS 205)" in `report --certs`, not quantum-vulnerable.
   - `PqDsa` (as in rcgen) is not read as DSA.

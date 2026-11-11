@@ -40,8 +40,8 @@ def test_a_secret_prefix_is_not_a_secret_but_a_real_looking_key_still_is(tmp_pat
     workspace_dir.mkdir()
     (workspace_dir / "base.py").write_text('SECRET_KEY_INSECURE_PREFIX = "django-insecure-"\nAPI_KEY = "f9a8b7c6d5e4f3a2b1c0d9e8"\n')
     from acxelin_readiness.detectors import patterns
-    lines = [p.line for p in patterns.scan(workspace_dir)[0] if p.rule == "WPC002"] if isinstance(patterns.scan(workspace_dir), tuple) else \
-        [p.line for p in patterns.scan(workspace_dir) if p.rule == "WPC002"]
+    lines = [p.line for p in patterns.scan(workspace_dir)[0] if p.rule == "ACX-P002"] if isinstance(patterns.scan(workspace_dir), tuple) else \
+        [p.line for p in patterns.scan(workspace_dir) if p.rule == "ACX-P002"]
     assert lines == [2]
 
 

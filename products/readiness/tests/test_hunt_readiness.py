@@ -109,3 +109,35 @@ class MergeTest(unittest.TestCase):
 def test_es256k_is_ecdsa_on_secp256k1():
     from acxelin_readiness.detectors.suites import sig_scheme
     assert sig_scheme("ES256K")[0] == ("ECDSA", {"hash": "SHA-256", "curve": "secp256k1"})
+
+
+def test_a_local_constant_does_not_reach_another_function():
+    r = scan({"a.js": "const crypto = require('crypto');\nfunction a(x) {\n  const algo = 'md5';\n  return crypto.createHash(algo).update(x).digest();\n}\n"
+                      "function b(x, algo) {\n  return crypto.createHash(algo).update(x).digest();\n}\n"})
+    lines = {s.line for s in r.detections if s.algo == "MD5"}
+    assert 4 in lines and 7 not in lines, lines
+    r = scan({"b.js": "const crypto = require('crypto');\nconst ALGO = 'md5';\nfunction b(x) {\n  return crypto.createHash(ALGO).update(x).digest();\n}\n"})
+    assert 4 in {s.line for s in r.detections if s.algo == "MD5"}, "a file-level constant still reaches every function"
+
+
+def test_rust_unit_tests_in_the_source_file_count_as_tests():
+    r = scan({"src/lib.rs": "use rsa::RsaPrivateKey;\npub fn make() { let k = RsaPrivateKey::new(&mut rng, 2048); }\n\n#[cfg(test)]\nmod tests {\n"
+                            "    use super::*;\n    #[test]\n    fn t() { let k = RsaPrivateKey::new(&mut rng, 4096); if x { y(); } }\n}\n"
+                            "pub fn after() { let k = RsaPrivateKey::new(&mut rng, 3072); }\n"})
+    ctx = {s.line: "test" in s.context for s in r.detections if s.algo == "RSA"}
+    assert ctx.get(8) is True and ctx.get(2) is False and ctx.get(10) is False, ctx
+
+
+def test_a_refused_port_is_graded_after_one_connection():
+    import socket
+    from unittest import mock
+    from acxelin_readiness import endpoints
+    calls = []
+
+    def refuse(*a, **k):
+        calls.append(1)
+        raise ConnectionRefusedError(111, "Connection refused")
+    with mock.patch.object(socket, "create_connection", side_effect=refuse):
+        r = endpoints.probe("127.0.0.1:1", timeout=1)
+    assert r["grade"] == "F" and "refused" in r["error"]
+    assert len(calls) == 1, len(calls)

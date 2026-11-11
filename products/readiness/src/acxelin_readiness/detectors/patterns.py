@@ -9,20 +9,20 @@ from .lexer import LANGS, split
 from .names import blank_strings
 
 RULES = {
-    "WPC001": ("Certificate verification switched off", "CWE-295", "high",
+    "ACX-P001": ("Certificate verification switched off", "CWE-295", "high",
                "Verify the peer: keep certificate and host-name checks on and trust a private CA explicitly instead"),
-    "WPC002": ("Secret written into source code", "CWE-798", "high",
+    "ACX-P002": ("Secret written into source code", "CWE-798", "high",
                "Load it from a secrets manager or the environment, and rotate the exposed value"),
-    "WPC003": ("Predictable random numbers used for key material", "CWE-338", "medium",
+    "ACX-P003": ("Predictable random numbers used for key material", "CWE-338", "medium",
                "Use a cryptographic generator: secrets / os.urandom, crypto.randomBytes, SecureRandom, crypto/rand"),
-    "WPC004": ("Token accepted without checking its signature", "CWE-347", "high",
+    "ACX-P004": ("Token accepted without checking its signature", "CWE-347", "high",
                "Verify the signature and pin the expected algorithms; never accept alg none"),
-    "WPC005": ("Fixed or all-zero IV or nonce", "CWE-329", "medium",
+    "ACX-P005": ("Fixed or all-zero IV or nonce", "CWE-329", "medium",
                "Generate a fresh random IV or nonce for every message"),
 }
 
 P = {
-    "WPC001": {
+    "ACX-P001": {
         "python": r"\bverify\s*=\s*False\b|\bssl\._create_unverified_context\s*\(|\.check_hostname\s*=\s*False\b|\b(?:verify_mode|cert_reqs)\s*=\s*(?:ssl\.)?CERT_NONE\b",
         "js": r"\brejectUnauthorized\s*:\s*false\b|\bstrictSSL\s*:\s*false\b|\bNODE_TLS_REJECT_UNAUTHORIZED\b[\]'\"]*\s*=\s*['\"]?0",
         "go": r"\bInsecureSkipVerify\s*:\s*true\b",
@@ -33,7 +33,7 @@ P = {
         "rust": r"\bdanger_accept_invalid_(?:certs|hostnames)\s*\(\s*true\s*\)",
         "hash": r"\bVERIFY_NONE\b|--insecure\b|\bverify_mode\s*[:=]>?\s*OpenSSL::SSL::VERIFY_NONE",
     },
-    "WPC003": {
+    "ACX-P003": {
         "python": r"\brandom\.(?:random|randint|randrange|choice|choices|getrandbits|sample|randbytes)\s*\(",
         "js": r"\bMath\.random\s*\(",
         "java": r"\bnew\s+Random\s*\(|\bThreadLocalRandom\.current\s*\(",
@@ -42,13 +42,13 @@ P = {
         "c": r"(?<![\w.])(?:rand|random|mt_rand)\s*\(\s*\)|\bmt_rand\s*\(",
         "hash": r"(?<![\w.])rand\s*\(",
     },
-    "WPC004": {
+    "ACX-P004": {
         "python": r"[\"']verify_signature[\"']\s*:\s*False\b|\bjwt\.decode\s*\([^)]*\bverify\s*=\s*False|\balgorithms\s*=\s*\[\s*[\"']none[\"']",
         "js": r"\balgorithms\s*:\s*\[\s*['\"]none['\"]",
         "java": r"\.parseUnsecuredClaims\s*\(|\.unsecured\s*\(\s*\)",
         "go": r"\bjwt\.UnsafeAllowNoneSignatureType\b",
     },
-    "WPC005": {
+    "ACX-P005": {
         "python": r"\b(?:iv|nonce)\s*=\s*(?:b[\"'][^\"']+[\"']|bytes\s*\(\s*\d+\s*\)|b[\"']\\x00[\"']\s*\*\s*\d+)",
         "js": r"\b(?:iv|nonce)\s*=\s*Buffer\.(?:alloc\s*\(\s*\d+\s*(?:,\s*0\s*)?\)|from\s*\(\s*['\"])",
         "java": r"\bnew\s+(?:IvParameterSpec|GCMParameterSpec)\s*\((?:\s*\d+\s*,)?\s*new\s+byte\s*\[\s*\d+\s*\]\s*\)",
@@ -116,16 +116,16 @@ def scan_text(path, text, lang, parts=None):
     for ln, b in enumerate(bare_lines, 1):
         if ln in docs:
             continue
-        for rule in ("WPC001", "WPC004", "WPC005"):
+        for rule in ("ACX-P001", "ACX-P004", "ACX-P005"):
             rx = RX[rule].get(lang)
             if rx and any(b[m.start()] == m.group(0)[0] for m in rx.finditer(code_lines[ln - 1])):
                 add(rule, ln)
-        rx = RX["WPC003"].get(lang)
+        rx = RX["ACX-P003"].get(lang)
         if rx and go_rand and (m := rx.search(b)) and KEYISH.search(b[:m.start()]):
-            add("WPC003", ln)
+            add("ACX-P003", ln)
         for m in SECRET.finditer(code_lines[ln - 1]):
             if b[m.start(1):m.end(1)] == m.group(1) and not NOT_SECRET_NAME.search(m.group(1)) and secret(m.group(3)):
-                add("WPC002", ln, m.group(3))
+                add("ACX-P002", ln, m.group(3))
                 break
     return out
 

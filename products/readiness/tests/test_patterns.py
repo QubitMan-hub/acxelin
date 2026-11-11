@@ -5,7 +5,7 @@ from acxelin_readiness import pipeline
 from acxelin_readiness.detectors.patterns import scan_text
 
 FIRES = {
-    "WPC001": [("python", "requests.get(url, verify=False)"), ("python", "ctx = ssl._create_unverified_context()"),
+    "ACX-P001": [("python", "requests.get(url, verify=False)"), ("python", "ctx = ssl._create_unverified_context()"),
                ("python", "ctx.check_hostname = False"), ("python", "ctx.verify_mode = ssl.CERT_NONE"),
                ("js", "https.request({ host, rejectUnauthorized: false })"), ("js", "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';"),
                ("go", "cfg := &tls.Config{InsecureSkipVerify: true}"), ("java", "conn.setHostnameVerifier((h, s) -> true);"),
@@ -13,14 +13,14 @@ FIRES = {
                ("csharp", "handler.ServerCertificateCustomValidationCallback = (m, c, ch, e) => true;"),
                ("c", "SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);"), ("c", "curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 0L);"),
                ("rust", "let c = Client::builder().danger_accept_invalid_certs(true);")],
-    "WPC002": [("python", 'SECRET_KEY = "f8Kd02mZq1LwPa9x"'), ("python", 'db.connect(password="Tr0ub4dor&3")'),
+    "ACX-P002": [("python", 'SECRET_KEY = "f8Kd02mZq1LwPa9x"'), ("python", 'db.connect(password="Tr0ub4dor&3")'),
                ("js", "const apiKey = 'AKIAIOSFODNN7EXAMPLF';"), ("java", 'private static final String CLIENT_SECRET = "9fhQ2kLz01mNbV";'),
                ("go", 'signingKey := "n4Hq8Zr2vW0pLx"')],
-    "WPC003": [("python", "session_token = random.getrandbits(128)"), ("js", "const resetToken = Math.random().toString(36);"),
+    "ACX-P003": [("python", "session_token = random.getrandbits(128)"), ("js", "const resetToken = Math.random().toString(36);"),
                ("java", "byte[] key = new byte[16]; new Random().nextBytes(key);")],
-    "WPC004": [("python", 'jwt.decode(t, options={"verify_signature": False})'), ("python", 'jwt.decode(t, k, algorithms=["none"])'),
+    "ACX-P004": [("python", 'jwt.decode(t, options={"verify_signature": False})'), ("python", 'jwt.decode(t, k, algorithms=["none"])'),
                ("js", "jwt.verify(t, k, { algorithms: ['none'] })"), ("go", "return jwt.UnsafeAllowNoneSignatureType, nil")],
-    "WPC005": [("python", 'iv = b"0123456789abcdef"'), ("js", "const iv = Buffer.alloc(16, 0);"),
+    "ACX-P005": [("python", 'iv = b"0123456789abcdef"'), ("js", "const iv = Buffer.alloc(16, 0);"),
                ("java", "Cipher.getInstance(t).init(1, k, new IvParameterSpec(new byte[16]));")],
 }
 TRAPS = [
@@ -67,9 +67,9 @@ def test_patterns_reach_sarif_with_cwe_tags(tmp_path):
     out.mkdir()
     report.write_results(out, "p", pipeline.run(tmp_path / "src", "p"))
     rules = {r["id"]: r for r in json.loads((out / "readiness.sarif").read_text())["runs"][0]["tool"]["driver"]["rules"]}
-    assert "external/cwe/cwe-295" in rules["WPC001"]["properties"]["tags"]
-    assert "external/cwe/cwe-328" in rules["WP-MD5"]["properties"]["tags"]
-    assert json.loads((out / "findings.json").read_text())["patterns"][0]["rule"] == "WPC001"
+    assert "external/cwe/cwe-295" in rules["ACX-P001"]["properties"]["tags"]
+    assert "external/cwe/cwe-328" in rules["ACX-MD5"]["properties"]["tags"]
+    assert json.loads((out / "findings.json").read_text())["patterns"][0]["rule"] == "ACX-P001"
 
 
 def test_secret_values_are_redacted_from_every_output():

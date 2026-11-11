@@ -68,6 +68,20 @@ def constants(code, fixed_only=False):
     return out
 
 
+def block_end(code, end):
+    """Where the block holding the declaration that ends at `end` closes: the first later line indented less than it. A declaration
+    at the left margin reaches the end of the file; one inside a function stays there."""
+    start = code.rfind("\n", 0, end) + 1
+    line = code[start:end]
+    indent = len(line) - len(line.lstrip(" \t"))
+    if not indent:
+        return len(code)
+    for m in re.finditer(r"\n([ \t]*)(\S)", code[end:]):
+        if len(m.group(1)) < indent:
+            return end + m.start() + 1
+    return len(code)
+
+
 CHAIN = re.compile(r"(?<![\w.$])[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*")
 ASSIGNED = re.compile(r"\s*:?=[^=]")
 
@@ -80,6 +94,7 @@ def propagate(code, shared=None):
     consts = {k: v for k, v in consts.items() if len(k) > 1}
     if not consts:
         return code
+    scope = {k: block_end(code, end) for k, (_, end) in consts.items() if end >= 0}
 
     def sub(m):
         parts = m.group(0).split(".")
@@ -88,7 +103,7 @@ def propagate(code, shared=None):
             if name in consts:
                 val, end = consts[name]
                 stop = m.start() + len(name)
-                if m.start() > end and not ASSIGNED.match(code, stop):
+                if end < m.start() < scope.get(name, len(code)) and not ASSIGNED.match(code, stop):
                     return val + m.group(0)[len(name):]
                 break
         return m.group(0)
@@ -252,6 +267,7 @@ def scan_file(root, p, sink, shared=((), {}), unparsed=None, on_python=None, on_
     path = rel(root, p)
     aliases = on_source(path, text, lang) if on_source else None
     base = {"test"} if is_test(path) else set()
+    first = len(sink)
     lines = text.splitlines()
     code, comments, strings, docs = split(text, lang)
     if on_code:
@@ -279,7 +295,29 @@ def scan_file(root, p, sink, shared=((), {}), unparsed=None, on_python=None, on_
     for m in re.finditer(r"[^\n]+", comments):
         for a, p in classify_literal(m.group(0))[0] if len(m.group(0).strip()) > 3 else []:
             _emit(sink, path, lang, line_of(comments, m.start()), lines, a, p, "string", "strings", base | {"comment"})
+    if lang == "rust" and "cfg(test)" in code:
+        tests = rust_test_lines(code)
+        for s in sink[first:]:
+            if s.line in tests:
+                s.context.add("test")
     return True
+
+
+RUST_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+
+
+def rust_test_lines(code):
+    """Lines inside `#[cfg(test)] mod … { }`: Rust keeps unit tests in the source file they test."""
+    out = set()
+    for m in RUST_TESTS.finditer(code):
+        depth, i = 0, m.end() - 1
+        while i < len(code):
+            depth += {"{": 1, "}": -1}.get(code[i], 0)
+            if depth == 0:
+                break
+            i += 1
+        out.update(range(line_of(code, m.start()), line_of(code, i) + 1))
+    return out
 
 
 def scan(root, scope=False, unparsed=None, on_python=None, on_source=None, parse_python=None, parse_index=None, on_code=None, notes=None):

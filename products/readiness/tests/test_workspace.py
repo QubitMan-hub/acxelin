@@ -36,7 +36,7 @@ def test_security_patterns_are_listed_without_source_or_secret_values(tmp_path):
     (tmp_path / 'client.py').write_text('import requests\nAPI_SECRET = "Zq8vN3kLp0RtX2"\nrequests.get("https://bank", verify=False)\n')
     out = tmp_path / 'out'
     result = scan(tmp_path, out)
-    assert {(p['rule'], p['line']) for p in result['patterns']} == {('WPC001', 3), ('WPC002', 2)}
+    assert {(p['rule'], p['line']) for p in result['patterns']} == {('ACX-P001', 3), ('ACX-P002', 2)}
     assert result['summary']['security_patterns'] == 2
     assert all('snippet' not in p for p in result['patterns'])
     for f in out.iterdir():
