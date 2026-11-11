@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- Fixed: on a machine without OpenSSL 3.5, `grade` and the endpoint scans name what the server did (a refused port, an unknown
+  name, a mail server without STARTTLS) instead of only "OpenSSL too old", and stop after one connection to a refused port.
+  1.3.0 was tagged one commit before this fix.
+
 ## 1.3.0
 
 - Breaking for code scanning: SARIF rule IDs no longer carry Wolf Pack's initials. `WP-<algorithm>` is now `ACX-<algorithm>`,
