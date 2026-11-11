@@ -167,6 +167,11 @@ can be written as its scheme, which gives its usual port: `mqtts://broker` (8883
 `imaps://` (993), `pop3s://` (995), `smtps://` (465), `ftps://` (990), `sips://` (5061). CoAP over DTLS (`coaps://`) cannot be
 checked live: record its traffic and read it with `scan --pcap`.
 
+Mail servers that start TLS inside SMTP are graded too: `smtp://mx.example.com` (port 25, where other mail servers deliver to
+yours) and `submission://mail.example.com` (587, where your people send from). Each connection says EHLO and STARTTLS first, then
+the TLS checks run as for any endpoint. A server that does not offer STARTTLS is graded F, with that reason: mail to it travels
+unencrypted unless the sender insists. Your MX hosts are the names `nslookup -type=mx example.com` lists.
+
 | Grade | Means |
 |---|---|
 | **A** | post-quantum key exchange only |

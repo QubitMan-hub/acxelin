@@ -78,7 +78,7 @@ def test_the_probe_offers_key_shares_like_a_browser_and_falls_back_where_openssl
         def wrap(self, *a):
             raise TLSError("stop here")
     monkeypatch.setattr(endpoints, "Context", Fake)
-    monkeypatch.setattr(endpoints.socket, "create_connection", lambda *a, **k: None)
+    monkeypatch.setattr(endpoints, "dial", lambda *a, **k: None)
     try:
         endpoints._hello("127.0.0.1", 9, endpoints.BROWSER_GROUPS, "x", 1)
     except TLSError as e:

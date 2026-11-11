@@ -7,6 +7,7 @@ import time
 
 from .. import pacing
 from ..catalog import pq_from_text
+from ..starttls import dial
 
 GROUPS = {
     0x11EC: "X25519MLKEM768", 0x11EB: "SecP256r1MLKEM768", 0x11ED: "SecP384r1MLKEM1024",
@@ -110,7 +111,7 @@ def server_hello(host, port, groups, timeout=5.0, version=None, name=None, suite
 
 def _server_hello(host, port, groups, timeout, version, name, suites, dh):
     try:
-        sock = socket.create_connection((host, port), timeout=timeout)
+        sock = dial(host, port, timeout)
     except OSError as e:
         return "error", str(e)
     try:

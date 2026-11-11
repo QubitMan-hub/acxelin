@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Mail servers are graded: `smtp://host` (port 25) and `submission://host` (587) say EHLO and STARTTLS before each TLS check, in
+  `grade`, `report --targets`, `scan --tls` and the console. A server that does not offer STARTTLS is graded F and says so.
+  Web-only scanners do not look at mail, which carries much of what an organisation must keep secret.
+
 ## 1.2.1
 
 - **Behaviour change:** CNSA 2.0 follows NSA's CNSA 2.0 FAQ (ver. 2.2, October 2026). The dated milestones are 2027 (new acquisitions), 2030 (equipment that cannot do it phased out) and 2031 (mandatory), replacing NSA's 2022 dates of 2030 and 2033; the default `cnsa_deadline` is 2031, not 2033. For TLS only pure ML-KEM-1024 counts as CNSA 2.0, not the SecP384r1MLKEM1024 hybrid. The evidence report counts LMS and XMSS as compliant for signing firmware and software only, and no longer counts XMSS^MT as XMSS (a name prefix match).

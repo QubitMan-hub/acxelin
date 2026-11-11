@@ -1,5 +1,4 @@
 import re
-import socket
 import ssl
 
 from cryptography import x509
@@ -11,6 +10,8 @@ from ..model import Detection
 from .artifacts import cert_record
 from .probe import legacy_versions, tls_groups, ssh_kexinit
 from .suites import suite, ssh_token
+from .. import starttls
+from ..starttls import dial
 
 def _ctx():
     """A client context for looking, not trusting: the probe records what the server offers."""
@@ -40,12 +41,13 @@ def _post_quantum_handshake(host, port, timeout):
 
 
 def _handshake(host, port, ctx, timeout):
-    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as s:
+    with pacing.slot(host, port), dial(host, port, timeout) as s:
         with ctx.wrap_socket(s, server_hostname=host) as t:
             return t.version(), t.cipher(), t.getpeercert(binary_form=True)
 
 
-SCHEMES = {"https": 443, "mqtts": 8883, "amqps": 5671, "ldaps": 636, "imaps": 993, "pop3s": 995, "smtps": 465, "ftps": 990, "sips": 5061}
+SCHEMES = {"https": 443, "mqtts": 8883, "amqps": 5671, "ldaps": 636, "imaps": 993, "pop3s": 995, "smtps": 465, "ftps": 990, "sips": 5061,
+           "smtp": 25, "submission": 587}  # the last two start TLS inside SMTP (STARTTLS)
 
 
 def scheme_port(target, default):
@@ -76,7 +78,10 @@ def group_algo(name):
 
 def probe(target, timeout=6.0):
     host, port = _split(target, 443)
-    loc = f"tls://{host}:{port}"
+    scheme = target.split("://", 1)[0].lower() if "://" in target else ""
+    if scheme in starttls.SCHEMES:
+        starttls.expect(host, port)
+    loc = f"{scheme if scheme in starttls.SCHEMES else 'tls'}://{host}:{port}"
     ep = {"target": loc, "kind": "tls"}
     sights, arts, notes = [], [], []
 

@@ -4,7 +4,6 @@ import html
 import json
 import logging
 import re
-import socket
 from concurrent.futures import ThreadPoolExecutor
 
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
@@ -18,6 +17,8 @@ from . import __version__, pacing
 from .brand import page as _page
 from .detectors.probe import legacy_versions, tls_groups, weak_suites
 from .detectors.tls import scheme_port
+from . import starttls
+from .starttls import dial
 
 log = logging.getLogger(__name__)
 CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"  # every TLS 1.3 suite, so the probe never limits what the server can pick
@@ -77,7 +78,7 @@ def _legacy(host, port, server_name, timeout):
     ctx = _unverified()
     ctx.maximum_version = ssl.TLSVersion.TLSv1_2
     ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
-    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name) as s:
+    with pacing.slot(host, port), dial(host, port, timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name) as s:
         der = s.getpeercert(binary_form=True)
         return s.version(), x509.load_der_x509_certificate(der) if der else None
 
@@ -85,7 +86,7 @@ def _legacy(host, port, server_name, timeout):
 def _newest(host, port, server_name, timeout):
     """(version, certificate) when this machine's Python offers the newest TLS it has."""
     from cryptography import x509
-    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, _unverified().wrap_socket(raw, server_hostname=server_name) as s:
+    with pacing.slot(host, port), dial(host, port, timeout) as raw, _unverified().wrap_socket(raw, server_hostname=server_name) as s:
         der = s.getpeercert(binary_form=True)
         return s.version(), x509.load_der_x509_certificate(der) if der else None
 
@@ -114,7 +115,7 @@ def _trusted(host, port, server_name, timeout):
     try:
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name):
+        with pacing.slot(host, port), dial(host, port, timeout) as raw, ctx.wrap_socket(raw, server_hostname=server_name):
             return True
     except ssl.SSLCertVerificationError:
         return False
@@ -173,7 +174,7 @@ def _hello(host, port, groups, server_name, timeout):
         groups = ":".join(PQ + CLASSICAL)
         ctx = Context(False, groups, None, CIPHERSUITES, verify=False)  # acxelin:ignore (as above)
     try:
-        with pacing.slot(host, port), ctx.wrap(socket.create_connection((host, port), timeout=timeout), server_name, timeout) as conn:
+        with pacing.slot(host, port), ctx.wrap(dial(host, port, timeout), server_name, timeout) as conn:
             return conn.group, conn.peer_certificate()
     finally:
         ctx.close()
@@ -187,7 +188,7 @@ SSH_META = ("ext-info-", "kex-strict-", "kex-guess")
 def ssh_kexinit(host, port, timeout):
     """The server's banner and algorithm lists, read from its KEXINIT (it sends one right after the banners)."""
     import struct
-    with pacing.slot(host, port), socket.create_connection((host, port), timeout=timeout) as s:
+    with pacing.slot(host, port), dial(host, port, timeout) as s:
         f = s.makefile("rb")
         banner = b""
         for _ in range(20):
@@ -255,11 +256,19 @@ def endpoint(target):
     return ("ssh" if ssh else "tls"), host, port or (22 if ssh else scheme_port(target, 443))
 
 
+def mail(target):
+    """The STARTTLS scheme of a mail target (smtp, submission), or None."""
+    scheme = target.split("://", 1)[0].lower() if "://" in target else ""
+    return scheme if scheme in starttls.SCHEMES else None
+
+
 def probe(target, server_name=None, timeout=8.0):
     kind, host, port = endpoint(target)
     if kind == "ssh":
         return probe_ssh(host, port, timeout)
-    out = _result(_join(host, port), "tls")
+    if mail(target):
+        starttls.expect(host, port)
+    out = _result(_label(target), "tls")
     try:
         out["negotiated"], cert = _hello(host, port, BROWSER_GROUPS, server_name or host, timeout)
         out["negotiated"] = canonical(out["negotiated"])
@@ -299,7 +308,7 @@ def probe(target, server_name=None, timeout=8.0):
 
 def _label(target):
     kind, host, port = endpoint(target)
-    return ("ssh://" if kind == "ssh" else "") + _join(host, port)
+    return ("ssh://" if kind == "ssh" else f"{mail(target)}://" if mail(target) else "") + _join(host, port)
 
 
 def scan(targets, profile=None, timeout=8.0, pacer=None):
@@ -445,7 +454,7 @@ def load_targets(items):
             except ValueError:
                 bad.append(f"{where}: {t!r}" if where else repr(t))
     if bad:
-        raise ValueError("not a host, host:port or ssh://host (ports run from 0 to 65535): " + ", ".join(bad[:10]) + (f" and {len(bad) - 10} more" if len(bad) > 10 else ""))
+        raise ValueError("not a host, host:port, ssh://host or smtp://host (ports run from 0 to 65535): " + ", ".join(bad[:10]) + (f" and {len(bad) - 10} more" if len(bad) > 10 else ""))
     return targets
 
 
