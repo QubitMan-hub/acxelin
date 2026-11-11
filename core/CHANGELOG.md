@@ -2,10 +2,9 @@
 
 ## 1.3.0
 
-- Fixed: `CA.renew` without `out` renews in place, in the certificate's own folder, as `maintain` and the consoles do; it
-  wrote a second folder before. A certificate signed from a request (CSR, EST, ACME) is not renewed here, since its key is
-  with whoever asked for it; nor is a CA certificate. `expiring` counts only the newest certificate per folder and leaves out
-  expired ones, so a renewed certificate is no longer reported as expiring.
+- Fixed: `CA.renew` refuses a certificate signed from a request (CSR, EST, ACME) unless given `out`, since its key is with
+  whoever asked for it, and refuses a CA certificate. `expiring(current=True)` counts only the newest certificate per folder
+  and leaves out expired ones; the VPN's `doctor` uses it, so a renewed certificate is no longer reported as expiring.
 - Fixed: a refused `localhost` connection reports the refusal on machines without IPv6; `explain` reads the socket error inside
   a urllib error; an OpenSSL folder whose libssl does not match its libcrypto is reported in words, not as a traceback.
 - `acxelin_core.evidence`: evidence bundles. A zip whose `manifest.json` lists every file with its SHA-256, optionally signed with an ML-DSA key (`manifest.sig`, `signer.pem`); `verify` reads it in memory without unpacking, and reports any changed, added or removed file, a bad signature, or a signer that does not chain to the given CA. A part holding a private key is refused. `installed()` checks an installed distribution's files against its wheel's RECORD.

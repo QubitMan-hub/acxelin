@@ -351,8 +351,8 @@ class CA:
         return data
 
     def renew(self, serial, days=None, algorithm=None, out=None, passphrase=None, hours=None):
-        """A new key and certificate with the same name, SANs and (unless `algorithm` is given) algorithm, written over the old
-        one's files (or to `out`); the old one stays valid until it expires or is revoked. Lives `days` or `hours` if given;
+        """A new key and certificate with the same name, SANs and (unless `algorithm` is given) algorithm, in `out` or a new
+        folder; the old one stays valid until it expires or is revoked. Lives `days` or `hours` if given;
         otherwise a short-lived certificate (up to 7 days, the CA/Browser Forum's line) lives as long as the one it replaces and
         any other for 397 days. A certificate signed from a request (a CSR, EST or ACME) has no key here, so it is renewed by
         whoever holds its key."""
@@ -367,7 +367,7 @@ class CA:
                               "(EST, ACME, or a new CSR), or give --out to make a new key here")
             if days is None and hours is None and self.lifetime(r) <= SHORT_LIVED:
                 hours = self.lifetime(r).total_seconds() / 3600  # a short-lived certificate stays short-lived; longer ones renew for 397 days, as they always did
-            return self.issue(r.common_name, r.kind, r.names, days, algorithm or r.algorithm, out or r.path, passphrase, replace=True, hours=hours)
+            return self.issue(r.common_name, r.kind, r.names, days, algorithm or r.algorithm, out, passphrase, replace=True, hours=hours)
 
     def lifetime(self, rec):
         """How long the certificate in the record's folder was issued for (397 days when its file cannot be read)."""
@@ -411,10 +411,14 @@ class CA:
         self.crl(crl_days)
         return renewed, skipped
 
-    def expiring(self, within_days=30):
-        """Valid certificates that run out within `within_days`: the newest in each folder (an older one there was renewed),
-        and not those already expired."""
-        t, cutoff, newest = now(), now() + dt.timedelta(days=within_days), {}
+    def expiring(self, within_days=30, current=False):
+        """Valid certificates that run out within `within_days`. With `current`, only the newest in each folder (an older one there
+        was renewed) and none already expired: what still needs renewing."""
+        t, cutoff = now(), now() + dt.timedelta(days=within_days)
+        recs = [r for r in self.records() if r.status == "valid" and dt.datetime.fromisoformat(r.not_after) <= cutoff]
+        if not current:
+            return recs
+        newest = {}
         for r in self.records():
             if r.status == "valid" and dt.datetime.fromisoformat(r.not_after) > t:
                 key = r.path or r.serial

@@ -456,7 +456,7 @@ class Client:
         self.status_file = status_file or (Path(tunnel.folder) / f"{interface}.status.json" if apply and hasattr(tunnel, "folder") else None)
         self.stop_file = Path(tunnel.folder) / f"{interface}.disconnect" if apply and hasattr(tunnel, "folder") else None
         self.renew_url = (self.dir / "enroll.url").read_text().strip() if (self.dir / "enroll.url").exists() else None
-        self.renewed_at, self.pins = 0.0, {}
+        self.renewed_at, self.pins, self.rebuild = 0.0, {}, False
 
     def agree(self):
         tag = agreement.new_tag()
@@ -501,12 +501,12 @@ class Client:
     def apply(self, reply, psk):
         if self.apply_:
             shape = {k: reply[k] for k in ("address", "routes", "dns", "endpoint", "gateway_public")}
-            if self.applied != shape or not self.tunnel.up_:
+            if self.applied != shape or not self.tunnel.up_ or self.rebuild:
                 host, port = hostport(reply["endpoint"])
                 pinned = self.pin(host) if "0.0.0.0/0" in reply["routes"] else None  # wg-quick cannot resolve names under the kill switch
                 endpoint = (f"[{pinned}]:{port}" if ":" in pinned else f"{pinned}:{port}") if pinned else reply["endpoint"]
                 self.tunnel.up(wg_quick(self.private, reply | {"routes": self.tunnel.routes(reply["routes"]), "endpoint": endpoint}, psk))
-                self.applied = shape
+                self.applied, self.rebuild = shape, False
             else:
                 self.tunnel.wg().set_psk(reply["gateway_public"], psk)
             if "0.0.0.0/0" in reply["routes"]:
@@ -550,8 +550,7 @@ class Client:
         self.renew()
         silent = time.time() < self.due and self.quiet()
         if time.time() >= self.due or silent:
-            if silent:  # new keys alone did not help last time: rebuild the tunnel with them
-                self.applied = None
+            self.rebuild = silent  # the tunnel stayed silent on its keys: rebuild it with the new ones, not only swap the key
             try:
                 reply = self.once()
                 log.info("connected as %s through %s; next key in %ds", reply["address"], reply["endpoint"], reply["rotate_s"])

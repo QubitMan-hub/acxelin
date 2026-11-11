@@ -1,5 +1,5 @@
-"""Bugs a correctness review reproduced in the CA and edge commands, each now fixed: a renewal written to a new folder, renewed
-certificates still reported as expiring, doctor reading paths from the wrong folder, `connect --send` taking escapes literally,
+"""Bugs a correctness review reproduced in the CA and edge commands, each now fixed: renewed certificates still reported as
+expiring, doctor reading paths from the wrong folder, `connect --send` taking escapes literally,
 an IPv6 error hiding a refusal, a CSR's certificate renewed with a key the CA made, and numbers that can only fail later."""
 import contextlib
 import io
@@ -37,19 +37,11 @@ class CATest(unittest.TestCase):
         self.d = Path(self.tmp.name)
         self.ca = CA.init(self.d / "pki", "Root")
 
-    def test_renew_without_out_replaces_the_certificate_in_its_folder(self):
-        out, rec = self.ca.issue("web.example", "server", out=self.d / "web")
-        before = (out / "cert.pem").read_bytes()
-        code, text = run("ca", "renew", rec.serial, "--dir", self.d / "pki")
-        self.assertEqual(code or 0, 0, text)
-        self.assertNotEqual((out / "cert.pem").read_bytes(), before)
-        self.assertFalse((self.d / "pki" / "issued").exists(), "no second folder")
-
     def test_a_renewed_or_expired_certificate_is_not_reported_as_expiring(self):
         self.ca.issue("web.example", "server", days=10, out=self.d / "web")
-        self.assertEqual([r.common_name for r in self.ca.expiring(30)], ["web.example"])
+        self.assertEqual([r.common_name for r in self.ca.expiring(30, current=True)], ["web.example"])
         self.ca.maintain(renew_within=30)
-        self.assertEqual(self.ca.expiring(30), [], "the renewed one lasts 397 days; the old one is superseded")
+        self.assertEqual(self.ca.expiring(30, current=True), [], "the renewed one lasts 397 days; the old one is superseded")
 
     def test_a_certificate_signed_from_a_csr_is_not_renewed_with_a_key_the_ca_makes(self):
         from acxelin_core.pki import generate

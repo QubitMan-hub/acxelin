@@ -68,7 +68,7 @@ def ca(root):
     if gone:
         out.append(("warn", f"{len(gone)} valid certificate(s) recorded without their files ({', '.join(r.common_name for r in gone[:5])}): "
                             "moved elsewhere, or a crash while issuing; revoke any whose files are gone for good"))
-    soon = c.expiring(30)
+    soon = c.expiring(30, current=True)
     out.append(("warn", f"{len(soon)} certificate(s) expire within 30 days: {', '.join(r.common_name for r in soon[:5])} "
                         "(ca maintain renews gateways and sites; laptops renew their own when the app or join runs)") if soon else ("ok", "no certificate expires within 30 days"))
     return out
