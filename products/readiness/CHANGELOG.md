@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fixed, found on real projects:
+  - SLH-DSA certificates are "ready (FIPS 205)" in `report --certs`, not quantum-vulnerable.
+  - `PqDsa` (as in rcgen) is not read as DSA.
+  - `jwt.sign` with an algorithm held in a variable is not called HMAC-SHA256; with no algorithm at all it still is.
+  - Snippets show the line as written, not with constants inlined into it.
+  - Two curves on one line (`['ES384', 'ES512']`) stay two findings.
+  - `merge` counts the share of quantum-safe algorithms per variant, as `scan` does, so the two agree.
+  - SARIF leaves out results whose place is not a file (captures, SSH, AWS, mail).
+  - NIST IR 8547's 2030 date is given only for 112-bit keys; RSA-4096 and P-384 say "disallowed after 2035".
+  - SHA-1 has no `parameterSetIdentifier` of 1 in the CBOM; `ES256K` is ECDSA on secp256k1.
 - Mail servers are graded: `smtp://host` (port 25) and `submission://host` (587) say EHLO and STARTTLS before each TLS check, in
   `grade`, `report --targets`, `scan --tls` and the console. A server that does not offer STARTTLS is graded F and says so.
   Web-only scanners do not look at mail, which carries much of what an organisation must keep secret.

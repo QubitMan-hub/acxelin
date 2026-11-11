@@ -9,7 +9,7 @@ TOKEN = (r"ml_?(?:kem|dsa)(?:\d+)?|slh_?dsa|sha3_?(?:224|256|384|512)|sha_?(?:1|
          r"|aes(?:128|192|256)?|ed25519(?:ph|ctx)?|ed448|eddsa|x25519|curve25519|x448|argon2(?:id|i|d)?|pbkdf2"
          r"|(?:rs|ps|es|hs)(?:256|384|512)|3des|des3|tripledes|desede|three_des|des|rc4|arcfour|rc2|blowfish|rijndael"
          r"|hmac|hkdf|bcrypt|scrypt|ecdsa|ecdhe?|rsa|dsa|dhe?(?!\d)|md2|aegis(?:128l|256)|concat_?kdf|(?:ansi_?)?x963_?kdf|spake2|balloon(?:_?hashing)?|[ht]otp")
-WORD = re.compile(rf"(?:(?<![A-Za-z0-9])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Za-z]{{1,6}}\d))(?i:{TOKEN})(?![a-z])")
+WORD = re.compile(rf"(?:(?<![A-Za-z0-9])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Za-z]{{1,6}}\d))(?<![Pp][Qq])(?i:{TOKEN})(?![a-z])")  # PqDsa is ML-DSA
 CALL = re.compile(r"(?<![\w.$])((?:new\s+)?[A-Za-z_$][\w$]*(?:\s*(?:\.|::|->)\s*[A-Za-z_$][\w$]*)*)\s*(?:<[\w\s,<>\[\]]*>)?\s*\(")
 DEFN = re.compile(r"\b(?:class|struct|record|trait|impl|object)\s+([A-Za-z_]\w*)|\btype\s+([A-Za-z_]\w*)\s+struct\b")
 NOT_USE = re.compile(r"(?i)(?:exception|error|errors|attribute|parameters|params|options|settings|config|info|name|names|size|length|type|types)$"

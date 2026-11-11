@@ -147,7 +147,8 @@ def js_imports(root, p, code):
     return out
 
 
-def run_rules(path, text, lang, sink, base_ctx, comment=False):
+def run_rules(path, text, lang, sink, base_ctx, comment=False, source_lines=None):
+    """`source_lines` are the file's lines as written: snippets show them, not the code with constants inlined that rules read."""
     ctx = Ctx(path, text, lang, sink, comment)
     for rx, fn in RULES.get(lang, []):
         for m in rx.finditer(text):
@@ -157,7 +158,7 @@ def run_rules(path, text, lang, sink, base_ctx, comment=False):
                 algo, params = r[0], r[1]
                 ev = r[2] if len(r) > 2 else "call"
                 c = set(base_ctx) | ({"comment"} if comment else set())
-                _emit(sink, path, lang, ctx.line, ctx.lines, algo, params, ev, "source", c)
+                _emit(sink, path, lang, ctx.line, source_lines or ctx.lines, algo, params, ev, "source", c)
 
 
 def classify_literal(v):
@@ -266,7 +267,7 @@ def scan_file(root, p, sink, shared=((), {}), unparsed=None, on_python=None, on_
         reach = {k: v for h in INCLUDE.findall(code) for k, v in headers.get(Path(h).name, {}).items()} if lang == "c" else dict(qualified)
         if lang == "js":
             reach.update(js_imports(Path(root).resolve(), p.resolve(), code))
-        run_rules(path, propagate(code, reach), lang, sink, base)
+        run_rules(path, propagate(code, reach), lang, sink, base, source_lines=lines)
         run_rules(path, comments, lang, sink, base, comment=True)
     if lang != "hash":
         for ln, a in named.scan(code, lang, path, aliases or ()):

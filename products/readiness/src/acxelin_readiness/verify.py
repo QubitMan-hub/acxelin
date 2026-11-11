@@ -18,9 +18,16 @@ def _kin(a):
 
 
 def dedupe(detections):
+    """One detection per place and algorithm, merging what each detector learnt. Different curves on one line (['ES384', 'ES512'])
+    stay apart; a detection that names no curve joins one that does."""
+    curves = {(s.file, s.line, s.algo) for s in detections if s.params.get("curve")}
     best = {}
-    for s in detections:
-        k = (s.file, s.line, s.algo, "comment" in s.context, s.params.get("role") if s.evidence == "artifact" else None)  # a certificate's key and signature stay apart
+    for s in sorted(detections, key=lambda s: (s.file, s.line, s.algo) in curves and not s.params.get("curve")):  # stable: curve-less ones last
+        place = (s.file, s.line, s.algo)
+        curve = s.params.get("curve") if place in curves else None
+        k = (*place, "comment" in s.context, s.params.get("role") if s.evidence == "artifact" else None, curve)  # a certificate's key and signature stay apart
+        if place in curves and curve is None:  # no curve of its own: merge into the first that has one
+            k = next((key for key in best if key[:5] == k[:5] and key[5] is not None), k)
         cur = best.setdefault(k, s)
         if cur is not s:
             win, lose = (s, cur) if RANK[s.evidence] > RANK[cur.evidence] else (cur, s)

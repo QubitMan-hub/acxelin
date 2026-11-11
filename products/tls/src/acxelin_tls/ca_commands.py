@@ -3,17 +3,25 @@ import argparse
 import getpass
 import json
 import os
+import socket
 import sys
 import threading
 from pathlib import Path
 
 from acxelin_core.cli import ask, positive, run_until_signal
 from acxelin_core.config import env_passphrase
-from acxelin_core.http import PEM, serve_http
+from acxelin_core.http import PEM, hostport, serve_http
 from acxelin_core.pki import ALGORITHMS, CA, CA_ALGORITHMS, REASONS, CAError, encrypted
 
 from .common import CA_PASS_ENV, ca_passphrase
 
+
+
+def reachable(host, port):
+    """host:port as another machine would reach it: this machine's name for a wildcard address, brackets for IPv6."""
+    if host in ("", "0.0.0.0", "::"):
+        host = socket.getfqdn()
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
 
 def cmd_ca(a):
     if a.ca_cmd == "init":
@@ -100,7 +108,7 @@ def cmd_ca(a):
         read = lambda f: lambda: f.read_text(encoding="ascii") if f.exists() else None
         httpd = serve_http(a.listen, {"/crl.pem": (PEM, read(crl)), "/ca.crt": (PEM, read(anchor))})
         host, port = httpd.server_address[:2]
-        print(f"publishing http://{host}:{port}/crl.pem (read fresh on every request) and /ca.crt; set crl_url to it on edges and gateways")
+        print(f"publishing http://{reachable(host, port)}/crl.pem (read fresh on every request) and /ca.crt; set crl_url to it on edges and gateways")
         stop = threading.Event()
         run_until_signal(stop.wait, lambda: (httpd.shutdown(), stop.set()))
     elif a.ca_cmd == "maintain":
@@ -136,7 +144,8 @@ def cmd_acme(a):
         return 0
     ca = CA(a.dir, ca_passphrase(a.dir))
     ca.signer  # a wrong passphrase fails now, not at the first order
-    base = a.base_url or f"{'https' if a.tls_cert else 'http'}://{a.listen}"
+    host, port = hostport(a.listen)
+    base = a.base_url or f"{'https' if a.tls_cert else 'http'}://{reachable(host, port)}"  # the directory hands these URLs to clients
     httpd = acme.serve(acme.Service(ca, base, a.allow, a.require_eab, a.http_port, days=a.days, allow_local=a.allow_local_validation, dns_command=a.dns_command), a.listen, a.tls_cert, a.tls_key)
     print(f"ACME directory: {base}/directory (issuing ML-DSA certificates from {ca.cert.subject.rfc4514_string()})")
     run_until_signal(httpd.serve_forever, lambda: threading.Thread(target=httpd.shutdown).start())

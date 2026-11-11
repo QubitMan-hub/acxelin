@@ -46,7 +46,7 @@ def algorithm_component(a):
         return {"type": "cryptographic-asset", "bom-ref": a.ref, "name": a.variant,
                 "cryptoProperties": {"assetType": "protocol", "protocolProperties": pp}, "evidence": ev, "properties": props}
     ap = {"primitive": c.primitive, "cryptoFunctions": FUNCS.get(c.primitive, ["unknown"]), "executionEnvironment": "unknown", "implementationPlatform": "unknown"}
-    psi = a.params.get("key_size") or "".join(re.findall(r"-(\d+)$", a.algo))
+    psi = a.params.get("key_size") or ("" if a.algo == "SHA-1" else "".join(re.findall(r"-(\d+)$", a.algo)))  # SHA-1's "1" is a name, not a parameter set
     if psi:
         ap["parameterSetIdentifier"] = str(psi)
     if a.params.get("curve"):
@@ -191,7 +191,7 @@ def sarif(assets, alerts, patterns=()):
         if float(SEVERITY[a.tier]) > float(rule["properties"]["security-severity"]):
             rule["properties"]["security-severity"] = SEVERITY[a.tier]
         for s in a.detections:
-            if s.file.startswith("tls://"):
+            if "://" in s.file:  # a live endpoint, capture, cloud account or mail server: not a file in the repository
                 continue
             quiet = next((t for c, t in QUIET.items() if c in s.context), None) if a.tier in ("critical", "high", "medium") else None
             quiet = quiet or ("declared as supported here (an algorithm list or table), not seen in use" if a.declared else None)

@@ -2,6 +2,10 @@
 
 ## 1.2.0
 
+- Fixed: an ACME order whose signing failed for a reason other than its request (a KMS or HSM out of reach) goes back to
+  "ready" with a "server internal" answer, so the client can finalize again; it stayed "processing" for good. `ca publish` and
+  `ca acme` started on every interface name this machine instead of `0.0.0.0`, also in the ACME directory's URLs (give
+  `--base-url` for another name).
 - Fixed: `doctor --config` reads relative paths from the configuration file's folder, as the edge does; `connect --send`
   understands `\r`, `\n` and `\t`, so the manual's example works; `ca acme --days`, `ca maintain --renew-within` and `ca list
   --expiring` refuse 0 and negative numbers; `ca serve` asks for the CA passphrase once; a bundle made with `--ca` names the

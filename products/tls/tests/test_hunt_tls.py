@@ -88,3 +88,29 @@ def test_a_refused_localhost_says_refused_even_without_ipv6():
 def test_an_http_error_is_explained_in_words():
     assert "connection refused" in explain(urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")))
     assert "urlopen" not in explain(urllib.error.URLError(socket.timeout("timed out")))
+
+
+def test_a_wildcard_listen_address_is_shown_as_this_machines_name():
+    from acxelin_tls.ca_commands import reachable
+    assert reachable("0.0.0.0", 8080) == f"{socket.getfqdn()}:8080"
+    assert reachable("::", 8080) == f"{socket.getfqdn()}:8080"
+    assert reachable("10.0.0.5", 8080) == "10.0.0.5:8080"
+    assert reachable("::1", 9443) == "[::1]:9443"
+
+
+@unittest.skipIf(REASON, REASON)
+class ACMEFinalizeTest(unittest.TestCase):
+    def test_a_signer_that_fails_unexpectedly_leaves_the_order_ready_to_retry(self):
+        from acxelin_tls.acme import Problem, Service
+        with tempfile.TemporaryDirectory() as d:
+            svc = Service(CA.init(Path(d) / "pki", "R"), "http://acme", validate_async=False)
+            svc.state["orders"]["o"] = {"account": "a", "status": "ready", "identifiers": [{"type": "dns", "value": "x.test"}],
+                                        "authorizations": [], "expires": "2999-01-01T00:00:00Z", "cert": None, "error": None}
+            from acxelin_core.pki import generate
+            from acxelin_core.pki.est import _csr
+            import base64
+            csr = base64.urlsafe_b64encode(base64.b64decode(_csr(generate("ML-DSA-65"), "x.test", ["x.test"]))).rstrip(b"=").decode()
+            with mock.patch.object(svc, "refresh"), mock.patch.object(svc.ca, "sign", side_effect=RuntimeError("HSM unplugged")), \
+                    self.assertRaises(Problem) as e:
+                svc.finalize("o", {"csr": csr}, "a")
+            self.assertEqual((e.exception.status, svc.state["orders"]["o"]["status"]), (500, "ready"))

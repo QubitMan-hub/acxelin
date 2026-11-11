@@ -153,8 +153,8 @@ def ref_of(ident):
 
 
 def readiness(assets):
-    asym = {a["algo"] for a in assets if a["algo"] and CATALOG[a["algo"]].primitive in ASYMMETRIC}
-    safe = {a for a in asym if CATALOG[a].threat == SAFE}
+    asym = [a["algo"] for a in assets if a["algo"] and CATALOG[a["algo"]].primitive in ASYMMETRIC]  # each variant, as a scan counts them
+    safe = [a for a in asym if CATALOG[a].threat == SAFE]
     tiers = {t: sum(1 for a in assets if a["tier"] == t) for t in TIERS}
     worst = next((t for t in TIERS if tiers[t]), None)
     return {"asymmetric": len(asym), "pq_safe": len(safe), "percent": round(100 * len(safe) / len(asym)) if asym else 0,

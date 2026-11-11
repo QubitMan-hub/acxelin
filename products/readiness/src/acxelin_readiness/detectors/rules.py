@@ -278,7 +278,9 @@ def _(m, x):
 @rule("js", r'\bjwt\.sign\(')
 def _(m, x):
     alg = re.search(r"algorithm\s*:\s*" + Q + r"(\w+)" + Q, x.window_text(4))
-    return sig_scheme(alg.group(1)) if alg else [("HMAC", {"hash": "SHA-256"})]
+    if alg:
+        return sig_scheme(alg.group(1))
+    return [] if re.search(r"\balgorithm\s*:", x.window_text(4)) else [("HMAC", {"hash": "SHA-256"})]  # a variable algorithm is unknown; none at all is HS256
 
 
 @rule("js", r'\bnew\s+NodeRSA\(')

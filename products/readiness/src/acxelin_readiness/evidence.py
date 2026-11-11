@@ -12,8 +12,9 @@ import re
 import sys
 from pathlib import Path
 
-from acxelin_core.pki import algorithm_of
+from acxelin_core.pki import algorithm_of, signers
 
+from .catalog import classical_bits
 from .endpoints import key_name
 from cryptography import x509
 
@@ -79,8 +80,9 @@ def certificates(folder):
             try:
                 key = c.public_key()
                 algo = algorithm_of(key) or key_name(key)
-            except Exception:  # noqa: BLE001 - a key type this library cannot load (GOST, SM2, a new OID) is still a certificate
-                algo = c.public_key_algorithm_oid.dotted_string
+            except Exception:  # noqa: BLE001 - a key type this library cannot load (SLH-DSA, GOST, SM2, a new OID) is still a certificate
+                oid = c.public_key_algorithm_oid.dotted_string
+                algo = next((a for a, o in signers.OIDS.items() if o == oid), oid)
             expired, when = c.not_valid_after_utc < now, c.not_valid_after_utc.date().isoformat()
             detail = f"certificate, {algo}, {'expired' if expired else 'expires'} {when}"
             evidence = {"serial": format(c.serial_number, "x"), "file": f.name}
@@ -90,11 +92,21 @@ def certificates(folder):
                 out.append(_row("pki", name, detail, "action", "disallowed now (NIST SP 800-131A, FIPS 186-5): replace it", "needs ML-DSA-87", evidence))
             elif algo.startswith("ML-DSA"):
                 out.append(_row("pki", name, detail, "ready", "approved (FIPS 204)", "compliant" if algo == "ML-DSA-87" else "needs ML-DSA-87", evidence))
+            elif algo.startswith("SLH-DSA"):
+                out.append(_row("pki", name, detail, "ready", "approved (FIPS 205)", "needs ML-DSA-87", evidence))
             else:
-                out.append(_row("pki", name, detail, "plan", "quantum-vulnerable public key: deprecated after 2030 (112-bit), disallowed after 2035", "needs ML-DSA-87", evidence))
+                out.append(_row("pki", name, detail, "plan", f"quantum-vulnerable public key: {ir8547(algo)}", "needs ML-DSA-87", evidence))
     if not out:
         raise ValueError(f"no certificates found in {folder}; give a folder of PEM files")
     return out
+
+
+def ir8547(key):
+    """What NIST IR 8547 says about a classical public key named as key_name names it: 112-bit keys go after 2030, all after 2035."""
+    m = re.fullmatch(r"(RSA|DSA)-(\d+)", key)
+    bits = classical_bits(m.group(1), {"key_size": int(m.group(2))}) if m else \
+        classical_bits("ECDSA", {"curve": {"secp256r1": "P-256", "secp384r1": "P-384", "secp521r1": "P-521"}.get(key[6:], key[6:])}) if key.startswith("ECDSA-") else None
+    return "deprecated after 2030 (112-bit), disallowed after 2035" if bits == 112 else "disallowed after 2035"
 
 
 def endpoints(results):
@@ -112,7 +124,7 @@ def endpoints(results):
         nist = ("classical key exchange: disallowed after 2035" if r["grade"] == "C" else
                 "classical fallback accepted: remove before 2035" if r["grade"] == "B" else "post-quantum key exchange")
         if classical_key and key:
-            nist += f"; {key} certificate: deprecated after 2030 (112-bit), disallowed after 2035"
+            nist += f"; {key} certificate: {ir8547(key)}"
         if r.get("legacy"):
             status, nist = "action", nist + f"; {' and '.join(r['legacy'])} accepted: disallowed now (NIST SP 800-52r2)"
         out.append(_row(kind, r["target"], f"negotiates {r.get('negotiated')}; accepts {', '.join(r['accepts'])}" + (f"; key {key}" if key else ""),

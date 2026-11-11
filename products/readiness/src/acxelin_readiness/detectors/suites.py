@@ -136,6 +136,8 @@ def sig_scheme(s):
         return [(algo, p), (h, {})]
     if s.upper() == "EDDSA":
         return [("Ed25519", {})]
+    if s == "ES256K":  # JOSE's ECDSA on secp256k1 (RFC 8812)
+        return [("ECDSA", {"hash": "SHA-256", "curve": "secp256k1"}), ("SHA-256", {})]
     a = lookup(s) or pq_from_text(s)
     return [(a, {})] if a else []
 

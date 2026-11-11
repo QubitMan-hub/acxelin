@@ -599,6 +599,10 @@ class Service:
         except CAError as e:
             o["status"] = "ready"
             raise Problem("badCSR", f"{e}; ask for an ML-DSA key (for example certbot --csr with a CSR from `acxelin-tls ca csr`)") from None
+        except Exception:  # noqa: BLE001  a signer that failed (a KMS or HSM away): the client may finalize again later
+            o["status"] = "ready"
+            log.exception("signing the certificate for order %s failed", oid)
+            raise Problem("serverInternal", "the CA could not sign right now; try finalizing again later", 500) from None
         cid = secrets.token_hex(8)
         self.state["certs"][cid] = {"account": account, "serial": rec.serial, "pem": (cert_pem(cert) + self.ca.chain()).decode()}
         o["status"], o["cert"] = "valid", cid
