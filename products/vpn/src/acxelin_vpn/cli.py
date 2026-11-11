@@ -305,6 +305,16 @@ def describe_vpn(s, details=False):
     return "\n".join(lines)
 
 
+def cmd_kme(a):
+    from . import kme
+    k = kme.KME(kme.load(a.config)).start()
+    c = k.cfg
+    print(f"key server {c.name}: ETSI GS QKD 014 for {', '.join(c.saes)} on {c.listen}; key agreement on {c.keyring_listen} with "
+          f"{', '.join(p.name for p in c.peers) or 'no other site yet'}")
+    run_until_signal(k.stop.wait, k.shutdown)
+    return 0
+
+
 def cmd_access(a):
     from . import access, wireguard as wg
     cfg = wg.load_gateway(a.config)
@@ -478,6 +488,10 @@ def parser():
             c.set_defaults(func=cmd_vpn)
     v.choices["inventory"].set_defaults(func=cmd_inventory)
     v.choices["access"].set_defaults(func=cmd_access)
+    p = v.add_parser("kme", help="key server for gateways that ask for keys over ETSI GS QKD 014 (Juniper, Fortinet, Palo Alto): "
+                                 "post-quantum keys agreed with the other sites' key servers")
+    p.add_argument("--config", required=True, help="TOML with a [kme] section (see config/kme.toml)")
+    p.set_defaults(func=cmd_kme)
     ca_commands.add(v, common)
     from . import console
     console.add(v)

@@ -1,0 +1,22 @@
+# acxelin-vpn kme --config /etc/acxelin-vpn/kme.toml
+# A key server for gateways that ask for keys over ETSI GS QKD 014 (Juniper SRX/MX, Fortinet FortiGate, Palo Alto and others).
+# Run one at each site; each gateway asks its own site's server. Relative paths are read from this file's folder.
+[kme]
+name = "kme-hq.acme.example"                 # this server's certificate name (cert below)
+listen = "0.0.0.0:8443"                      # ETSI GS QKD 014 for this site's gateways; keep it on the site's own network
+tls_cert = "/etc/acxelin-vpn/kme/https.pem"  # what the gateways see: a certificate they trust (usually classical RSA or ECDSA)
+tls_key = "/etc/acxelin-vpn/kme/https.key"
+sae_ca = "/etc/acxelin-vpn/kme/gateways-ca.pem"  # the CA of the gateways' client certificates; SAE ID = the certificate's common name
+saes = ["fw-hq"]                             # this site's gateways
+keyring_listen = "0.0.0.0:7445"              # post-quantum key agreement with the other sites' key servers
+cert = "/etc/acxelin-vpn/kme/chain.pem"      # ML-DSA certificate and key from your CA (acxelin-vpn ca issue site kme-hq.acme.example)
+key = "/etc/acxelin-vpn/kme/key.pem"
+ca = "/etc/acxelin-vpn/ca.crt"
+crl = "/etc/acxelin-vpn/crl.pem"
+rotate_minutes = 10                          # a new shared secret this often; the last four are kept
+key_size = 256                               # bits, when a gateway does not ask for another size (128 to 1024)
+
+[[kme.peer]]
+name = "kme-branch1.acme.example"            # the other site's key server
+saes = ["fw-branch1"]                        # the gateways behind it
+keyring = "198.51.100.7:7445"                # dial it; leave out on the side that is dialled

@@ -2,6 +2,11 @@
 
 ## 1.2.0
 
+- `acxelin-vpn kme`: a key server for gateways that ask for keys over ETSI GS QKD 014 (Juniper SRX and MX, Fortinet FortiGate,
+  Palo Alto and others). The key servers of two sites agree a new shared secret over post-quantum mutual TLS every
+  `rotate_minutes`; a gateway gets keys by `enc_keys`, the gateway at the other site gets the same keys by ID with `dec_keys`,
+  each once. Keys of 128 to 1024 bits, up to 16 per request. Tested with this product's own ETSI 014 client, not yet with a
+  vendor's gateway. See the manual, "Keys for the gateways you already have".
 - Fixed: a full-tunnel laptop renews its keys with DNS blocked by its kill switch; before, it used fresh name lookups and lost
   the tunnel for good when its DNS server was unreachable.
 - Fixed: when the address pool is full, the address of someone not connected (revoked or gone) is reused, so people who left

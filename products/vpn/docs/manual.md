@@ -463,6 +463,32 @@ alone cannot set a tunnel's keys. If the key server cannot be reached, or a peer
 the agreement fails and the tunnel keeps its previous keys until it can renew. This has been tested against a simulated key
 server, not against real QKD hardware; key servers that offer only TLS 1.2 are not supported yet.
 
+### Keys for the gateways you already have (ETSI GS QKD 014)
+
+Many firewalls already ask a key server for keys over ETSI GS QKD 014: Juniper SRX and MX, Fortinet FortiGate and Palo Alto,
+among others (check your model and release in the vendor's documentation). `acxelin-vpn kme` is such a key server. Run one at
+each site, beside its gateways, and point each gateway at its own site's server; the tunnels stay the gateways' own.
+
+```
+acxelin-vpn ca issue site kme-hq.acme.example --dir pki --out kme
+acxelin-vpn kme --config /etc/acxelin-vpn/kme.toml
+```
+
+`config/kme.toml` explains every setting. `saes` lists this site's gateways by SAE ID, which is the common name of the client
+certificate each gateway presents; `sae_ca` is the CA that signed those certificates, and `tls_cert` is the certificate the
+gateways see, usually from the same classical PKI. Each `[[kme.peer]]` is another site's key server and the gateways behind it;
+one side of each pair gives `keyring` and dials.
+
+Every `rotate_minutes` the two servers agree a new shared secret over post-quantum mutual TLS (hybrid ML-KEM, ML-DSA
+certificates from your CA, checked against the CRL), and keep the last four. A gateway asks its server for keys for a gateway at
+the other site and sends only the key IDs in its IKE exchange; the other gateway asks its own server for the same IDs. Each key
+is derived with HKDF-SHA384 from the secret its ID names and both gateways' SAE IDs, and each ID is handed out once at each site.
+
+This is post-quantum key delivery through the QKD interface, not quantum key distribution. The link between a gateway and its
+own key server uses whatever TLS the gateway speaks (TLS 1.2 or 1.3, usually with classical certificates): keep it on the site's
+own network, as you would a QKD key server. It has been tested with this product's own ETSI GS QKD 014 client, not yet with a
+Juniper, Fortinet or Palo Alto gateway.
+
 ## 10. When something goes wrong
 
 | You see | What it means | What to do |
