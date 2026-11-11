@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import socket
+import ssl
 from concurrent.futures import ThreadPoolExecutor
 
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
@@ -283,7 +284,12 @@ def probe(target, server_name=None, timeout=8.0):
                 if version == "TLSv1.3":
                     return _raw(out, e, host, port, cert, server_name, timeout)
             version, cert = _legacy(host, port, server_name or host, timeout)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as again:
+            if isinstance(again, (ConnectionRefusedError, socket.gaierror)):  # the first try never connected (no OpenSSL 3.5 here)
+                out["error"], out["grade"] = explain(again), "F"
+                return out
+            if isinstance(e, OpenSSLUnavailable) and isinstance(again, OSError) and not isinstance(again, ssl.SSLError):
+                e = again  # what the server did (no STARTTLS, a reset) says more than this machine's missing OpenSSL
             return _only_old(out, e, host, port, server_name or host, timeout)
         out["negotiated"], out["grade"] = version, "C"  # no TLS 1.3, so no post-quantum group; which groups it takes was not read
         out["certificate"] = _cert_info(cert)
